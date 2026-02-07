@@ -1,6 +1,5 @@
 # Local Dev
 .local/
-.github/copilot-instructions.md
 
 # Dependencies
 node_modules/
