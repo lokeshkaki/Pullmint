@@ -16,6 +16,11 @@ export function verifyGitHubSignature(
   hmac.update(payload);
   const calculatedSignature = 'sha256=' + hmac.digest('hex');
 
+  // Ensure buffers are same length for timingSafeEqual
+  if (signature.length !== calculatedSignature.length) {
+    return false;
+  }
+
   return crypto.timingSafeEqual(
     Buffer.from(signature),
     Buffer.from(calculatedSignature)
