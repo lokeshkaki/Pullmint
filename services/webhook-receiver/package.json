@@ -1,0 +1,22 @@
+{
+  "name": "@pullmint/webhook-receiver",
+  "version": "0.1.0",
+  "description": "GitHub webhook receiver for Pullmint",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.490.0",
+    "@aws-sdk/client-eventbridge": "^3.490.0",
+    "@aws-sdk/client-secrets-manager": "^3.490.0",
+    "@aws-sdk/lib-dynamodb": "^3.490.0",
+    "@aws-lambda-powertools/logger": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.133",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

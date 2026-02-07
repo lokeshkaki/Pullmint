@@ -48,6 +48,12 @@ cdk.context.json
 ._*
 .Spotlight-V100
 .Trashes
+Thumbs.db
+
+# Secrets
+*.pem
+*.key
+secrets.json
 ehthumbs.db
 Thumbs.db
 
