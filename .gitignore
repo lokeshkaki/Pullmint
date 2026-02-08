@@ -5,7 +5,6 @@
 node_modules/
 .pnp
 .pnp.js
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -34,6 +33,9 @@ cdk.out/
 .cdk.staging/
 cdk.context.json
 
+# act (local GitHub Actions runner)
+.actrc
+
 # IDE
 .vscode/
 .idea/
@@ -48,6 +50,12 @@ cdk.context.json
 ._*
 .Spotlight-V100
 .Trashes
+Thumbs.db
+
+# Secrets
+*.pem
+*.key
+secrets.json
 ehthumbs.db
 Thumbs.db
 
@@ -69,3 +77,10 @@ temp/
 # Build artifacts
 *.tsbuildinfo
 .eslintcache
+
+# Generated JS files in source directories
+services/**/*.js
+!services/**/jest.config.js
+infrastructure/**/*.js
+!infrastructure/bin/*.js
+!infrastructure/lib/*.js
