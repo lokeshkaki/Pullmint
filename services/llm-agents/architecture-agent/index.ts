@@ -6,15 +6,30 @@ import { getItem, updateItem, putItem } from '../../shared/dynamodb';
 import { hashContent } from '../../shared/utils';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 
-// Dynamic import for OpenAI to avoid deployment issues
+// Dynamic import for Anthropic to avoid deployment issues
 // Using any for the constructor to avoid type-checking issues with dynamic imports
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let OpenAI: any;
+let Anthropic: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let openaiClient: any;
+let anthropicClient: any;
 let octokitClient: Octokit | undefined;
 
-const OPENAI_API_KEY_ARN = process.env.OPENAI_API_KEY_ARN!;
+type AnthropicUsage = {
+  input_tokens?: number;
+  output_tokens?: number;
+};
+
+type AnthropicContentBlock = {
+  type?: string;
+  text?: string;
+};
+
+type AnthropicMessageResponse = {
+  content: AnthropicContentBlock[];
+  usage?: AnthropicUsage;
+};
+
+const ANTHROPIC_API_KEY_ARN = process.env.ANTHROPIC_API_KEY_ARN!;
 const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN!;
 const CACHE_TABLE_NAME = process.env.CACHE_TABLE_NAME!;
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
@@ -33,14 +48,14 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       console.log(`Processing PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
 
       // 1. Initialize clients
-      if (!openaiClient) {
-        if (!OpenAI) {
+      if (!anthropicClient) {
+        if (!Anthropic) {
           // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-          OpenAI = require('openai').default;
+          Anthropic = require('@anthropic-ai/sdk').default;
         }
-        const openaiApiKey = await getSecret(OPENAI_API_KEY_ARN);
+        const anthropicApiKey = await getSecret(ANTHROPIC_API_KEY_ARN);
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
-        openaiClient = new OpenAI({ apiKey: openaiApiKey });
+        anthropicClient = new Anthropic({ apiKey: anthropicApiKey });
       }
 
       if (!octokitClient) {
@@ -88,26 +103,24 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         const analysisPrompt = buildAnalysisPrompt(prEvent.title, diff);
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-        const completion = await openaiClient.chat.completions.create({
-          model: 'gpt-3.5-turbo',
+        const completion = (await anthropicClient.messages.create({
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 2000,
           messages: [
             {
-              role: 'system',
-              content: 'You are an expert software architect reviewing code changes.',
-            },
-            {
               role: 'user',
-              content: analysisPrompt,
+              content: `You are an expert software architect reviewing code changes.\n\n${analysisPrompt}`,
             },
           ],
           temperature: 0.3,
-          max_tokens: 2000,
-        });
+        })) as AnthropicMessageResponse;
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-        tokensUsed = completion.usage?.total_tokens || 0;
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-        const analysisText = completion.choices[0]?.message?.content || '';
+        tokensUsed = (completion.usage?.input_tokens || 0) + (completion.usage?.output_tokens || 0);
+        const analysisText = completion.content
+          .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+          .map((block) => block.text ?? '')
+          .join('');
 
         // 6. Parse findings
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
