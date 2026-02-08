@@ -36,12 +36,14 @@ jobs:
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
+          GITHUB_APP_ID: ${{ secrets.PULLMINT_GITHUB_APP_ID }}
       
       - name: CDK Deploy
         run: cd infrastructure && npm run deploy -- --require-approval never
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
+          GITHUB_APP_ID: ${{ secrets.PULLMINT_GITHUB_APP_ID }}
       
       - name: Post deployment status
         if: success()
