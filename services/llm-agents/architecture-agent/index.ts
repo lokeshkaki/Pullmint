@@ -1,9 +1,9 @@
 import { SQSHandler, SQSEvent } from 'aws-lambda';
-import { Octokit } from '@octokit/rest';
 import { getSecret } from '../../shared/secrets';
 import { publishEvent } from '../../shared/eventbridge';
 import { getItem, updateItem, putItem } from '../../shared/dynamodb';
 import { hashContent } from '../../shared/utils';
+import { getGitHubInstallationClient } from '../../shared/github-app';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 
 // Dynamic import for Anthropic to avoid deployment issues
@@ -12,7 +12,7 @@ import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 let Anthropic: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let anthropicClient: any;
-let octokitClient: Octokit | undefined;
+let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
 
 type AnthropicUsage = {
   input_tokens?: number;
@@ -59,8 +59,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       }
 
       if (!octokitClient) {
-        const githubToken = await getSecret(GITHUB_APP_PRIVATE_KEY_ARN);
-        octokitClient = new Octokit({ auth: githubToken });
+        octokitClient = await getGitHubInstallationClient(prEvent.repoFullName);
       }
 
       // 2. Update execution status
