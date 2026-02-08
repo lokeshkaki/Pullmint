@@ -183,8 +183,16 @@ Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading fro
 - [x] Architecture agent implementation
 - [x] GitHub integration
 - [x] AWS CDK infrastructure
-- [ ] End-to-end testing
-- [ ] Documentation
+- [x] End-to-end testing
+- [x] Documentation
+
+**Phase 2: Multi-Agent Intelligence** (PLANNED)
+
+- [ ] Step Functions orchestration
+- [ ] Security agent (LLM + SAST)
+- [ ] Performance agent
+- [ ] Result aggregation and risk scoring
+- [ ] Cache layer for analysis results
 
 ## Development
 
