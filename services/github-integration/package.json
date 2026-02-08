@@ -1,0 +1,21 @@
+{
+  "name": "@pullmint/github-integration",
+  "version": "0.1.0",
+  "description": "GitHub API integration for posting PR comments",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.490.0",
+    "@aws-sdk/client-secrets-manager": "^3.490.0",
+    "@aws-sdk/lib-dynamodb": "^3.490.0",
+    "@octokit/rest": "^20.0.2"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.133",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
