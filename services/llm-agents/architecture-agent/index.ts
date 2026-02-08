@@ -37,7 +37,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       // 1. Initialize clients
       if (!openaiClient) {
         if (!OpenAI) {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+          // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           OpenAI = require('openai').default as typeof OpenAIType;
         }
         const openaiApiKey = await getSecret(OPENAI_API_KEY_ARN);
