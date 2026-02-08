@@ -43,7 +43,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // DynamoDB Tables
     // ===========================
-    
+
     // Webhook deduplication table
     const dedupTable = new dynamodb.Table(this, 'WebhookDeduplication', {
       tableName: 'pullmint-webhook-dedup',
@@ -88,7 +88,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // SQS Queues
     // ===========================
-    
+
     // Dead Letter Queue for webhook processing
     const webhookDLQ = new sqs.Queue(this, 'WebhookDLQ', {
       queueName: 'pullmint-webhook-dlq',
@@ -108,7 +108,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // Lambda Functions
     // ===========================
-    
+
     // Webhook receiver
     const webhookHandler = new NodejsFunction(this, 'WebhookReceiver', {
       functionName: 'pullmint-webhook-receiver',
@@ -174,7 +174,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // Permissions
     // ===========================
-    
+
     // Webhook handler permissions
     this.eventBus.grantPutEventsTo(webhookHandler);
     githubWebhookSecret.grantRead(webhookHandler);
@@ -195,7 +195,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // EventBridge Rules
     // ===========================
-    
+
     // Route PR events to LLM queue
     new events.Rule(this, 'RoutePRToLLM', {
       eventBus: this.eventBus,
@@ -219,7 +219,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // SQS Event Sources
     // ===========================
-    
+
     // Connect LLM queue to architecture agent
     architectureAgent.addEventSource(
       new SqsEventSource(llmQueue, {
@@ -231,7 +231,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // API Gateway
     // ===========================
-    
+
     const api = new apigateway.RestApi(this, 'WebhookAPI', {
       restApiName: 'Pullmint Webhook API',
       description: 'Receives GitHub webhook events',
@@ -247,17 +247,13 @@ export class WebhookStack extends cdk.Stack {
 
     const webhookResource = api.root.addResource('webhook');
     webhookResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler), {
-      methodResponses: [
-        { statusCode: '202' },
-        { statusCode: '401' },
-        { statusCode: '500' },
-      ],
+      methodResponses: [{ statusCode: '202' }, { statusCode: '401' }, { statusCode: '500' }],
     });
 
     // ===========================
     // Outputs
     // ===========================
-    
+
     this.webhookUrl = api.url + 'webhook';
 
     new cdk.CfnOutput(this, 'WebhookURL', {

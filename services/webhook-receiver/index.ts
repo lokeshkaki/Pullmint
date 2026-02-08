@@ -23,7 +23,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     // 1. Verify GitHub signature
     const signature = event.headers['x-hub-signature-256'] || event.headers['X-Hub-Signature-256'];
     const webhookSecret = await getSecret(WEBHOOK_SECRET_ARN);
-    
+
     if (!verifyGitHubSignature(event.body || '', signature, webhookSecret)) {
       console.error('Invalid GitHub signature');
       return {
@@ -67,6 +67,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
 
     // 3. Parse event
     const eventType = event.headers['x-github-event'] || event.headers['X-GitHub-Event'];
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const payload: GitHubPRPayload = JSON.parse(event.body || '{}');
 
     // 4. Filter relevant events
@@ -121,15 +122,10 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     );
 
     // 7. Publish to EventBridge
-    await publishEvent(
-      EVENT_BUS_NAME,
-      'pullmint.github',
-      `pr.${payload.action}`,
-      {
-        ...prEvent,
-        executionId,
-      }
-    );
+    await publishEvent(EVENT_BUS_NAME, 'pullmint.github', `pr.${payload.action}`, {
+      ...prEvent,
+      executionId,
+    });
 
     console.log(`Published event for PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
 

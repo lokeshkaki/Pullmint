@@ -26,11 +26,5 @@
     "rootDir": "./",
     "types": ["node"]
   },
-  "exclude": [
-    "node_modules",
-    "dist",
-    "cdk.out",
-    "**/*.test.ts",
-    "**/*.spec.ts"
-  ]
+  "exclude": ["node_modules", "dist", "cdk.out", "**/*.test.ts", "**/*.spec.ts"]
 }

@@ -21,10 +21,7 @@ export function verifyGitHubSignature(
     return false;
   }
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(calculatedSignature)
-  );
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(calculatedSignature));
 }
 
 /**

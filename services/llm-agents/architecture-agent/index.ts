@@ -6,24 +6,11 @@ import { getItem, updateItem, putItem } from '../../shared/dynamodb';
 import { hashContent } from '../../shared/utils';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 
-// Define OpenAI types since package may not be installed yet
-type OpenAI = {
-  chat: {
-    completions: {
-      create: (params: {
-        model: string;
-        messages: Array<{ role: string; content: string }>;
-        temperature?: number;
-        max_tokens?: number;
-      }) => Promise<{
-        usage?: { total_tokens: number };
-        choices: Array<{ message?: { content?: string } }>;
-      }>;
-    };
-  };
-};
+// Dynamic import for OpenAI to avoid deployment issues
+import type { OpenAI as OpenAIType } from 'openai';
 
-const OpenAI = require('openai').default as new (config: { apiKey: string }) => OpenAI;
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+let OpenAI: typeof OpenAIType | undefined;
 
 const OPENAI_API_KEY_ARN = process.env.OPENAI_API_KEY_ARN!;
 const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN!;
@@ -31,7 +18,8 @@ const CACHE_TABLE_NAME = process.env.CACHE_TABLE_NAME!;
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
 
-let openaiClient: OpenAI;
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+let openaiClient: OpenAIType | undefined;
 let octokitClient: Octokit;
 
 /**
@@ -40,6 +28,7 @@ let octokitClient: Octokit;
 export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
   for (const record of event.Records) {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const eventData: { detail: PREvent & { executionId: string } } = JSON.parse(record.body);
       const prEvent = eventData.detail;
 
@@ -47,7 +36,12 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
 
       // 1. Initialize clients
       if (!openaiClient) {
+        if (!OpenAI) {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+          OpenAI = require('openai').default as typeof OpenAIType;
+        }
         const openaiApiKey = await getSecret(OPENAI_API_KEY_ARN);
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
         openaiClient = new OpenAI({ apiKey: openaiApiKey });
       }
 
@@ -57,10 +51,14 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       }
 
       // 2. Update execution status
-      await updateItem(EXECUTIONS_TABLE_NAME, { executionId: prEvent.executionId }, {
-        status: 'analyzing',
-        updatedAt: Date.now(),
-      });
+      await updateItem(
+        EXECUTIONS_TABLE_NAME,
+        { executionId: prEvent.executionId },
+        {
+          status: 'analyzing',
+          updatedAt: Date.now(),
+        }
+      );
 
       // 3. Fetch PR diff
       const [owner, repo] = prEvent.repoFullName.split('/');
@@ -74,15 +72,14 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
 
       // 4. Check cache
       const cacheKey = hashContent(diff);
-      const cached = await getItem<{ findings: Finding[]; riskScore: number }>(
-        CACHE_TABLE_NAME,
-        { cacheKey }
-      );
+      const cached = await getItem<{ findings: Finding[]; riskScore: number }>(CACHE_TABLE_NAME, {
+        cacheKey,
+      });
 
       let findings: Finding[];
       let riskScore: number;
       let tokensUsed = 0;
-      let processingStartTime = Date.now();
+      const processingStartTime = Date.now();
 
       if (cached) {
         console.log('Cache hit!');
@@ -91,7 +88,8 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       } else {
         // 5. Analyze with LLM
         const analysisPrompt = buildAnalysisPrompt(prEvent.title, diff);
-        
+
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
         const completion = await openaiClient.chat.completions.create({
           model: 'gpt-3.5-turbo',
           messages: [
@@ -108,10 +106,13 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
           max_tokens: 2000,
         });
 
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         tokensUsed = completion.usage?.total_tokens || 0;
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         const analysisText = completion.choices[0]?.message?.content || '';
 
         // 6. Parse findings
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         const analysis = parseAnalysis(analysisText);
         findings = analysis.findings;
         riskScore = analysis.riskScore;
@@ -141,37 +142,41 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       };
 
       // 9. Update execution with findings
-      await updateItem(EXECUTIONS_TABLE_NAME, { executionId: prEvent.executionId }, {
-        status: 'completed',
-        findings,
-        riskScore,
-        updatedAt: Date.now(),
-      });
-
-      // 10. Publish completion event
-      await publishEvent(
-        EVENT_BUS_NAME,
-        'pullmint.agent',
-        'analysis.complete',
+      await updateItem(
+        EXECUTIONS_TABLE_NAME,
+        { executionId: prEvent.executionId },
         {
-          ...prEvent,
-          ...result,
+          status: 'completed',
+          findings,
+          riskScore,
+          updatedAt: Date.now(),
         }
       );
+
+      // 10. Publish completion event
+      await publishEvent(EVENT_BUS_NAME, 'pullmint.agent', 'analysis.complete', {
+        ...prEvent,
+        ...result,
+      });
 
       console.log(
         `Analysis complete for PR #${prEvent.prNumber}: Risk=${riskScore}, Findings=${findings.length}`
       );
     } catch (error) {
       console.error('Error processing PR:', error);
-      
+
       // Update execution with error
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const eventData: { detail: PREvent & { executionId: string } } = JSON.parse(record.body);
-      await updateItem(EXECUTIONS_TABLE_NAME, { executionId: eventData.detail.executionId }, {
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error',
-        updatedAt: Date.now(),
-      });
+      await updateItem(
+        EXECUTIONS_TABLE_NAME,
+        { executionId: eventData.detail.executionId },
+        {
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          updatedAt: Date.now(),
+        }
+      );
 
       throw error; // Let SQS retry
     }
@@ -184,7 +189,10 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
 function buildAnalysisPrompt(title: string, diff: string): string {
   // Truncate diff if too large (to stay within token limits)
   const maxDiffLength = 8000;
-  const truncatedDiff = diff.length > maxDiffLength ? diff.substring(0, maxDiffLength) + '\n\n[... diff truncated ...]' : diff;
+  const truncatedDiff =
+    diff.length > maxDiffLength
+      ? diff.substring(0, maxDiffLength) + '\n\n[... diff truncated ...]'
+      : diff;
 
   return `Analyze this pull request for architecture quality and potential issues.
 
@@ -226,19 +234,22 @@ Respond ONLY with the JSON, no additional text.`;
 function parseAnalysis(analysisText: string): { findings: Finding[]; riskScore: number } {
   try {
     // Extract JSON from potential markdown code blocks
-    const jsonMatch = analysisText.match(/\`\`\`(?:json)?\s*(\{[\s\S]*?\})\s*\`\`\`/);
+    const jsonMatch = analysisText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
     const jsonText = jsonMatch ? jsonMatch[1] : analysisText;
-    
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const parsed = JSON.parse(jsonText);
-    
+
     return {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       findings: parsed.findings || [],
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       riskScore: parsed.riskScore || 0,
     };
   } catch (error) {
     console.error('Failed to parse LLM response:', error);
     console.error('Response text:', analysisText);
-    
+
     // Return safe defaults
     return {
       findings: [

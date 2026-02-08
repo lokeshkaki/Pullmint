@@ -126,12 +126,7 @@ describe('EventBridge Client', () => {
       });
 
       for (const testCase of testCases) {
-        await publishEvent(
-          eventBusName,
-          testCase.source,
-          testCase.detailType,
-          testCase.detail
-        );
+        await publishEvent(eventBusName, testCase.source, testCase.detailType, testCase.detail);
       }
 
       expect(eventBridgeMock.calls()).toHaveLength(3);
@@ -163,9 +158,7 @@ describe('EventBridge Client', () => {
       });
 
       // publishEvent doesn't check for failed entries, but we verify it completes
-      await expect(
-        publishEvent(eventBusName, source, detailType, detail)
-      ).resolves.toBeUndefined();
+      await expect(publishEvent(eventBusName, source, detailType, detail)).resolves.toBeUndefined();
     });
   });
 });

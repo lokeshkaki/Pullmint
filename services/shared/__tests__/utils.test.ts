@@ -1,10 +1,5 @@
 import * as crypto from 'crypto';
-import {
-  verifyGitHubSignature,
-  generateExecutionId,
-  calculateTTL,
-  hashContent,
-} from '../utils';
+import { verifyGitHubSignature, generateExecutionId, calculateTTL, hashContent } from '../utils';
 
 describe('Utils', () => {
   describe('verifyGitHubSignature', () => {

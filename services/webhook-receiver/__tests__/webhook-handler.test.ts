@@ -151,14 +151,14 @@ describe('Webhook Handler', () => {
       ddbMock.reset();
       secretsManagerMock.reset();
       eventBridgeMock.reset();
-      
+
       secretsManagerMock.on(GetSecretValueCommand).resolves({
         SecretString: WEBHOOK_SECRET,
       });
-      
+
       // First call to dedup table throws error
       let putCallCount = 0;
-      ddbMock.on(PutCommand).callsFake((input) => {
+      ddbMock.on(PutCommand).callsFake((_input) => {
         putCallCount++;
         if (putCallCount === 1) {
           const error: any = new Error('Item already exists');
@@ -275,11 +275,11 @@ describe('Webhook Handler', () => {
 
       // Verify successful response
       expect(result.statusCode).toBe(202);
-      
+
       // Verify DynamoDB was called at least twice (dedup + execution)
       const putCalls = ddbMock.calls();
       expect(putCalls.length).toBeGreaterThanOrEqual(2);
-      
+
       // Verify response includes execution ID
       const responseBody = JSON.parse(result.body);
       expect(responseBody.executionId).toMatch(/owner\/repo#456#/);
@@ -291,13 +291,13 @@ describe('Webhook Handler', () => {
 
       const result = await handler(event);
 
-      // Verify successful response  
+      // Verify successful response
       expect(result.statusCode).toBe(202);
-      
+
       // Verify EventBridge was called
       const eventCalls = eventBridgeMock.calls();
       expect(eventCalls.length).toBeGreaterThan(0);
-      
+
       // Verify response includes execution ID
       const responseBody = JSON.parse(result.body);
       expect(responseBody.executionId).toBeDefined();
@@ -329,18 +329,19 @@ describe('Webhook Handler', () => {
       // Reset and setup error for second put (executions table)
       ddbMock.reset();
       secretsManagerMock.reset();
-      
+
       secretsManagerMock.on(GetSecretValueCommand).resolves({
         SecretString: WEBHOOK_SECRET,
       });
-      
+
       let putCallCount = 0;
       ddbMock.on(PutCommand).callsFake(() => {
         putCallCount++;
         if (putCallCount === 2) {
           throw new Error('DynamoDB error');
         }
-        return {};  });
+        return {};
+      });
 
       const result = await handler(event);
 
@@ -383,7 +384,7 @@ describe('Webhook Handler', () => {
       const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
       hmac.update(payload);
       const signature = 'sha256=' + hmac.digest('hex');
-      
+
       const event = createMockEvent({}, 'pull_request');
       event.body = payload;
       event.headers['x-hub-signature-256'] = signature;
@@ -410,10 +411,10 @@ describe('Webhook Handler', () => {
       // Verify dedup and execution records created
       const putCalls = ddbMock.calls();
       expect(putCalls.length).toBeGreaterThanOrEqual(2); // At least dedup + execution
-      
+
       // First call should be dedup
       expect(putCalls[0].args[0].input.Item.deliveryId).toBe('integration-test');
-      
+
       // Second call should be execution
       expect(putCalls[1].args[0].input.Item.executionId).toBeDefined();
 

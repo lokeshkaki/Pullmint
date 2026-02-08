@@ -11,14 +11,14 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 export async function getSecret(secretArn: string): Promise<string> {
   const now = Date.now();
   const cached = secretsCache.get(secretArn);
-  
+
   if (cached && cached.expiresAt > now) {
     return cached.value;
   }
 
   const command = new GetSecretValueCommand({ SecretId: secretArn });
   const response = await secretsClient.send(command);
-  
+
   if (!response.SecretString) {
     throw new Error(`Secret ${secretArn} has no string value`);
   }

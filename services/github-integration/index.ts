@@ -13,14 +13,12 @@ interface AnalysisCompleteEvent extends PREvent, AnalysisResult {}
  * GitHub Integration Handler
  * Posts analysis results as PR comments
  */
-export const handler: EventBridgeHandler<
-  'analysis.complete',
-  AnalysisCompleteEvent,
-  void
-> = async (event): Promise<void> => {
+export const handler: EventBridgeHandler<'analysis.complete', AnalysisCompleteEvent, void> = async (
+  event
+): Promise<void> => {
   try {
     const { detail } = event;
-    
+
     console.log(`Posting results for PR #${detail.prNumber} in ${detail.repoFullName}`);
 
     // 1. Initialize GitHub client
@@ -34,7 +32,7 @@ export const handler: EventBridgeHandler<
 
     // 3. Post comment to PR
     const [owner, repo] = detail.repoFullName.split('/');
-    
+
     await octokitClient.rest.issues.createComment({
       owner,
       repo,
@@ -74,7 +72,7 @@ function buildCommentBody(analysis: AnalysisCompleteEvent): string {
 
   // Header
   let body = `## Pullmint Analysis Results\n\n`;
-  
+
   // Risk score badge
   const riskLevel = getRiskLevel(riskScore);
   const riskEmoji = getRiskEmoji(riskLevel);
@@ -92,7 +90,7 @@ function buildCommentBody(analysis: AnalysisCompleteEvent): string {
     body += `### No Issues Found\n\nGreat work! No architecture or design issues detected.\n\n`;
   } else {
     body += `### Findings (${findings.length})\n\n`;
-    
+
     // Group findings by severity
     const critical = findings.filter((f) => f.severity === 'critical');
     const high = findings.filter((f) => f.severity === 'high');
@@ -111,15 +109,15 @@ function buildCommentBody(analysis: AnalysisCompleteEvent): string {
     for (const group of groups) {
       if (group.items.length > 0) {
         body += `#### ${group.emoji} ${group.label} (${group.items.length})\n\n`;
-        
+
         for (const finding of group.items) {
           body += `**${finding.title}**\n\n`;
           body += `${finding.description}\n\n`;
-          
+
           if (finding.suggestion) {
             body += `_Suggestion:_ ${finding.suggestion}\n\n`;
           }
-          
+
           body += `---\n\n`;
         }
       }

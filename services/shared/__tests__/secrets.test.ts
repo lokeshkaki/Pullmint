@@ -79,9 +79,7 @@ describe('Secrets Manager', () => {
         SecretBinary: Buffer.from('binary-data'),
       });
 
-      await expect(getSecret(secretArn)).rejects.toThrow(
-        `Secret ${secretArn} has no string value`
-      );
+      await expect(getSecret(secretArn)).rejects.toThrow(`Secret ${secretArn} has no string value`);
     });
 
     it('should propagate AWS errors', async () => {
