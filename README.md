@@ -34,8 +34,7 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 - Amazon S3 (artifact storage)
 
 **AI/LLM:**
-- OpenAI GPT-3.5-Turbo (primary)
-- OpenAI GPT-4 (high-risk PRs only)
+- Anthropic Claude Sonnet 4.5 (code analysis)
 - Semgrep (SAST security scanning)
 
 **Frontend:**
@@ -51,16 +50,34 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 
 ## Project Stats
 
-- **Cost:** ~$40/month for 250 PRs
+- **Cost:** ~$32/month for 250 PRs
 - **Latency:** < 60s for PR analysis (cold start)
-- **Model:** GPT-3.5-Turbo by default, GPT-4 for complex cases
+- **Model:** Claude Sonnet 4.5
 - **Architecture:** 8+ AWS services orchestrated via EventBridge
+
+## Cost Breakdown
+
+**Fixed Costs:**
+- CloudWatch Logs: ~$3/month
+- DynamoDB: ~$1/month
+- API Gateway: ~$0.35/month
+- S3 Storage: ~$0.50/month
+
+**Variable Costs (250 PRs/month):**
+- Anthropic API (Claude Sonnet): ~$25/month
+  - Input: 250 PRs × 3K tokens avg × $3/M = $2.25
+  - Output: 250 PRs × 1.5K tokens avg × $15/M = $5.63
+  - Buffer for retries/large PRs: ~$17
+- Lambda: ~$0 (within free tier)
+- Data transfer: ~$2/month
+
+**Total: ~$32/month**
 
 **Prerequisites:**
 - AWS Account
 - Node.js 20+
 - AWS CDK CLI (`npm install -g aws-cdk`)
-- OpenAI API key
+- Anthropic API key
 
 **Setup:**
 ```bash
