@@ -80,6 +80,7 @@ pullmint/
 - AWS CDK CLI: `npm install -g aws-cdk`
 - Anthropic API key
 - GitHub App private key (PEM)
+- GitHub App ID
 
 ### Installation
 
@@ -99,6 +100,7 @@ cd infrastructure
 npm install
 
 # Deploy infrastructure
+export GITHUB_APP_ID=your-github-app-id
 npm run deploy
 ```
 
@@ -119,7 +121,7 @@ aws secretsmanager put-secret-value \
 ```bash
 aws secretsmanager put-secret-value \
   --secret-id pullmint/github-app-private-key \
-  --secret-string "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+  --secret-string "$(cat /path/to/your/private-key.pem)"
 ```
 
 3. **Webhook Secret:**

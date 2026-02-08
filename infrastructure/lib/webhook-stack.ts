@@ -18,6 +18,14 @@ export class WebhookStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    const githubAppId = process.env.GITHUB_APP_ID;
+    if (!githubAppId) {
+      cdk.Annotations.of(this).addWarning(
+        'GITHUB_APP_ID is not set. GitHub App authentication will fail at runtime. Set GITHUB_APP_ID before deploy.'
+      );
+    }
+    const githubInstallationId = process.env.GITHUB_APP_INSTALLATION_ID;
+
     // ===========================
     // Secrets Manager
     // ===========================
@@ -140,6 +148,8 @@ export class WebhookStack extends cdk.Stack {
       environment: {
         ANTHROPIC_API_KEY_ARN: anthropicApiKey.secretArn,
         GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
+        GITHUB_APP_ID: githubAppId ?? '',
+        ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         CACHE_TABLE_NAME: cacheTable.tableName,
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         EVENT_BUS_NAME: this.eventBus.eventBusName,
@@ -160,6 +170,8 @@ export class WebhookStack extends cdk.Stack {
       memorySize: 256,
       environment: {
         GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
+        GITHUB_APP_ID: githubAppId ?? '',
+        ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
       },
       bundling: {

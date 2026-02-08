@@ -1,11 +1,8 @@
 import { EventBridgeHandler } from 'aws-lambda';
-import { Octokit } from '@octokit/rest';
-import { getSecret } from '../shared/secrets';
+import { getGitHubInstallationClient } from '../shared/github-app';
 import { PREvent, AnalysisResult } from '../shared/types';
 
-const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN!;
-
-let octokitClient: Octokit;
+let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
 
 interface AnalysisCompleteEvent extends PREvent, AnalysisResult {}
 
@@ -23,8 +20,7 @@ export const handler: EventBridgeHandler<'analysis.complete', AnalysisCompleteEv
 
     // 1. Initialize GitHub client
     if (!octokitClient) {
-      const githubToken = await getSecret(GITHUB_APP_PRIVATE_KEY_ARN);
-      octokitClient = new Octokit({ auth: githubToken });
+      octokitClient = await getGitHubInstallationClient(detail.repoFullName);
     }
 
     // 2. Build comment body
