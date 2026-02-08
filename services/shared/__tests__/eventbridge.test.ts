@@ -157,8 +157,10 @@ describe('EventBridge Client', () => {
         ],
       });
 
-      // publishEvent doesn't check for failed entries, but we verify it completes
-      await expect(publishEvent(eventBusName, source, detailType, detail)).resolves.toBeUndefined();
+      // publishEvent should now throw an error when events fail to publish
+      await expect(publishEvent(eventBusName, source, detailType, detail)).rejects.toThrow(
+        'Failed to publish 1 event(s)'
+      );
     });
   });
 });

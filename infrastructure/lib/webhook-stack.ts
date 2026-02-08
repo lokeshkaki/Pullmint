@@ -126,7 +126,6 @@ export class WebhookStack extends cdk.Stack {
       bundling: {
         minify: true,
         sourceMap: true,
-        externalModules: ['@aws-sdk/*'],
       },
     });
 
@@ -148,7 +147,6 @@ export class WebhookStack extends cdk.Stack {
       bundling: {
         minify: true,
         sourceMap: true,
-        externalModules: ['@aws-sdk/*'],
       },
     });
 
@@ -167,7 +165,6 @@ export class WebhookStack extends cdk.Stack {
       bundling: {
         minify: true,
         sourceMap: true,
-        externalModules: ['@aws-sdk/*'],
       },
     });
 
@@ -201,7 +198,7 @@ export class WebhookStack extends cdk.Stack {
       eventBus: this.eventBus,
       eventPattern: {
         source: ['pullmint.github'],
-        detailType: ['pr.opened', 'pr.synchronize'],
+        detailType: ['pr.opened', 'pr.synchronize', 'pr.reopened'],
       },
       targets: [new targets.SqsQueue(llmQueue)],
     });
@@ -240,7 +237,7 @@ export class WebhookStack extends cdk.Stack {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
-        dataTraceEnabled: true,
+        dataTraceEnabled: false,
         metricsEnabled: true,
       },
     });

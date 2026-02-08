@@ -102,7 +102,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(202);
       expect(JSON.parse(result.body)).toMatchObject({
@@ -115,7 +115,7 @@ describe('Webhook Handler', () => {
       const event = createMockEvent(payload);
       event.headers['x-hub-signature-256'] = 'sha256=invalid-signature';
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(401);
       expect(JSON.parse(result.body)).toEqual({
@@ -128,7 +128,7 @@ describe('Webhook Handler', () => {
       const event = createMockEvent(payload);
       delete event.headers['x-hub-signature-256'];
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(401);
     });
@@ -139,7 +139,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload, 'pull_request', 'delivery-1');
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(202);
       expect(ddbMock.commandCalls(PutCommand)).toHaveLength(2); // dedup + execution
@@ -171,7 +171,7 @@ describe('Webhook Handler', () => {
         return {};
       });
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -184,7 +184,7 @@ describe('Webhook Handler', () => {
       const event = createMockEvent(payload);
       delete event.headers['x-github-delivery'];
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(400);
       expect(JSON.parse(result.body)).toEqual({
@@ -198,7 +198,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened');
       const event = createMockEvent(payload, 'pull_request');
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(202);
       expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(1);
@@ -208,7 +208,7 @@ describe('Webhook Handler', () => {
       const payload = { action: 'opened', issue: { number: 1 } };
       const event = createMockEvent(payload, 'issues');
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -221,7 +221,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened');
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(202);
     });
@@ -230,7 +230,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('synchronize');
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(202);
     });
@@ -239,7 +239,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('reopened');
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(202);
     });
@@ -248,7 +248,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('closed');
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -260,7 +260,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('edited');
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -274,7 +274,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened', 456);
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       // Verify successful response
       expect(result.statusCode).toBe(202);
@@ -292,7 +292,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened', 789);
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       // Verify successful response
       expect(result.statusCode).toBe(202);
@@ -314,8 +314,8 @@ describe('Webhook Handler', () => {
       const payload2 = createPRPayload('opened', 2);
       const event2 = createMockEvent(payload2, 'pull_request', 'delivery-2');
 
-      const result1 = await handler(event1, mockContext);
-      const result2 = await handler(event2, mockContext);
+      const result1 = await handler(event1);
+      const result2 = await handler(event2);
 
       const executionId1 = JSON.parse(result1.body).executionId;
       const executionId2 = JSON.parse(result2.body).executionId;
@@ -346,7 +346,7 @@ describe('Webhook Handler', () => {
         return {};
       });
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(500);
       expect(JSON.parse(result.body)).toEqual({
@@ -360,7 +360,7 @@ describe('Webhook Handler', () => {
 
       eventBridgeMock.on(PutEventsCommand).rejects(new Error('EventBridge error'));
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(500);
       expect(JSON.parse(result.body)).toEqual({
@@ -375,7 +375,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload);
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       // If secret was cached from beforeEach, test will succeed (202)
       // This is acceptable as it tests the caching behavior
@@ -392,7 +392,7 @@ describe('Webhook Handler', () => {
       event.body = payload;
       event.headers['x-hub-signature-256'] = signature;
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       expect(result.statusCode).toBe(500);
     });
@@ -403,7 +403,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('synchronize', 999);
       const event = createMockEvent(payload, 'pull_request', 'integration-test');
 
-      const result = await handler(event, mockContext);
+      const result = await handler(event);
 
       // Verify response
       expect(result.statusCode).toBe(202);

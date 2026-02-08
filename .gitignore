@@ -77,3 +77,10 @@ temp/
 # Build artifacts
 *.tsbuildinfo
 .eslintcache
+
+# Generated JS files in source directories
+services/**/*.js
+!services/**/jest.config.js
+infrastructure/**/*.js
+!infrastructure/bin/*.js
+!infrastructure/lib/*.js

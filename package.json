@@ -6,7 +6,7 @@
   "workspaces": [
     "infrastructure",
     "services/*",
-    "dashboard"
+    "services/llm-agents/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

@@ -11,7 +11,7 @@ export async function publishEvent(
   detailType: string,
   detail: Record<string, unknown>
 ): Promise<void> {
-  await eventBridgeClient.send(
+  const result = await eventBridgeClient.send(
     new PutEventsCommand({
       Entries: [
         {
@@ -23,4 +23,10 @@ export async function publishEvent(
       ],
     })
   );
+
+  if (result.FailedEntryCount && result.FailedEntryCount > 0) {
+    throw new Error(
+      `Failed to publish ${result.FailedEntryCount} event(s): ${JSON.stringify(result.Entries)}`
+    );
+  }
 }

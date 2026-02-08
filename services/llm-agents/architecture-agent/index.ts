@@ -7,20 +7,18 @@ import { hashContent } from '../../shared/utils';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 
 // Dynamic import for OpenAI to avoid deployment issues
-import type { OpenAI as OpenAIType } from 'openai';
-
-// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-let OpenAI: typeof OpenAIType | undefined;
+// Using any for the constructor to avoid type-checking issues with dynamic imports
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let OpenAI: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let openaiClient: any;
+let octokitClient: Octokit | undefined;
 
 const OPENAI_API_KEY_ARN = process.env.OPENAI_API_KEY_ARN!;
 const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN!;
 const CACHE_TABLE_NAME = process.env.CACHE_TABLE_NAME!;
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
-
-// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-let openaiClient: OpenAIType | undefined;
-let octokitClient: Octokit;
 
 /**
  * Architecture Agent - Analyzes PR for architecture quality
@@ -38,7 +36,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       if (!openaiClient) {
         if (!OpenAI) {
           // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-          OpenAI = require('openai').default as typeof OpenAIType;
+          OpenAI = require('openai').default;
         }
         const openaiApiKey = await getSecret(OPENAI_API_KEY_ARN);
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call

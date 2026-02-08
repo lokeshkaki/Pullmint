@@ -46,16 +46,23 @@ export async function updateItem(
   key: Record<string, unknown>,
   updates: Record<string, unknown>
 ): Promise<void> {
-  const updateExpression = Object.keys(updates)
+  const updateKeys = Object.keys(updates);
+
+  if (updateKeys.length === 0) {
+    // No updates to apply; avoid sending an invalid UpdateExpression like "SET "
+    return;
+  }
+
+  const updateExpression = updateKeys
     .map((_k, i) => `#attr${i} = :val${i}`)
     .join(', ');
 
-  const expressionAttributeNames: Record<string, string> = Object.keys(updates).reduce(
+  const expressionAttributeNames: Record<string, string> = updateKeys.reduce(
     (acc, k, i) => ({ ...acc, [`#attr${i}`]: k }),
     {} as Record<string, string>
   );
 
-  const expressionAttributeValues: Record<string, unknown> = Object.keys(updates).reduce(
+  const expressionAttributeValues: Record<string, unknown> = updateKeys.reduce(
     (acc, k, i) => ({ ...acc, [`:val${i}`]: updates[k] }),
     {} as Record<string, unknown>
   );

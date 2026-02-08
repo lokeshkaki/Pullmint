@@ -32,7 +32,29 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       };
     }
 
-    // 2. Idempotency check
+    // 2. Parse event
+    const eventType = event.headers['x-github-event'] || event.headers['X-GitHub-Event'];
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const payload: GitHubPRPayload = JSON.parse(event.body || '{}');
+
+    // 3. Filter relevant events
+    if (eventType !== 'pull_request') {
+      console.log(`Ignoring event type: ${eventType}`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ message: 'Event type ignored' }),
+      };
+    }
+
+    if (!['opened', 'synchronize', 'reopened'].includes(payload.action)) {
+      console.log(`Ignoring PR action: ${payload.action}`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ message: 'PR action ignored' }),
+      };
+    }
+
+    // 4. Idempotency check (after event filtering to avoid unnecessary DynamoDB writes)
     const deliveryId = event.headers['x-github-delivery'] || event.headers['X-GitHub-Delivery'];
     if (!deliveryId) {
       console.error('Missing delivery ID');
@@ -63,28 +85,6 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
         };
       }
       throw error;
-    }
-
-    // 3. Parse event
-    const eventType = event.headers['x-github-event'] || event.headers['X-GitHub-Event'];
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const payload: GitHubPRPayload = JSON.parse(event.body || '{}');
-
-    // 4. Filter relevant events
-    if (eventType !== 'pull_request') {
-      console.log(`Ignoring event type: ${eventType}`);
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ message: 'Event type ignored' }),
-      };
-    }
-
-    if (!['opened', 'synchronize', 'reopened'].includes(payload.action)) {
-      console.log(`Ignoring PR action: ${payload.action}`);
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ message: 'PR action ignored' }),
-      };
     }
 
     // 5. Create PR event
