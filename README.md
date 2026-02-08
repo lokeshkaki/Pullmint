@@ -21,7 +21,7 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 - **Event-Driven:** EventBridge orchestrates webhook events to specialized agents
 - **Multi-Agent System:** Dedicated LLM agents for architecture, security, and performance analysis
 - **Serverless-First:** Built entirely on AWS Lambda + DynamoDB for cost optimization
-- **Budget-Conscious:** ~$40/month operating cost for 250 PRs
+- **Budget-Conscious:** ~$32/month operating cost for 250 PRs
 - **Production-Grade:** Comprehensive error handling, monitoring, and observability
 
 ## Tech Stack
@@ -30,14 +30,16 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 
 - Node.js 20 + TypeScript
 - AWS Lambda (serverless compute)
+- AWS Step Functions (workflow orchestration)
 - Amazon EventBridge (event routing)
 - DynamoDB (state management + caching)
 - Amazon SQS (message queuing)
+- Amazon S3 (artifact storage)
 
 **AI/LLM:**
 
-- OpenAI GPT-3.5-Turbo (primary analysis)
-- GPT-4 (complex cases - Phase 2)
+- Anthropic Claude Sonnet 4.5 (code analysis)
+- Semgrep (SAST security scanning)
 
 **Infrastructure:**
 
@@ -76,8 +78,8 @@ pullmint/
 - AWS Account with CLI configured
 - Node.js 20+
 - AWS CDK CLI: `npm install -g aws-cdk`
-- OpenAI API key
-- GitHub Personal Access Token
+- Anthropic API key
+- GitHub App private key (PEM)
 
 ### Installation
 
@@ -102,22 +104,22 @@ npm run deploy
 
 ### Configuration
 
-After deployment, you need to configure secrets:
+After deployment, configure secrets:
 
-1. **OpenAI API Key:**
+1. **Anthropic API Key:**
 
 ```bash
 aws secretsmanager put-secret-value \
-  --secret-id pullmint/openai-api-key \
-  --secret-string "sk-your-openai-key"
+  --secret-id pullmint/anthropic-api-key \
+  --secret-string "sk-ant-your-anthropic-key"
 ```
 
-2. **GitHub Token:**
+2. **GitHub App Private Key:**
 
 ```bash
 aws secretsmanager put-secret-value \
   --secret-id pullmint/github-app-private-key \
-  --secret-string "ghp_your-github-token"
+  --secret-string "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 ```
 
 3. **Webhook Secret:**
@@ -137,12 +139,16 @@ aws secretsmanager get-secret-value \
    - Events: Select "Pull requests"
    - Active: ✓
 
+### Migration Note
+
+Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading from an OpenAI-backed deployment, update your Secrets Manager entry to `pullmint/anthropic-api-key` and refresh any environment references to `ANTHROPIC_API_KEY`.
+
 ## How It Works
 
 1. **PR Created/Updated** → GitHub sends webhook event
 2. **Webhook Receiver** → Validates signature, creates execution record
 3. **EventBridge** → Routes event to LLM agent queue
-4. **Architecture Agent** → Fetches PR diff, analyzes with GPT-3.5
+4. **Architecture Agent** → Fetches PR diff, analyzes with Claude Sonnet 4.5
 5. **GitHub Integration** → Posts findings as PR comment
 6. **Auto-Approval** → Low-risk PRs (score < 30) automatically approved
 
@@ -153,14 +159,18 @@ aws secretsmanager get-secret-value \
 - CloudWatch Logs: ~$3/month
 - DynamoDB: ~$1/month
 - API Gateway: ~$0.35/month
+- S3 Storage: ~$0.50/month
 
 **Variable Costs (250 PRs/month):**
 
-- OpenAI API: ~$30/month
+- Anthropic API (Claude Sonnet): ~$25/month
+  - Input: 250 PRs × 3K tokens avg × $3/M = $2.25
+  - Output: 250 PRs × 1.5K tokens avg × $15/M = $5.63
+  - Buffer for retries/large PRs: ~$17
 - Lambda: ~$0 (within free tier)
 - Data transfer: ~$2/month
 
-**Total: ~$37/month**
+**Total: ~$32/month**
 
 ## Current Status
 
@@ -208,14 +218,6 @@ npm run diff
 
 See [.env.example](.env.example) for all configuration options.
 
-## Contributing
-
-This is a personal learning project. Issues and suggestions welcome!
-
 ## License
 
 MIT License - see [LICENSE](LICENSE)
-
-## Author
-
-Lokesh Kaki - [GitHub](https://github.com/lokeshkaki)

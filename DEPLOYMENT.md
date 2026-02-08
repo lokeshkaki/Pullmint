@@ -8,7 +8,7 @@ This guide walks you through deploying Pullmint to your AWS account.
 - [ ] AWS CLI v2 installed and configured
 - [ ] Node.js 20+ installed
 - [ ] AWS CDK CLI installed (`npm install -g aws-cdk`)
-- [ ] OpenAI API account with API key
+- [ ] Anthropic API account with API key
 - [ ] GitHub account with repository access
 
 ## Step 1: Initial Setup
@@ -80,18 +80,18 @@ WebhookSecretArn: arn:aws:secretsmanager:us-east-1:xxxxx:secret:pullmint/github-
 
 ## Step 3: Configure Secrets
 
-### 3.1 Set OpenAI API Key
+### 3.1 Set Anthropic API Key
 
 ```bash
-# Replace with your actual OpenAI API key
+# Replace with your actual Anthropic API key
 aws secretsmanager put-secret-value \
-  --secret-id pullmint/openai-api-key \
-  --secret-string "sk-your-openai-api-key-here"
+  --secret-id pullmint/anthropic-api-key \
+  --secret-string "sk-ant-your-anthropic-api-key-here"
 ```
 
-### 3.2 Set GitHub Token
+### 3.2 Set GitHub Private Key
 
-For initial testing, use a Personal Access Token:
+For initial testing, you can use a Personal Access Token. For production, use a GitHub App private key:
 
 ```bash
 # Create a PAT at: https://github.com/settings/tokens
@@ -257,15 +257,15 @@ aws secretsmanager get-secret-value --secret-id pullmint/github-webhook-secret -
 # Compare with GitHub webhook configuration
 ```
 
-### Issue: OpenAI API errors
+### Issue: Anthropic API errors
 
 **Solution:** Check API key and quota:
 
 ```bash
 # Verify secret is set
-aws secretsmanager get-secret-value --secret-id pullmint/openai-api-key
+aws secretsmanager get-secret-value --secret-id pullmint/anthropic-api-key
 
-# Check OpenAI usage at: https://platform.openai.com/usage
+# Check Anthropic usage at: https://console.anthropic.com/usage
 ```
 
 ### Issue: Lambda timeout
