@@ -88,6 +88,8 @@ jobs:
       
       - name: CDK Synth
         run: cd infrastructure && npm run synth
+        env:
+          GITHUB_APP_ID: ${{ secrets.PULLMINT_GITHUB_APP_ID }}
 
   security:
     name: Security Scan
