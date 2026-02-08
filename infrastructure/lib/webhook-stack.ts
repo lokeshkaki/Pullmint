@@ -30,9 +30,9 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
-    const openaiApiKey = new secretsmanager.Secret(this, 'OpenAIApiKey', {
-      secretName: 'pullmint/openai-api-key',
-      description: 'OpenAI API key for LLM agents',
+    const anthropicApiKey = new secretsmanager.Secret(this, 'AnthropicApiKey', {
+      secretName: 'pullmint/anthropic-api-key',
+      description: 'Anthropic API key for LLM agents',
     });
 
     const githubAppPrivateKey = new secretsmanager.Secret(this, 'GitHubAppPrivateKey', {
@@ -138,7 +138,7 @@ export class WebhookStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
       environment: {
-        OPENAI_API_KEY_ARN: openaiApiKey.secretArn,
+        ANTHROPIC_API_KEY_ARN: anthropicApiKey.secretArn,
         GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
         CACHE_TABLE_NAME: cacheTable.tableName,
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
@@ -179,7 +179,7 @@ export class WebhookStack extends cdk.Stack {
     executionsTable.grantReadWriteData(webhookHandler);
 
     // Architecture agent permissions
-    openaiApiKey.grantRead(architectureAgent);
+    anthropicApiKey.grantRead(architectureAgent);
     githubAppPrivateKey.grantRead(architectureAgent);
     cacheTable.grantReadWriteData(architectureAgent);
     executionsTable.grantReadWriteData(architectureAgent);
