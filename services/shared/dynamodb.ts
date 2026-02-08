@@ -53,9 +53,7 @@ export async function updateItem(
     return;
   }
 
-  const updateExpression = updateKeys
-    .map((_k, i) => `#attr${i} = :val${i}`)
-    .join(', ');
+  const updateExpression = updateKeys.map((_k, i) => `#attr${i} = :val${i}`).join(', ');
 
   const expressionAttributeNames: Record<string, string> = updateKeys.reduce(
     (acc, k, i) => ({ ...acc, [`#attr${i}`]: k }),

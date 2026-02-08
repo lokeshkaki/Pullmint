@@ -1,4 +1,4 @@
-import { APIGatewayProxyEvent, Context } from 'aws-lambda';
+import { APIGatewayProxyEvent } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
@@ -9,9 +9,6 @@ import { handler } from '../index';
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const eventBridgeMock = mockClient(EventBridgeClient);
 const secretsManagerMock = mockClient(SecretsManagerClient);
-
-// Mock context for Lambda handler
-const mockContext = {} as Context;
 
 describe('Webhook Handler', () => {
   const WEBHOOK_SECRET = 'test-webhook-secret';
