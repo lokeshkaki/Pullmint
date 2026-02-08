@@ -1,18 +1,30 @@
 import { SQSHandler, SQSEvent } from 'aws-lambda';
-import { Octokit } from '@octokit/rest';
 import { getSecret } from '../../shared/secrets';
 import { publishEvent } from '../../shared/eventbridge';
 import { getItem, updateItem, putItem } from '../../shared/dynamodb';
 import { hashContent } from '../../shared/utils';
+import { getGitHubInstallationClient } from '../../shared/github-app';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 
+type AnthropicMessageInput = {
+  model: string;
+  max_tokens: number;
+  messages: { role: 'user'; content: string }[];
+  temperature?: number;
+};
+
+type AnthropicClient = {
+  messages: {
+    create: (input: AnthropicMessageInput) => Promise<AnthropicMessageResponse>;
+  };
+};
+
+type AnthropicConstructor = new (options: { apiKey: string }) => AnthropicClient;
+
 // Dynamic import for Anthropic to avoid deployment issues
-// Using any for the constructor to avoid type-checking issues with dynamic imports
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let Anthropic: any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let anthropicClient: any;
-let octokitClient: Octokit | undefined;
+let Anthropic: AnthropicConstructor | undefined;
+let anthropicClient: AnthropicClient | undefined;
+let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
 
 type AnthropicUsage = {
   input_tokens?: number;
@@ -30,10 +42,11 @@ type AnthropicMessageResponse = {
 };
 
 const ANTHROPIC_API_KEY_ARN = process.env.ANTHROPIC_API_KEY_ARN!;
-const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN!;
 const CACHE_TABLE_NAME = process.env.CACHE_TABLE_NAME!;
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
+
+type PREventEnvelope = { detail: PREvent & { executionId: string } };
 
 /**
  * Architecture Agent - Analyzes PR for architecture quality
@@ -41,8 +54,7 @@ const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
 export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
   for (const record of event.Records) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const eventData: { detail: PREvent & { executionId: string } } = JSON.parse(record.body);
+      const eventData = parseEvent(record.body);
       const prEvent = eventData.detail;
 
       console.log(`Processing PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
@@ -50,17 +62,16 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       // 1. Initialize clients
       if (!anthropicClient) {
         if (!Anthropic) {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-          Anthropic = require('@anthropic-ai/sdk').default;
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const anthropicModule = require('@anthropic-ai/sdk') as { default: AnthropicConstructor };
+          Anthropic = anthropicModule.default;
         }
         const anthropicApiKey = await getSecret(ANTHROPIC_API_KEY_ARN);
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
         anthropicClient = new Anthropic({ apiKey: anthropicApiKey });
       }
 
       if (!octokitClient) {
-        const githubToken = await getSecret(GITHUB_APP_PRIVATE_KEY_ARN);
-        octokitClient = new Octokit({ auth: githubToken });
+        octokitClient = await getGitHubInstallationClient(prEvent.repoFullName);
       }
 
       // 2. Update execution status
@@ -81,7 +92,10 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         pull_number: prEvent.prNumber,
         mediaType: { format: 'diff' },
       });
-      const diff = response.data as unknown as string;
+      if (typeof response.data !== 'string') {
+        throw new Error('Expected diff response from GitHub');
+      }
+      const diff = response.data;
 
       // 4. Check cache
       const cacheKey = hashContent(diff);
@@ -103,7 +117,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         const analysisPrompt = buildAnalysisPrompt(prEvent.title, diff);
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-        const completion = (await anthropicClient.messages.create({
+        const completion = await anthropicClient.messages.create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 2000,
           messages: [
@@ -113,7 +127,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
             },
           ],
           temperature: 0.3,
-        })) as AnthropicMessageResponse;
+        });
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         tokensUsed = (completion.usage?.input_tokens || 0) + (completion.usage?.output_tokens || 0);
@@ -177,8 +191,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       console.error('Error processing PR:', error);
 
       // Update execution with error
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const eventData: { detail: PREvent & { executionId: string } } = JSON.parse(record.body);
+      const eventData = parseEvent(record.body);
       await updateItem(
         EXECUTIONS_TABLE_NAME,
         { executionId: eventData.detail.executionId },
@@ -193,6 +206,15 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
     }
   }
 };
+
+function parseEvent(body: string): PREventEnvelope {
+  const parsed: unknown = JSON.parse(body);
+  if (!parsed || typeof parsed !== 'object' || !('detail' in parsed)) {
+    throw new Error('Invalid PR event payload');
+  }
+
+  return parsed as PREventEnvelope;
+}
 
 /**
  * Build the analysis prompt for the LLM
