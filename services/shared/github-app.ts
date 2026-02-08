@@ -1,14 +1,51 @@
-import { App, Octokit } from 'octokit';
+import { App } from 'octokit';
 import { getSecret } from './secrets';
 
 const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN!;
 const GITHUB_APP_ID = process.env.GITHUB_APP_ID;
 const GITHUB_APP_INSTALLATION_ID = process.env.GITHUB_APP_INSTALLATION_ID;
 
-let installationClient: Octokit | undefined;
-let appClient: App | undefined;
+type GitHubRestClient = {
+  rest: {
+    pulls: {
+      get: (params: {
+        owner: string;
+        repo: string;
+        pull_number: number;
+        mediaType?: { format?: string };
+      }) => Promise<{ data: unknown }>;
+      createReview: (params: {
+        owner: string;
+        repo: string;
+        pull_number: number;
+        event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+        body?: string;
+      }) => Promise<unknown>;
+    };
+    issues: {
+      createComment: (params: {
+        owner: string;
+        repo: string;
+        issue_number: number;
+        body: string;
+      }) => Promise<unknown>;
+    };
+  };
+};
 
-export async function getGitHubInstallationClient(repoFullName: string): Promise<Octokit> {
+type GitHubAppClient = {
+  octokit: {
+    request: (route: string, params: { owner: string; repo: string }) => Promise<{ data: { id: number } }>;
+  };
+  getInstallationOctokit: (installationId: number) => Promise<GitHubRestClient>;
+};
+
+export type GitHubClient = GitHubRestClient;
+
+let installationClient: GitHubClient | undefined;
+let appClient: GitHubAppClient | undefined;
+
+export async function getGitHubInstallationClient(repoFullName: string): Promise<GitHubClient> {
   if (installationClient) {
     return installationClient;
   }
@@ -18,7 +55,7 @@ export async function getGitHubInstallationClient(repoFullName: string): Promise
   }
 
   const privateKey = await getSecret(GITHUB_APP_PRIVATE_KEY_ARN);
-  appClient = new App({ appId: GITHUB_APP_ID, privateKey });
+  appClient = new App({ appId: GITHUB_APP_ID, privateKey }) as GitHubAppClient;
 
   let installationId = GITHUB_APP_INSTALLATION_ID
     ? Number(GITHUB_APP_INSTALLATION_ID)
