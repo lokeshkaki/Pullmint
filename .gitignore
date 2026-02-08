@@ -34,6 +34,9 @@ cdk.out/
 .cdk.staging/
 cdk.context.json
 
+# act (local GitHub Actions runner)
+.actrc
+
 # IDE
 .vscode/
 .idea/
