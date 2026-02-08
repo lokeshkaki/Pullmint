@@ -10,6 +10,7 @@ This guide walks you through deploying Pullmint to your AWS account.
 - [ ] AWS CDK CLI installed (`npm install -g aws-cdk`)
 - [ ] Anthropic API account with API key
 - [ ] GitHub account with repository access
+- [ ] GitHub App ID (from GitHub App settings)
 
 ## Step 1: Initial Setup
 
@@ -56,6 +57,9 @@ cdk bootstrap
 ```bash
 cd infrastructure
 
+# Required for GitHub App auth
+export GITHUB_APP_ID=your-github-app-id
+
 # Review changes (optional)
 npm run diff
 
@@ -91,15 +95,12 @@ aws secretsmanager put-secret-value \
 
 ### 3.2 Set GitHub Private Key
 
-For initial testing, you can use a Personal Access Token. For production, use a GitHub App private key:
+Use a GitHub App private key (PEM):
 
 ```bash
-# Create a PAT at: https://github.com/settings/tokens
-# Scopes needed: repo, write:discussion
-
 aws secretsmanager put-secret-value \
   --secret-id pullmint/github-app-private-key \
-  --secret-string "ghp_your-github-token-here"
+  --secret-string "$(cat /path/to/your/private-key.pem)"
 ```
 
 ### 3.3 Get Webhook Secret

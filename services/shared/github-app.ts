@@ -35,7 +35,10 @@ type GitHubRestClient = {
 
 type GitHubAppClient = {
   octokit: {
-    request: (route: string, params: { owner: string; repo: string }) => Promise<{ data: { id: number } }>;
+    request: (
+      route: string,
+      params: { owner: string; repo: string }
+    ) => Promise<{ data: { id: number } }>;
   };
   getInstallationOctokit: (installationId: number) => Promise<GitHubRestClient>;
 };
@@ -57,9 +60,7 @@ export async function getGitHubInstallationClient(repoFullName: string): Promise
   const privateKey = await getSecret(GITHUB_APP_PRIVATE_KEY_ARN);
   appClient = new App({ appId: GITHUB_APP_ID, privateKey }) as GitHubAppClient;
 
-  let installationId = GITHUB_APP_INSTALLATION_ID
-    ? Number(GITHUB_APP_INSTALLATION_ID)
-    : undefined;
+  let installationId = GITHUB_APP_INSTALLATION_ID ? Number(GITHUB_APP_INSTALLATION_ID) : undefined;
 
   if (!installationId) {
     const [owner, repo] = repoFullName.split('/');
