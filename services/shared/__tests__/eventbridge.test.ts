@@ -62,7 +62,7 @@ describe('EventBridge Client', () => {
       await publishEvent(eventBusName, source, detailType, detail);
 
       const call = eventBridgeMock.call(0);
-      const publishedDetail = call.args[0].input.Entries[0].Detail;
+      const publishedDetail = (call.args[0].input as any).Entries[0].Detail;
 
       expect(typeof publishedDetail).toBe('string');
       expect(JSON.parse(publishedDetail)).toEqual(detail);
@@ -82,7 +82,7 @@ describe('EventBridge Client', () => {
       await publishEvent(eventBusName, source, detailType, detail);
 
       const call = eventBridgeMock.call(0);
-      const publishedDetail = call.args[0].input.Entries[0].Detail;
+      const publishedDetail = (call.args[0].input as any).Entries[0].Detail;
 
       expect(publishedDetail).toBe('{}');
     });
@@ -134,7 +134,7 @@ describe('EventBridge Client', () => {
       // Verify each call had correct parameters
       testCases.forEach((testCase, index) => {
         const call = eventBridgeMock.call(index);
-        const entry = call.args[0].input.Entries[0];
+        const entry = (call.args[0].input as any).Entries[0];
         expect(entry.Source).toBe(testCase.source);
         expect(entry.DetailType).toBe(testCase.detailType);
         expect(JSON.parse(entry.Detail)).toEqual(testCase.detail);

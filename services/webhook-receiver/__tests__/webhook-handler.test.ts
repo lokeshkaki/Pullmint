@@ -1,4 +1,4 @@
-import { APIGatewayProxyEvent } from 'aws-lambda';
+import { APIGatewayProxyEvent, Context } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
@@ -9,6 +9,9 @@ import { handler } from '../index';
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const eventBridgeMock = mockClient(EventBridgeClient);
 const secretsManagerMock = mockClient(SecretsManagerClient);
+
+// Mock context for Lambda handler
+const mockContext = {} as Context;
 
 describe('Webhook Handler', () => {
   const WEBHOOK_SECRET = 'test-webhook-secret';
@@ -99,7 +102,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(202);
       expect(JSON.parse(result.body)).toMatchObject({
@@ -112,7 +115,7 @@ describe('Webhook Handler', () => {
       const event = createMockEvent(payload);
       event.headers['x-hub-signature-256'] = 'sha256=invalid-signature';
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(401);
       expect(JSON.parse(result.body)).toEqual({
@@ -125,7 +128,7 @@ describe('Webhook Handler', () => {
       const event = createMockEvent(payload);
       delete event.headers['x-hub-signature-256'];
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(401);
     });
@@ -136,7 +139,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload, 'pull_request', 'delivery-1');
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(202);
       expect(ddbMock.commandCalls(PutCommand)).toHaveLength(2); // dedup + execution
@@ -168,7 +171,7 @@ describe('Webhook Handler', () => {
         return {};
       });
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -181,7 +184,7 @@ describe('Webhook Handler', () => {
       const event = createMockEvent(payload);
       delete event.headers['x-github-delivery'];
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(400);
       expect(JSON.parse(result.body)).toEqual({
@@ -195,7 +198,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened');
       const event = createMockEvent(payload, 'pull_request');
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(202);
       expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(1);
@@ -205,7 +208,7 @@ describe('Webhook Handler', () => {
       const payload = { action: 'opened', issue: { number: 1 } };
       const event = createMockEvent(payload, 'issues');
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -218,7 +221,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened');
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(202);
     });
@@ -227,7 +230,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('synchronize');
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(202);
     });
@@ -236,7 +239,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('reopened');
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(202);
     });
@@ -245,7 +248,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('closed');
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -257,7 +260,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('edited');
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
@@ -271,7 +274,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened', 456);
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       // Verify successful response
       expect(result.statusCode).toBe(202);
@@ -289,7 +292,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened', 789);
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       // Verify successful response
       expect(result.statusCode).toBe(202);
@@ -311,8 +314,8 @@ describe('Webhook Handler', () => {
       const payload2 = createPRPayload('opened', 2);
       const event2 = createMockEvent(payload2, 'pull_request', 'delivery-2');
 
-      const result1 = await handler(event1);
-      const result2 = await handler(event2);
+      const result1 = await handler(event1, mockContext);
+      const result2 = await handler(event2, mockContext);
 
       const executionId1 = JSON.parse(result1.body).executionId;
       const executionId2 = JSON.parse(result2.body).executionId;
@@ -343,7 +346,7 @@ describe('Webhook Handler', () => {
         return {};
       });
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(500);
       expect(JSON.parse(result.body)).toEqual({
@@ -357,7 +360,7 @@ describe('Webhook Handler', () => {
 
       eventBridgeMock.on(PutEventsCommand).rejects(new Error('EventBridge error'));
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(500);
       expect(JSON.parse(result.body)).toEqual({
@@ -372,7 +375,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload);
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       // If secret was cached from beforeEach, test will succeed (202)
       // This is acceptable as it tests the caching behavior
@@ -389,7 +392,7 @@ describe('Webhook Handler', () => {
       event.body = payload;
       event.headers['x-hub-signature-256'] = signature;
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       expect(result.statusCode).toBe(500);
     });
@@ -400,7 +403,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('synchronize', 999);
       const event = createMockEvent(payload, 'pull_request', 'integration-test');
 
-      const result = await handler(event);
+      const result = await handler(event, mockContext);
 
       // Verify response
       expect(result.statusCode).toBe(202);
@@ -413,10 +416,12 @@ describe('Webhook Handler', () => {
       expect(putCalls.length).toBeGreaterThanOrEqual(2); // At least dedup + execution
 
       // First call should be dedup
-      expect(putCalls[0].args[0].input.Item.deliveryId).toBe('integration-test');
+      const dedupInput: any = putCalls[0].args[0].input;
+      expect(dedupInput.Item.deliveryId).toBe('integration-test');
 
       // Second call should be execution
-      expect(putCalls[1].args[0].input.Item.executionId).toBeDefined();
+      const executionInput: any = putCalls[1].args[0].input;
+      expect(executionInput.Item.executionId).toBeDefined();
 
       // Verify event published
       const eventCalls = eventBridgeMock.calls();

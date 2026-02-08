@@ -149,11 +149,13 @@ GitHub will send a ping event. Check if it succeeds:
 ### 5.1 Create a Test PR
 
 1. Create a new branch in your repo:
+
 ```bash
 git checkout -b test-pullmint
 ```
 
 2. Make a simple change:
+
 ```bash
 echo "console.log('test');" > test.js
 git add test.js
@@ -168,11 +170,13 @@ git push origin test-pullmint
 Within 60 seconds, you should see:
 
 1. **DynamoDB:** A new execution record
+
 ```bash
 aws dynamodb scan --table-name pullmint-pr-executions --max-items 1
 ```
 
 2. **CloudWatch Logs:** Lambda execution logs
+
 ```bash
 aws logs tail /aws/lambda/pullmint-webhook-receiver --follow
 aws logs tail /aws/lambda/pullmint-architecture-agent --follow
@@ -227,6 +231,7 @@ aws budgets create-budget \
 ```
 
 budget.json:
+
 ```json
 {
   "BudgetName": "PullmintMonthly",
@@ -244,6 +249,7 @@ budget.json:
 ### Issue: Webhook signature validation fails
 
 **Solution:** Verify webhook secret matches:
+
 ```bash
 # Get secret from AWS
 aws secretsmanager get-secret-value --secret-id pullmint/github-webhook-secret --query SecretString --output text
@@ -254,6 +260,7 @@ aws secretsmanager get-secret-value --secret-id pullmint/github-webhook-secret -
 ### Issue: OpenAI API errors
 
 **Solution:** Check API key and quota:
+
 ```bash
 # Verify secret is set
 aws secretsmanager get-secret-value --secret-id pullmint/openai-api-key
@@ -264,6 +271,7 @@ aws secretsmanager get-secret-value --secret-id pullmint/openai-api-key
 ### Issue: Lambda timeout
 
 **Solution:** Increase timeout in CDK stack:
+
 ```typescript
 // infrastructure/lib/webhook-stack.ts
 timeout: cdk.Duration.minutes(3), // Increase from 2
@@ -290,5 +298,6 @@ cdk destroy
 ## Support
 
 For issues or questions:
+
 - Check [GitHub Issues](https://github.com/lokeshkaki/pullmint/issues)
 - Review [CloudWatch Logs](https://console.aws.amazon.com/cloudwatch)

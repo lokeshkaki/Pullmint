@@ -72,7 +72,7 @@ describe('DynamoDB Client', () => {
       await putItem(tableName, item);
 
       const call = ddbMock.call(0);
-      expect(call.args[0].input.Item).toEqual(item);
+      expect((call.args[0].input as any).Item).toEqual(item);
     });
   });
 

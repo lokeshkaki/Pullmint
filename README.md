@@ -10,6 +10,7 @@
 ## What is Pullmint?
 
 An intelligent PR review automation platform that combines LLM-powered code analysis with traditional CI/CD tools to:
+
 - Reduce review time by 70%
 - Auto-approve low-risk changes
 - Provide consistent, high-quality feedback
@@ -26,6 +27,7 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 ## Tech Stack
 
 **Backend:**
+
 - Node.js 20 + TypeScript
 - AWS Lambda (serverless compute)
 - Amazon EventBridge (event routing)
@@ -33,10 +35,12 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 - Amazon SQS (message queuing)
 
 **AI/LLM:**
+
 - OpenAI GPT-3.5-Turbo (primary analysis)
 - GPT-4 (complex cases - Phase 2)
 
 **Infrastructure:**
+
 - AWS CDK (TypeScript)
 - GitHub Actions (CI/CD)
 
@@ -101,6 +105,7 @@ npm run deploy
 After deployment, you need to configure secrets:
 
 1. **OpenAI API Key:**
+
 ```bash
 aws secretsmanager put-secret-value \
   --secret-id pullmint/openai-api-key \
@@ -108,6 +113,7 @@ aws secretsmanager put-secret-value \
 ```
 
 2. **GitHub Token:**
+
 ```bash
 aws secretsmanager put-secret-value \
   --secret-id pullmint/github-app-private-key \
@@ -115,6 +121,7 @@ aws secretsmanager put-secret-value \
 ```
 
 3. **Webhook Secret:**
+
 ```bash
 # Get the generated secret
 aws secretsmanager get-secret-value \
@@ -142,11 +149,13 @@ aws secretsmanager get-secret-value \
 ## Cost Breakdown
 
 **Fixed Costs:**
+
 - CloudWatch Logs: ~$3/month
 - DynamoDB: ~$1/month
 - API Gateway: ~$0.35/month
 
 **Variable Costs (250 PRs/month):**
+
 - OpenAI API: ~$30/month
 - Lambda: ~$0 (within free tier)
 - Data transfer: ~$2/month
@@ -156,6 +165,7 @@ aws secretsmanager get-secret-value \
 ## Current Status
 
 **Phase 1: Core Infrastructure** (COMPLETED)
+
 - [x] Project structure initialized
 - [x] Webhook receiver implementation
 - [x] Architecture agent implementation
