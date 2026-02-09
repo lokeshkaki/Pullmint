@@ -6,14 +6,26 @@ import { PREvent, AnalysisResult } from '../shared/types';
 let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
 
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
-const AUTO_APPROVAL_THRESHOLD = Number(process.env.AUTO_APPROVAL_THRESHOLD || '30');
-const DEPLOYMENT_RISK_THRESHOLD = Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30');
-const DEPLOYMENT_STRATEGY = (process.env.DEPLOYMENT_STRATEGY || 'label') as
-  | 'label'
-  | 'deployment';
-const DEPLOYMENT_LABEL = process.env.DEPLOYMENT_LABEL || 'deploy:staging';
-const DEPLOYMENT_ENVIRONMENT = process.env.DEPLOYMENT_ENVIRONMENT || 'staging';
-const DEPLOYMENT_ENABLED = (process.env.DEPLOYMENT_ENABLED || 'true') === 'true';
+
+type DeploymentConfig = {
+  enabled: boolean;
+  strategy: 'label' | 'deployment';
+  label: string;
+  environment: string;
+  riskThreshold: number;
+  autoApprovalThreshold: number;
+};
+
+const DEFAULT_DEPLOYMENT_CONFIG: DeploymentConfig = {
+  enabled: true,
+  strategy: 'label',
+  label: 'deploy:staging',
+  environment: 'staging',
+  riskThreshold: 30,
+  autoApprovalThreshold: 30,
+};
+
+const deploymentConfig = loadDeploymentConfig();
 
 interface AnalysisCompleteEvent extends PREvent, AnalysisResult {}
 
@@ -50,7 +62,7 @@ export const handler: EventBridgeHandler<'analysis.complete', AnalysisCompleteEv
     console.log(`Successfully posted comment to PR #${detail.prNumber}`);
 
     // 4. If low risk, approve the PR
-    if (detail.riskScore < AUTO_APPROVAL_THRESHOLD) {
+    if (detail.riskScore < deploymentConfig.autoApprovalThreshold) {
       try {
         await octokitClient.rest.pulls.createReview({
           owner,
@@ -67,7 +79,7 @@ export const handler: EventBridgeHandler<'analysis.complete', AnalysisCompleteEv
     }
 
     // 5. If low risk and enabled, trigger deploy gate
-    if (DEPLOYMENT_ENABLED && detail.riskScore < DEPLOYMENT_RISK_THRESHOLD) {
+    if (deploymentConfig.enabled && detail.riskScore < deploymentConfig.riskThreshold) {
       await triggerDeployment(detail, owner, repo);
     }
   } catch (error) {
@@ -87,19 +99,19 @@ async function triggerDeployment(
 
   const deploymentBase = {
     status: 'deploying',
-    deploymentStrategy: DEPLOYMENT_STRATEGY,
-    deploymentEnvironment: DEPLOYMENT_ENVIRONMENT,
+    deploymentStrategy: deploymentConfig.strategy,
+    deploymentEnvironment: deploymentConfig.environment,
     deploymentStatus: 'queued',
     deploymentUpdatedAt: Date.now(),
     updatedAt: Date.now(),
   };
 
-  if (DEPLOYMENT_STRATEGY === 'label') {
+  if (deploymentConfig.strategy === 'label') {
     await octokitClient.rest.issues.addLabels({
       owner,
       repo,
       issue_number: detail.prNumber,
-      labels: [DEPLOYMENT_LABEL],
+      labels: [deploymentConfig.label],
     });
 
     await updateItem(EXECUTIONS_TABLE_NAME, { executionId: detail.executionId }, deploymentBase);
@@ -111,7 +123,7 @@ async function triggerDeployment(
     repo,
     ref: detail.headSha,
     required_contexts: [],
-    environment: DEPLOYMENT_ENVIRONMENT,
+    environment: deploymentConfig.environment,
     transient_environment: true,
     auto_merge: false,
     description: 'Pullmint auto-deploy gate',
@@ -133,10 +145,132 @@ async function triggerDeployment(
     description: 'Queued by Pullmint',
   });
 
-  await updateItem(EXECUTIONS_TABLE_NAME, { executionId: detail.executionId }, {
-    ...deploymentBase,
-    deploymentId: deployment.data.id,
+  await updateItem(
+    EXECUTIONS_TABLE_NAME,
+    { executionId: detail.executionId },
+    {
+      ...deploymentBase,
+      deploymentId: deployment.data.id,
+    }
+  );
+}
+
+function loadDeploymentConfig(): DeploymentConfig {
+  const rawConfig = process.env.PULLMINT_DEPLOYMENT_CONFIG;
+  if (rawConfig) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawConfig);
+    } catch (error) {
+      throw new Error('Invalid PULLMINT_DEPLOYMENT_CONFIG JSON');
+    }
+
+    return normalizeDeploymentConfig(parsed);
+  }
+
+  return normalizeDeploymentConfig({
+    enabled: process.env.DEPLOYMENT_ENABLED,
+    strategy: process.env.DEPLOYMENT_STRATEGY,
+    label: process.env.DEPLOYMENT_LABEL,
+    environment: process.env.DEPLOYMENT_ENVIRONMENT,
+    riskThreshold: process.env.DEPLOYMENT_RISK_THRESHOLD,
+    autoApprovalThreshold: process.env.AUTO_APPROVAL_THRESHOLD,
   });
+}
+
+function normalizeDeploymentConfig(input: unknown): DeploymentConfig {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Deployment config must be an object');
+  }
+
+  const config = input as Record<string, unknown>;
+
+  return {
+    enabled: parseBooleanValue(config.enabled, 'enabled', DEFAULT_DEPLOYMENT_CONFIG.enabled),
+    strategy: parseStrategyValue(config.strategy, 'strategy', DEFAULT_DEPLOYMENT_CONFIG.strategy),
+    label: parseStringValue(config.label, 'label', DEFAULT_DEPLOYMENT_CONFIG.label),
+    environment: parseStringValue(
+      config.environment,
+      'environment',
+      DEFAULT_DEPLOYMENT_CONFIG.environment
+    ),
+    riskThreshold: parseNumberValue(
+      config.riskThreshold,
+      'riskThreshold',
+      DEFAULT_DEPLOYMENT_CONFIG.riskThreshold
+    ),
+    autoApprovalThreshold: parseNumberValue(
+      config.autoApprovalThreshold,
+      'autoApprovalThreshold',
+      DEFAULT_DEPLOYMENT_CONFIG.autoApprovalThreshold
+    ),
+  };
+}
+
+function parseBooleanValue(value: unknown, label: string, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
+  }
+
+  throw new Error(`Deployment config ${label} must be a boolean.`);
+}
+
+function parseStrategyValue(
+  value: unknown,
+  label: string,
+  fallback: DeploymentConfig['strategy']
+): DeploymentConfig['strategy'] {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (value === 'label' || value === 'deployment') {
+    return value;
+  }
+
+  throw new Error(`Deployment config ${label} must be "label" or "deployment".`);
+}
+
+function parseStringValue(value: unknown, label: string, fallback: string): string {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  throw new Error(`Deployment config ${label} must be a non-empty string.`);
+}
+
+function parseNumberValue(value: unknown, label: string, fallback: number): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const parsed = typeof value === 'string' ? Number(value) : value;
+  if (typeof parsed !== 'number' || !Number.isFinite(parsed)) {
+    throw new Error(`Deployment config ${label} must be a number.`);
+  }
+
+  if (parsed < 0 || parsed > 100) {
+    throw new Error(`Deployment config ${label} must be between 0 and 100.`);
+  }
+
+  return parsed;
 }
 
 /**

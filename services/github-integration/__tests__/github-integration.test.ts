@@ -48,17 +48,28 @@ const buildEvent = (overrides: Partial<Record<string, unknown>> = {}) =>
     },
   }) as EventBridgeEvent<'analysis.complete', any>;
 
+const baseDeploymentConfig = {
+  enabled: true,
+  strategy: 'label',
+  label: 'deploy:staging',
+  environment: 'staging',
+  riskThreshold: 30,
+  autoApprovalThreshold: 30,
+};
+
+const setDeploymentConfig = (overrides: Partial<typeof baseDeploymentConfig> = {}) => {
+  process.env.PULLMINT_DEPLOYMENT_CONFIG = JSON.stringify({
+    ...baseDeploymentConfig,
+    ...overrides,
+  });
+};
+
 describe('GitHub Integration', () => {
   beforeEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
     process.env.EXECUTIONS_TABLE_NAME = 'test-executions';
-    process.env.AUTO_APPROVAL_THRESHOLD = '30';
-    process.env.DEPLOYMENT_RISK_THRESHOLD = '30';
-    process.env.DEPLOYMENT_STRATEGY = 'label';
-    process.env.DEPLOYMENT_LABEL = 'deploy:staging';
-    process.env.DEPLOYMENT_ENVIRONMENT = 'staging';
-    process.env.DEPLOYMENT_ENABLED = 'true';
+    setDeploymentConfig();
   });
 
   const setupMocks = () => {
@@ -104,7 +115,7 @@ describe('GitHub Integration', () => {
   });
 
   it('creates deployment when strategy is deployment', async () => {
-    process.env.DEPLOYMENT_STRATEGY = 'deployment';
+    setDeploymentConfig({ strategy: 'deployment' });
     const octokitClient = setupMocks();
     const { handler } = await import('../index');
     const event = buildEvent({
@@ -152,7 +163,7 @@ describe('GitHub Integration', () => {
   });
 
   it('does not deploy when deployment is disabled', async () => {
-    process.env.DEPLOYMENT_ENABLED = 'false';
+    setDeploymentConfig({ enabled: false });
     const octokitClient = setupMocks();
     const { handler } = await import('../index');
     const event = buildEvent({ riskScore: 15 });
@@ -170,20 +181,12 @@ describe('GitHub Integration', () => {
     __test__.setOctokitClient(undefined);
 
     await expect(
-      __test__.triggerDeployment(
-        buildEvent({ riskScore: 10 }).detail,
-        'owner',
-        'repo'
-      )
+      __test__.triggerDeployment(buildEvent({ riskScore: 10 }).detail, 'owner', 'repo')
     ).rejects.toThrow('GitHub client not initialized');
 
     __test__.setOctokitClient(octokitClient as any);
     await expect(
-      __test__.triggerDeployment(
-        buildEvent({ riskScore: 10 }).detail,
-        'owner',
-        'repo'
-      )
+      __test__.triggerDeployment(buildEvent({ riskScore: 10 }).detail, 'owner', 'repo')
     ).resolves.toBeUndefined();
   });
 
@@ -216,6 +219,7 @@ describe('GitHub Integration', () => {
 
   it('uses defaults when deployment env vars are missing', async () => {
     jest.resetModules();
+    delete process.env.PULLMINT_DEPLOYMENT_CONFIG;
     delete process.env.AUTO_APPROVAL_THRESHOLD;
     delete process.env.DEPLOYMENT_RISK_THRESHOLD;
     delete process.env.DEPLOYMENT_STRATEGY;
@@ -228,5 +232,19 @@ describe('GitHub Integration', () => {
 
     await expect(handler(buildEvent({ riskScore: 10 }))).resolves.toBeUndefined();
     expect(octokitClient.rest.issues.addLabels).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails fast on invalid config JSON', async () => {
+    jest.resetModules();
+    process.env.PULLMINT_DEPLOYMENT_CONFIG = '{';
+
+    await expect(import('../index')).rejects.toThrow('Invalid PULLMINT_DEPLOYMENT_CONFIG');
+  });
+
+  it('fails fast on invalid threshold values', async () => {
+    jest.resetModules();
+    setDeploymentConfig({ riskThreshold: 200 });
+
+    await expect(import('../index')).rejects.toThrow('riskThreshold');
   });
 });

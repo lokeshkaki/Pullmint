@@ -188,7 +188,7 @@ Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading fro
 - [x] End-to-end testing
 - [x] Documentation
 
-**Phase 2: Auto-Deploy and Dashboard** (PLANNED)
+**Phase B: Auto-Deploy and Dashboard** (PLANNED)
 
 - [ ] GitHub Actions deployment trigger (label or deployment event)
 - [ ] Deployment status sync back to Pullmint

@@ -192,9 +192,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
   }
 };
 
-function extractExecutionId(
-  payload: Record<string, unknown> | string | undefined
-): string | null {
+function extractExecutionId(payload: Record<string, unknown> | string | undefined): string | null {
   if (!payload) {
     return null;
   }

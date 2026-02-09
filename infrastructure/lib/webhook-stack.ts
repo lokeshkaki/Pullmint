@@ -11,6 +11,132 @@ import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
+type DeploymentConfig = {
+  enabled: boolean;
+  strategy: 'label' | 'deployment';
+  label: string;
+  environment: string;
+  riskThreshold: number;
+  autoApprovalThreshold: number;
+};
+
+const DEFAULT_DEPLOYMENT_CONFIG: DeploymentConfig = {
+  enabled: true,
+  strategy: 'label',
+  label: 'deploy:staging',
+  environment: 'staging',
+  riskThreshold: 30,
+  autoApprovalThreshold: 30,
+};
+
+function parseBooleanEnv(scope: cdk.Stack, name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  if (raw === 'true') {
+    return true;
+  }
+
+  if (raw === 'false') {
+    return false;
+  }
+
+  const message = `${name} must be "true" or "false".`;
+  cdk.Annotations.of(scope).addError(message);
+  throw new Error(message);
+}
+
+function parseNumberEnv(
+  scope: cdk.Stack,
+  name: string,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    const message = `${name} must be a valid number.`;
+    cdk.Annotations.of(scope).addError(message);
+    throw new Error(message);
+  }
+
+  if (value < min || value > max) {
+    const message = `${name} must be between ${min} and ${max}.`;
+    cdk.Annotations.of(scope).addError(message);
+    throw new Error(message);
+  }
+
+  return value;
+}
+
+function parseStringEnv(scope: cdk.Stack, name: string, fallback: string): string {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  if (raw.trim().length > 0) {
+    return raw;
+  }
+
+  const message = `${name} must be a non-empty string.`;
+  cdk.Annotations.of(scope).addError(message);
+  throw new Error(message);
+}
+
+function parseStrategyEnv(
+  scope: cdk.Stack,
+  name: string,
+  fallback: DeploymentConfig['strategy']
+): DeploymentConfig['strategy'] {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  if (raw === 'label' || raw === 'deployment') {
+    return raw;
+  }
+
+  const message = `${name} must be "label" or "deployment".`;
+  cdk.Annotations.of(scope).addError(message);
+  throw new Error(message);
+}
+
+function resolveDeploymentConfig(scope: cdk.Stack): DeploymentConfig {
+  return {
+    enabled: parseBooleanEnv(scope, 'DEPLOYMENT_ENABLED', DEFAULT_DEPLOYMENT_CONFIG.enabled),
+    strategy: parseStrategyEnv(scope, 'DEPLOYMENT_STRATEGY', DEFAULT_DEPLOYMENT_CONFIG.strategy),
+    label: parseStringEnv(scope, 'DEPLOYMENT_LABEL', DEFAULT_DEPLOYMENT_CONFIG.label),
+    environment: parseStringEnv(
+      scope,
+      'DEPLOYMENT_ENVIRONMENT',
+      DEFAULT_DEPLOYMENT_CONFIG.environment
+    ),
+    riskThreshold: parseNumberEnv(
+      scope,
+      'DEPLOYMENT_RISK_THRESHOLD',
+      DEFAULT_DEPLOYMENT_CONFIG.riskThreshold,
+      0,
+      100
+    ),
+    autoApprovalThreshold: parseNumberEnv(
+      scope,
+      'AUTO_APPROVAL_THRESHOLD',
+      DEFAULT_DEPLOYMENT_CONFIG.autoApprovalThreshold,
+      0,
+      100
+    ),
+  };
+}
+
 export class WebhookStack extends cdk.Stack {
   public readonly eventBus: events.EventBus;
   public readonly webhookUrl: string;
@@ -25,12 +151,7 @@ export class WebhookStack extends cdk.Stack {
       );
     }
     const githubInstallationId = process.env.GITHUB_APP_INSTALLATION_ID;
-    const deploymentStrategy = process.env.DEPLOYMENT_STRATEGY || 'label';
-    const deploymentLabel = process.env.DEPLOYMENT_LABEL || 'deploy:staging';
-    const deploymentEnvironment = process.env.DEPLOYMENT_ENVIRONMENT || 'staging';
-    const deploymentEnabled = process.env.DEPLOYMENT_ENABLED || 'true';
-    const deploymentRiskThreshold = process.env.DEPLOYMENT_RISK_THRESHOLD || '30';
-    const autoApprovalThreshold = process.env.AUTO_APPROVAL_THRESHOLD || '30';
+    const deploymentConfig = resolveDeploymentConfig(this);
 
     // ===========================
     // Secrets Manager
@@ -179,19 +300,13 @@ export class WebhookStack extends cdk.Stack {
         GITHUB_APP_ID: githubAppId ?? '',
         ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
-        DEPLOYMENT_STRATEGY: deploymentStrategy,
-        DEPLOYMENT_LABEL: deploymentLabel,
-        DEPLOYMENT_ENVIRONMENT: deploymentEnvironment,
-        DEPLOYMENT_ENABLED: deploymentEnabled,
-        DEPLOYMENT_RISK_THRESHOLD: deploymentRiskThreshold,
-        AUTO_APPROVAL_THRESHOLD: autoApprovalThreshold,
+        PULLMINT_DEPLOYMENT_CONFIG: JSON.stringify(deploymentConfig),
       },
       bundling: {
         minify: true,
         sourceMap: true,
       },
     });
-
 
     // ===========================
     // Permissions
@@ -213,7 +328,6 @@ export class WebhookStack extends cdk.Stack {
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
     executionsTable.grantReadWriteData(githubIntegration);
-
 
     // ===========================
     // EventBridge Rules
@@ -273,7 +387,6 @@ export class WebhookStack extends cdk.Stack {
       methodResponses: [{ statusCode: '202' }, { statusCode: '401' }, { statusCode: '500' }],
     });
 
-
     // ===========================
     // Outputs
     // ===========================
@@ -285,7 +398,6 @@ export class WebhookStack extends cdk.Stack {
       description: 'Webhook URL for GitHub',
       exportName: 'PullmintWebhookURL',
     });
-
 
     new cdk.CfnOutput(this, 'WebhookSecretArn', {
       value: githubWebhookSecret.secretArn,
