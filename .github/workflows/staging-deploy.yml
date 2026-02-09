@@ -1,0 +1,73 @@
+name: Staging Deploy
+
+on:
+  deployment:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'deployment' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'deploy:staging'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm run test
+
+      - name: Mark deployment in progress
+        if: github.event_name == 'deployment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment.id,
+              state: 'in_progress',
+              description: 'Deploying to staging',
+            });
+
+      - name: Deploy to staging
+        run: echo "Deploy command not configured"
+
+      - name: Mark deployment success
+        if: github.event_name == 'deployment' && success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment.id,
+              state: 'success',
+              description: 'Staging deploy complete',
+            });
+
+      - name: Mark deployment failure
+        if: github.event_name == 'deployment' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment.id,
+              state: 'failure',
+              description: 'Staging deploy failed',
+            });

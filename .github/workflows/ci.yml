@@ -27,11 +27,17 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      RUNNER_TOOL_CACHE: /tmp/act-toolcache
+      RUNNER_TEMP: /tmp/act-temp
     strategy:
       matrix:
         service:
           - services/shared
           - services/webhook-receiver
+          - services/github-integration
+          - services/dashboard-api
+          - services/dashboard-ui
     steps:
       - uses: actions/checkout@v4
       
