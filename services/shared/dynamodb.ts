@@ -4,6 +4,7 @@ import {
   PutCommand,
   GetCommand,
   UpdateCommand,
+  QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 const ddbClient = new DynamoDBClient({});
@@ -74,4 +75,31 @@ export async function updateItem(
       ExpressionAttributeValues: expressionAttributeValues,
     })
   );
+}
+
+/**
+ * Query items from DynamoDB
+ */
+export async function queryItems<T>(params: {
+  tableName: string;
+  indexName?: string;
+  keyConditionExpression: string;
+  expressionAttributeNames?: Record<string, string>;
+  expressionAttributeValues?: Record<string, unknown>;
+  limit?: number;
+  scanIndexForward?: boolean;
+}): Promise<T[]> {
+  const result = await docClient.send(
+    new QueryCommand({
+      TableName: params.tableName,
+      IndexName: params.indexName,
+      KeyConditionExpression: params.keyConditionExpression,
+      ExpressionAttributeNames: params.expressionAttributeNames,
+      ExpressionAttributeValues: params.expressionAttributeValues,
+      Limit: params.limit,
+      ScanIndexForward: params.scanIndexForward,
+    })
+  );
+
+  return (result.Items as T[]) || [];
 }

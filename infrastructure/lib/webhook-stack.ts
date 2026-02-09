@@ -192,6 +192,37 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    // Dashboard API
+    const dashboardApi = new NodejsFunction(this, 'DashboardApi', {
+      functionName: 'pullmint-dashboard-api',
+      entry: path.join(__dirname, '../../services/dashboard-api/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(20),
+      memorySize: 256,
+      environment: {
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Dashboard UI
+    const dashboardUi = new NodejsFunction(this, 'DashboardUi', {
+      functionName: 'pullmint-dashboard-ui',
+      entry: path.join(__dirname, '../../services/dashboard-ui/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(20),
+      memorySize: 256,
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
 
     // ===========================
     // Permissions
@@ -213,6 +244,9 @@ export class WebhookStack extends cdk.Stack {
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
     executionsTable.grantReadWriteData(githubIntegration);
+
+    // Dashboard permissions
+    executionsTable.grantReadData(dashboardApi);
 
 
     // ===========================
@@ -273,17 +307,39 @@ export class WebhookStack extends cdk.Stack {
       methodResponses: [{ statusCode: '202' }, { statusCode: '401' }, { statusCode: '500' }],
     });
 
+    const dashboardResource = api.root.addResource('dashboard');
+    dashboardResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardUi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '500' }],
+    });
+
+    const dashboardExecutions = dashboardResource.addResource('executions');
+    dashboardExecutions.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '400' }, { statusCode: '500' }],
+    });
+
+    const dashboardExecution = dashboardExecutions.addResource('{executionId}');
+    dashboardExecution.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
 
     // ===========================
     // Outputs
     // ===========================
 
     this.webhookUrl = api.url + 'webhook';
+    const dashboardUrl = api.url + 'dashboard';
 
     new cdk.CfnOutput(this, 'WebhookURL', {
       value: this.webhookUrl,
       description: 'Webhook URL for GitHub',
       exportName: 'PullmintWebhookURL',
+    });
+
+    new cdk.CfnOutput(this, 'DashboardURL', {
+      value: dashboardUrl,
+      description: 'Dashboard URL for Pullmint executions',
+      exportName: 'PullmintDashboardURL',
     });
 
 

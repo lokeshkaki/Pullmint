@@ -4,8 +4,9 @@ import {
   PutCommand,
   GetCommand,
   UpdateCommand,
+  QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { putItem, getItem, updateItem } from '../dynamodb';
+import { putItem, getItem, updateItem, queryItems } from '../dynamodb';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -270,6 +271,51 @@ describe('DynamoDB Client', () => {
         '#attr0': 'name',
         '#attr1': 'status',
       });
+    });
+  });
+
+  describe('queryItems', () => {
+    it('should query items from DynamoDB', async () => {
+      const tableName = 'TestTable';
+      const expectedItems = [{ id: '1' }, { id: '2' }];
+
+      ddbMock.on(QueryCommand).resolves({
+        Items: expectedItems,
+      });
+
+      const result = await queryItems<{ id: string }>({
+        tableName,
+        keyConditionExpression: '#pk = :pk',
+        expressionAttributeNames: { '#pk': 'pk' },
+        expressionAttributeValues: { ':pk': 'value' },
+        limit: 10,
+        scanIndexForward: false,
+      });
+
+      expect(result).toEqual(expectedItems);
+      const call = ddbMock.call(0);
+      expect(call.args[0].input).toEqual({
+        TableName: tableName,
+        IndexName: undefined,
+        KeyConditionExpression: '#pk = :pk',
+        ExpressionAttributeNames: { '#pk': 'pk' },
+        ExpressionAttributeValues: { ':pk': 'value' },
+        Limit: 10,
+        ScanIndexForward: false,
+      });
+    });
+
+    it('should return empty array when no items found', async () => {
+      ddbMock.on(QueryCommand).resolves({});
+
+      const result = await queryItems({
+        tableName: 'TestTable',
+        keyConditionExpression: '#pk = :pk',
+        expressionAttributeNames: { '#pk': 'pk' },
+        expressionAttributeValues: { ':pk': 'value' },
+      });
+
+      expect(result).toEqual([]);
     });
   });
 });
