@@ -193,7 +193,7 @@ function buildDeploymentStatusDetail(
   }
 
   const deploymentStatus = mapDeploymentStatus(payload.deployment_status.state);
-  
+
   // Ignore inactive deployments
   if (deploymentStatus === null) {
     console.log('Deployment status is inactive, ignoring.');

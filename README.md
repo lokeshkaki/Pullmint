@@ -162,20 +162,24 @@ Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading fro
 Pullmint supports risk-gated automatic deployments with the following environment variables:
 
 **Risk Thresholds:**
+
 - `DEPLOYMENT_RISK_THRESHOLD` (default: `30`) - Maximum risk score to allow deployment
 - `AUTO_APPROVE_RISK_THRESHOLD` (default: `30`) - Maximum risk score to auto-approve PR
 
 **Deployment Strategy:**
+
 - `DEPLOYMENT_STRATEGY` (default: `eventbridge`) - Options: `eventbridge`, `label`, `deployment`
   - `eventbridge`: Trigger deployment via EventBridge orchestrator (recommended)
   - `label`: Add deployment label to PR (legacy)
   - `deployment`: Create GitHub deployment event (future)
 
 **Deployment Gates:**
+
 - `DEPLOYMENT_REQUIRE_TESTS` (default: `false`) - Block deployment until tests pass
 - `DEPLOYMENT_REQUIRED_CONTEXTS` (CSV) - List of required GitHub status checks (e.g., `ci,security-scan`)
 
 **Deployment Environment:**
+
 - `DEPLOYMENT_ENVIRONMENT` (default: `staging`) - Target environment name
 - `DEPLOYMENT_LABEL` (default: `deploy:staging`) - Label to add for label-based strategy
 
@@ -186,23 +190,28 @@ Pullmint supports risk-gated automatic deployments with the following environmen
 Pullmint includes CloudWatch monitoring for production reliability:
 
 **CloudWatch Alarms:**
+
 - `pullmint-deployment-orchestrator-errors` - Alerts when deployment orchestrator has elevated error rate (≥3 errors in 5 minutes)
 - `pullmint-github-integration-errors` - Alerts when GitHub integration has elevated error rate (≥5 errors in 5 minutes)
 - `pullmint-webhook-handler-errors` - Alerts when webhook handler has elevated error rate (≥5 errors in 5 minutes)
 
 **Lambda Metrics:**
+
 - All Lambda functions expose standard metrics: Invocations, Errors, Duration, Throttles
 - Use CloudWatch Logs Insights to query execution logs and trace request flows
 
 **DynamoDB Metrics:**
+
 - Read/Write capacity monitoring for `pullmint-executions`, `pullmint-cache`, and `pullmint-dedup` tables
 - Prevent throttling with auto-scaling or on-demand billing
 
 **EventBridge Metrics:**
+
 - Event publishing success/failure rates
 - Rule invocation counts and failed invocations
 
 **Recommended Dashboards:**
+
 - Create CloudWatch dashboards to visualize PR processing latency, deployment success rate, and error rates
 - Set up SNS topics for alarm notifications
 

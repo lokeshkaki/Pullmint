@@ -169,58 +169,58 @@ async function maybeTriggerDeployment(
 
   try {
     if (config.deploymentStrategy === 'eventbridge') {
-    if (!config.eventBusName) {
-      throw new Error('EVENT_BUS_NAME is required for eventbridge deployment strategy');
+      if (!config.eventBusName) {
+        throw new Error('EVENT_BUS_NAME is required for eventbridge deployment strategy');
+      }
+
+      const eventDetail: DeploymentApprovedEvent = {
+        ...detail,
+        executionId: detail.executionId,
+        riskScore: detail.riskScore,
+        deploymentEnvironment: config.deploymentEnvironment,
+        deploymentStrategy: config.deploymentStrategy,
+      };
+
+      await publishEvent(
+        config.eventBusName,
+        'pullmint.review',
+        'deployment_approved',
+        eventDetail as unknown as Record<string, unknown>
+      );
+      console.log(`Deployment approved for PR #${detail.prNumber}`);
+      return;
     }
 
-    const eventDetail: DeploymentApprovedEvent = {
-      ...detail,
-      executionId: detail.executionId,
-      riskScore: detail.riskScore,
-      deploymentEnvironment: config.deploymentEnvironment,
-      deploymentStrategy: config.deploymentStrategy,
-    };
+    if (config.deploymentStrategy === 'label') {
+      await octokit.rest.issues.addLabels({
+        owner,
+        repo,
+        issue_number: detail.prNumber,
+        labels: [config.deploymentLabel],
+      });
+      console.log(`Deployment label added: ${config.deploymentLabel}`);
+      return;
+    }
 
-    await publishEvent(
-      config.eventBusName,
-      'pullmint.review',
-      'deployment_approved',
-      eventDetail as unknown as Record<string, unknown>
-    );
-    console.log(`Deployment approved for PR #${detail.prNumber}`);
-    return;
-  }
-
-  if (config.deploymentStrategy === 'label') {
-    await octokit.rest.issues.addLabels({
+    await octokit.rest.repos.createDeployment({
       owner,
       repo,
-      issue_number: detail.prNumber,
-      labels: [config.deploymentLabel],
+      ref: detail.headSha,
+      environment: config.deploymentEnvironment,
+      auto_merge: false,
+      required_contexts: config.deploymentRequiredContexts,
+      payload: {
+        executionId: detail.executionId,
+        prNumber: detail.prNumber,
+        repoFullName: detail.repoFullName,
+        deploymentStrategy: config.deploymentStrategy,
+        baseSha: detail.baseSha,
+        author: detail.author,
+        title: detail.title,
+        orgId: detail.orgId,
+      },
     });
-    console.log(`Deployment label added: ${config.deploymentLabel}`);
-    return;
-  }
-
-  await octokit.rest.repos.createDeployment({
-    owner,
-    repo,
-    ref: detail.headSha,
-    environment: config.deploymentEnvironment,
-    auto_merge: false,
-    required_contexts: config.deploymentRequiredContexts,
-    payload: {
-      executionId: detail.executionId,
-      prNumber: detail.prNumber,
-      repoFullName: detail.repoFullName,
-      deploymentStrategy: config.deploymentStrategy,
-      baseSha: detail.baseSha,
-      author: detail.author,
-      title: detail.title,
-      orgId: detail.orgId,
-    },
-  });
-  console.log('Deployment created via GitHub Deployments API');
+    console.log('Deployment created via GitHub Deployments API');
   } catch (error) {
     console.error('Failed to trigger deployment:', error);
     // Revert execution status if deployment trigger fails
