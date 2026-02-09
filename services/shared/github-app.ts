@@ -29,6 +29,35 @@ type GitHubRestClient = {
         issue_number: number;
         body: string;
       }) => Promise<unknown>;
+      addLabels: (params: {
+        owner: string;
+        repo: string;
+        issue_number: number;
+        labels: string[];
+      }) => Promise<unknown>;
+    };
+    repos: {
+      createDeployment: (params: {
+        owner: string;
+        repo: string;
+        ref: string;
+        required_contexts: string[];
+        environment?: string;
+        transient_environment?: boolean;
+        auto_merge?: boolean;
+        description?: string;
+        payload?: Record<string, unknown> | string;
+        production_environment?: boolean;
+      }) => Promise<{ data: { id: number } }>;
+      createDeploymentStatus: (params: {
+        owner: string;
+        repo: string;
+        deployment_id: number;
+        state: 'queued' | 'in_progress' | 'success' | 'failure' | 'error' | 'inactive';
+        environment_url?: string;
+        log_url?: string;
+        description?: string;
+      }) => Promise<unknown>;
     };
   };
 };

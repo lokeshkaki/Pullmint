@@ -1,8 +1,19 @@
 import { EventBridgeHandler } from 'aws-lambda';
 import { getGitHubInstallationClient } from '../shared/github-app';
+import { updateItem } from '../shared/dynamodb';
 import { PREvent, AnalysisResult } from '../shared/types';
 
 let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
+
+const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
+const AUTO_APPROVAL_THRESHOLD = Number(process.env.AUTO_APPROVAL_THRESHOLD || '30');
+const DEPLOYMENT_RISK_THRESHOLD = Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30');
+const DEPLOYMENT_STRATEGY = (process.env.DEPLOYMENT_STRATEGY || 'label') as
+  | 'label'
+  | 'deployment';
+const DEPLOYMENT_LABEL = process.env.DEPLOYMENT_LABEL || 'deploy:staging';
+const DEPLOYMENT_ENVIRONMENT = process.env.DEPLOYMENT_ENVIRONMENT || 'staging';
+const DEPLOYMENT_ENABLED = (process.env.DEPLOYMENT_ENABLED || 'true') === 'true';
 
 interface AnalysisCompleteEvent extends PREvent, AnalysisResult {}
 
@@ -39,7 +50,7 @@ export const handler: EventBridgeHandler<'analysis.complete', AnalysisCompleteEv
     console.log(`Successfully posted comment to PR #${detail.prNumber}`);
 
     // 4. If low risk, approve the PR
-    if (detail.riskScore < 30) {
+    if (detail.riskScore < AUTO_APPROVAL_THRESHOLD) {
       try {
         await octokitClient.rest.pulls.createReview({
           owner,
@@ -54,11 +65,79 @@ export const handler: EventBridgeHandler<'analysis.complete', AnalysisCompleteEv
         // Non-fatal - continue execution
       }
     }
+
+    // 5. If low risk and enabled, trigger deploy gate
+    if (DEPLOYMENT_ENABLED && detail.riskScore < DEPLOYMENT_RISK_THRESHOLD) {
+      await triggerDeployment(detail, owner, repo);
+    }
   } catch (error) {
     console.error('Error posting to GitHub:', error);
     throw error;
   }
 };
+
+async function triggerDeployment(
+  detail: AnalysisCompleteEvent,
+  owner: string,
+  repo: string
+): Promise<void> {
+  if (!octokitClient) {
+    throw new Error('GitHub client not initialized');
+  }
+
+  const deploymentBase = {
+    status: 'deploying',
+    deploymentStrategy: DEPLOYMENT_STRATEGY,
+    deploymentEnvironment: DEPLOYMENT_ENVIRONMENT,
+    deploymentStatus: 'queued',
+    deploymentUpdatedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  if (DEPLOYMENT_STRATEGY === 'label') {
+    await octokitClient.rest.issues.addLabels({
+      owner,
+      repo,
+      issue_number: detail.prNumber,
+      labels: [DEPLOYMENT_LABEL],
+    });
+
+    await updateItem(EXECUTIONS_TABLE_NAME, { executionId: detail.executionId }, deploymentBase);
+    return;
+  }
+
+  const deployment = await octokitClient.rest.repos.createDeployment({
+    owner,
+    repo,
+    ref: detail.headSha,
+    required_contexts: [],
+    environment: DEPLOYMENT_ENVIRONMENT,
+    transient_environment: true,
+    auto_merge: false,
+    description: 'Pullmint auto-deploy gate',
+    payload: {
+      executionId: detail.executionId,
+      repoFullName: detail.repoFullName,
+      prNumber: detail.prNumber,
+      headSha: detail.headSha,
+      riskScore: detail.riskScore,
+    },
+    production_environment: false,
+  });
+
+  await octokitClient.rest.repos.createDeploymentStatus({
+    owner,
+    repo,
+    deployment_id: deployment.data.id,
+    state: 'queued',
+    description: 'Queued by Pullmint',
+  });
+
+  await updateItem(EXECUTIONS_TABLE_NAME, { executionId: detail.executionId }, {
+    ...deploymentBase,
+    deploymentId: deployment.data.id,
+  });
+}
 
 /**
  * Build the PR comment body from analysis results
@@ -149,3 +228,10 @@ function getRiskEmoji(level: string): string {
       return '🟢';
   }
 }
+
+export const __test__ = {
+  setOctokitClient: (client: typeof octokitClient) => {
+    octokitClient = client;
+  },
+  triggerDeployment,
+};

@@ -13,5 +13,5 @@
     "types": ["node", "aws-lambda"]
   },
   "include": ["**/*.ts", "../shared/*.ts"],
-  "exclude": ["node_modules", "dist", "../shared/__tests__"]
+  "exclude": ["node_modules", "dist", "../shared/__tests__", "__tests__"]
 }

@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import * as crypto from 'crypto';
@@ -33,6 +33,7 @@ describe('Webhook Handler', () => {
       SecretString: WEBHOOK_SECRET,
     });
     ddbMock.on(PutCommand).resolves({});
+    ddbMock.on(UpdateCommand).resolves({});
     eventBridgeMock.on(PutEventsCommand).resolves({
       FailedEntryCount: 0,
       Entries: [{ EventId: 'test-event-id' }],
@@ -84,6 +85,34 @@ describe('Webhook Handler', () => {
       base: {
         sha: 'def0987654321abc',
       },
+    },
+    repository: {
+      full_name: 'owner/repo',
+      owner: {
+        id: 12345,
+        login: 'owner',
+      },
+    },
+  });
+
+  const createDeploymentStatusPayload = (options?: {
+    executionId?: string | null;
+    payload?: Record<string, unknown> | string | undefined;
+    state?: string;
+    environmentUrl?: string;
+    logUrl?: string;
+  }) => ({
+    deployment: {
+      id: 999,
+      environment: 'staging',
+      payload:
+        options?.payload ??
+        (options?.executionId ? { executionId: options.executionId } : undefined),
+    },
+    deployment_status: {
+      state: options?.state ?? 'success',
+      environment_url: options?.environmentUrl,
+      log_url: options?.logUrl ?? 'https://example.com/logs',
     },
     repository: {
       full_name: 'owner/repo',
@@ -212,6 +241,66 @@ describe('Webhook Handler', () => {
         message: 'Event type ignored',
       });
       expect(eventBridgeMock.calls()).toHaveLength(0);
+    });
+
+    it('should process deployment_status events', async () => {
+      const payload = createDeploymentStatusPayload({ executionId: 'owner/repo#123#abc1234' });
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Deployment status updated' });
+      expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+    });
+
+    it('should ignore deployment_status without executionId', async () => {
+      const payload = createDeploymentStatusPayload({ payload: { other: 'value' } });
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Deployment payload ignored' });
+    });
+
+    it('should accept execution_id from string payload', async () => {
+      const payload = createDeploymentStatusPayload({
+        payload: JSON.stringify({ execution_id: 'owner/repo#123#abc1234' }),
+        state: 'failure',
+        environmentUrl: undefined,
+      });
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
+    });
+
+    it('should ignore invalid JSON payload strings', async () => {
+      const payload = createDeploymentStatusPayload({
+        payload: 'not-json',
+      });
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Deployment payload ignored' });
+    });
+
+    it('should handle unknown deployment status as deploying', async () => {
+      const payload = createDeploymentStatusPayload({
+        executionId: 'owner/repo#123#abc1234',
+        state: 'in_progress',
+      });
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(1);
     });
 
     it('should process opened PRs', async () => {

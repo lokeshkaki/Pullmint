@@ -17,12 +17,18 @@ export interface PRExecution {
   repoFullName: string;
   prNumber: number;
   headSha: string;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed';
+  status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'deploying' | 'deployed';
   timestamp?: number;
   findings?: Finding[];
   riskScore?: number;
   error?: string;
   updatedAt?: number;
+  deploymentStrategy?: 'label' | 'deployment';
+  deploymentEnvironment?: string;
+  deploymentStatus?: string;
+  deploymentId?: number;
+  deploymentUrl?: string;
+  deploymentUpdatedAt?: number;
 }
 
 export interface Finding {
@@ -62,6 +68,26 @@ export interface GitHubPRPayload {
     base: {
       sha: string;
     };
+  };
+  repository: {
+    full_name: string;
+    owner: {
+      id: number;
+      login: string;
+    };
+  };
+}
+
+export interface GitHubDeploymentStatusPayload {
+  deployment: {
+    id: number;
+    environment?: string;
+    payload?: Record<string, unknown> | string;
+  };
+  deployment_status: {
+    state: string;
+    environment_url?: string;
+    log_url?: string;
   };
   repository: {
     full_name: string;

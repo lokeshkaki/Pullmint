@@ -25,6 +25,12 @@ export class WebhookStack extends cdk.Stack {
       );
     }
     const githubInstallationId = process.env.GITHUB_APP_INSTALLATION_ID;
+    const deploymentStrategy = process.env.DEPLOYMENT_STRATEGY || 'label';
+    const deploymentLabel = process.env.DEPLOYMENT_LABEL || 'deploy:staging';
+    const deploymentEnvironment = process.env.DEPLOYMENT_ENVIRONMENT || 'staging';
+    const deploymentEnabled = process.env.DEPLOYMENT_ENABLED || 'true';
+    const deploymentRiskThreshold = process.env.DEPLOYMENT_RISK_THRESHOLD || '30';
+    const autoApprovalThreshold = process.env.AUTO_APPROVAL_THRESHOLD || '30';
 
     // ===========================
     // Secrets Manager
@@ -173,12 +179,19 @@ export class WebhookStack extends cdk.Stack {
         GITHUB_APP_ID: githubAppId ?? '',
         ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        DEPLOYMENT_STRATEGY: deploymentStrategy,
+        DEPLOYMENT_LABEL: deploymentLabel,
+        DEPLOYMENT_ENVIRONMENT: deploymentEnvironment,
+        DEPLOYMENT_ENABLED: deploymentEnabled,
+        DEPLOYMENT_RISK_THRESHOLD: deploymentRiskThreshold,
+        AUTO_APPROVAL_THRESHOLD: autoApprovalThreshold,
       },
       bundling: {
         minify: true,
         sourceMap: true,
       },
     });
+
 
     // ===========================
     // Permissions
@@ -200,6 +213,7 @@ export class WebhookStack extends cdk.Stack {
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
     executionsTable.grantReadWriteData(githubIntegration);
+
 
     // ===========================
     // EventBridge Rules
@@ -259,6 +273,7 @@ export class WebhookStack extends cdk.Stack {
       methodResponses: [{ statusCode: '202' }, { statusCode: '401' }, { statusCode: '500' }],
     });
 
+
     // ===========================
     // Outputs
     // ===========================
@@ -270,6 +285,7 @@ export class WebhookStack extends cdk.Stack {
       description: 'Webhook URL for GitHub',
       exportName: 'PullmintWebhookURL',
     });
+
 
     new cdk.CfnOutput(this, 'WebhookSecretArn', {
       value: githubWebhookSecret.secretArn,
