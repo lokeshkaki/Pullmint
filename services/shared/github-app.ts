@@ -46,6 +46,12 @@ type GitHubRestClient = {
         required_contexts?: string[];
         payload?: Record<string, unknown>;
       }) => Promise<unknown>;
+      getCombinedStatusForRef: (params: { owner: string; repo: string; ref: string }) => Promise<{
+        data: {
+          state: string;
+          statuses: { context?: string; state?: string }[];
+        };
+      }>;
     };
   };
 };

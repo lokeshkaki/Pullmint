@@ -31,7 +31,6 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 
 - Node.js 20 + TypeScript
 - AWS Lambda (serverless compute)
-- AWS Step Functions (workflow orchestration)
 - Amazon EventBridge (event routing)
 - DynamoDB (state management + caching)
 - Amazon SQS (message queuing)
@@ -40,7 +39,6 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 **AI/LLM:**
 
 - Anthropic Claude Sonnet 4.5 (code analysis)
-- Semgrep (SAST security scanning)
 
 **Infrastructure:**
 
@@ -183,7 +181,19 @@ Pullmint supports risk-gated automatic deployments with the following environmen
 - `DEPLOYMENT_ENVIRONMENT` (default: `staging`) - Target environment name
 - `DEPLOYMENT_LABEL` (default: `deploy:staging`) - Label to add for label-based strategy
 
-**Note:** The current deployment orchestrator is a mock implementation for testing. See TODO comments in `services/deployment-orchestrator/index.ts` for integration points with real deployment systems (CodeDeploy, ECS, Kubernetes, etc.).
+**Deployment Orchestrator Webhooks:**
+
+- `DEPLOYMENT_WEBHOOK_URL` (required for real deployments) - HTTP endpoint to trigger deployments
+- `DEPLOYMENT_WEBHOOK_AUTH_TOKEN` (optional) - Bearer token for webhook authentication
+- `DEPLOYMENT_WEBHOOK_TIMEOUT_MS` (default: `10000`) - Webhook timeout in ms
+- `DEPLOYMENT_WEBHOOK_RETRIES` (default: `2`) - Retry attempts for webhook failures
+- `DEPLOYMENT_ROLLBACK_WEBHOOK_URL` (optional) - HTTP endpoint to trigger rollback
+
+**Deployment Config (optional):**
+
+- `DEPLOYMENT_CONFIG` - JSON configuration that can replace individual deployment env vars
+
+**Note:** Deployment orchestration triggers an external deployment webhook. Configure `DEPLOYMENT_WEBHOOK_URL` to integrate with your deployment system.
 
 ## Monitoring and Observability
 
@@ -191,9 +201,9 @@ Pullmint includes CloudWatch monitoring for production reliability:
 
 **CloudWatch Alarms:**
 
-- `pullmint-deployment-orchestrator-errors` - Alerts when deployment orchestrator has elevated error rate (≥3 errors in 5 minutes)
-- `pullmint-github-integration-errors` - Alerts when GitHub integration has elevated error rate (≥5 errors in 5 minutes)
-- `pullmint-webhook-handler-errors` - Alerts when webhook handler has elevated error rate (≥5 errors in 5 minutes)
+- `pullmint-deployment-orchestrator-errors` - Alerts at ≥3 errors/5m (deployment runs are lower volume)
+- `pullmint-github-integration-errors` - Alerts at ≥5 errors/5m (higher throughput)
+- `pullmint-webhook-handler-errors` - Alerts at ≥5 errors/5m (higher throughput)
 
 **Lambda Metrics:**
 

@@ -73,6 +73,23 @@ npm run deploy
 # - ExecutionsTableName
 ```
 
+### 2.2 Configure Deployment Webhook (Optional)
+
+To enable real deployments, configure a deployment webhook URL:
+
+```bash
+export DEPLOYMENT_WEBHOOK_URL=https://your-deployment-endpoint.example.com
+export DEPLOYMENT_WEBHOOK_AUTH_TOKEN=your-bearer-token
+export DEPLOYMENT_WEBHOOK_TIMEOUT_MS=10000
+export DEPLOYMENT_WEBHOOK_RETRIES=2
+```
+
+To enable rollback on failures, provide a rollback webhook URL:
+
+```bash
+export DEPLOYMENT_ROLLBACK_WEBHOOK_URL=https://your-rollback-endpoint.example.com
+```
+
 ### 2.2 Save Deployment Outputs
 
 Copy the following outputs from the deployment:

@@ -114,6 +114,11 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    const deploymentDLQ = new sqs.Queue(this, 'DeploymentDLQ', {
+      queueName: 'pullmint-deployment-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
     // ===========================
     // Lambda Functions
     // ===========================
@@ -175,13 +180,18 @@ export class WebhookStack extends cdk.Stack {
         ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         EVENT_BUS_NAME: this.eventBus.eventBusName,
-        DEPLOYMENT_STRATEGY: process.env.DEPLOYMENT_STRATEGY || 'eventbridge',
-        DEPLOYMENT_RISK_THRESHOLD: process.env.DEPLOYMENT_RISK_THRESHOLD || '30',
-        AUTO_APPROVE_RISK_THRESHOLD: process.env.AUTO_APPROVE_RISK_THRESHOLD || '30',
-        DEPLOYMENT_LABEL: process.env.DEPLOYMENT_LABEL || 'deploy:staging',
-        DEPLOYMENT_ENVIRONMENT: process.env.DEPLOYMENT_ENVIRONMENT || 'staging',
-        DEPLOYMENT_REQUIRE_TESTS: process.env.DEPLOYMENT_REQUIRE_TESTS || 'false',
-        DEPLOYMENT_REQUIRED_CONTEXTS: process.env.DEPLOYMENT_REQUIRED_CONTEXTS || '',
+        DEPLOYMENT_CONFIG: JSON.stringify({
+          deploymentStrategy: process.env.DEPLOYMENT_STRATEGY || 'eventbridge',
+          deploymentRiskThreshold: Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30'),
+          autoApproveRiskThreshold: Number(process.env.AUTO_APPROVE_RISK_THRESHOLD || '30'),
+          deploymentLabel: process.env.DEPLOYMENT_LABEL || 'deploy:staging',
+          deploymentEnvironment: process.env.DEPLOYMENT_ENVIRONMENT || 'staging',
+          deploymentRequireTests: (process.env.DEPLOYMENT_REQUIRE_TESTS || 'false') === 'true',
+          deploymentRequiredContexts: (process.env.DEPLOYMENT_REQUIRED_CONTEXTS || '')
+            .split(',')
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0),
+        }),
       },
       bundling: {
         minify: true,
@@ -200,7 +210,12 @@ export class WebhookStack extends cdk.Stack {
       environment: {
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
-        DEPLOYMENT_RESULT: process.env.DEPLOYMENT_RESULT || 'success',
+        DEPLOYMENT_WEBHOOK_URL: process.env.DEPLOYMENT_WEBHOOK_URL || '',
+        DEPLOYMENT_WEBHOOK_AUTH_TOKEN: process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN || '',
+        DEPLOYMENT_WEBHOOK_TIMEOUT_MS: process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS || '10000',
+        DEPLOYMENT_WEBHOOK_RETRIES: process.env.DEPLOYMENT_WEBHOOK_RETRIES || '2',
+        DEPLOYMENT_ROLLBACK_WEBHOOK_URL: process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL || '',
+        DEPLOYMENT_DELAY_MS: process.env.DEPLOYMENT_DELAY_MS || '0',
       },
       bundling: {
         minify: true,
@@ -211,11 +226,6 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // Permissions
     // ===========================
-    // TODO: Refine IAM policies for least-privilege access (see Pullmint PR #13 review)
-    // - Add resource-level restrictions where possible (e.g., specific DynamoDB items)
-    // - Implement separate read/write roles for different stages
-    // - Add condition keys for enhanced security
-
     // Webhook handler permissions
     this.eventBus.grantPutEventsTo(webhookHandler);
     githubWebhookSecret.grantRead(webhookHandler);
@@ -269,7 +279,13 @@ export class WebhookStack extends cdk.Stack {
         source: ['pullmint.review'],
         detailType: ['deployment_approved'],
       },
-      targets: [new targets.LambdaFunction(deploymentOrchestrator)],
+      targets: [
+        new targets.LambdaFunction(deploymentOrchestrator, {
+          deadLetterQueue: deploymentDLQ,
+          retryAttempts: 2,
+          maxEventAge: cdk.Duration.hours(2),
+        }),
+      ],
     });
 
     // Route deployment status updates to GitHub integration

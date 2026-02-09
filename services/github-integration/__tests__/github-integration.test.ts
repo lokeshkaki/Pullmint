@@ -1,6 +1,6 @@
 import { handler, buildCommentBody, getRiskEmoji, getRiskLevel } from '../index';
 import { publishEvent } from '../../shared/eventbridge';
-import { updateItem } from '../../shared/dynamodb';
+import { updateItem, updateItemConditional } from '../../shared/dynamodb';
 import { getGitHubInstallationClient } from '../../shared/github-app';
 
 jest.mock('../../shared/eventbridge', () => ({
@@ -9,12 +9,14 @@ jest.mock('../../shared/eventbridge', () => ({
 
 jest.mock('../../shared/dynamodb', () => ({
   updateItem: jest.fn(),
+  updateItemConditional: jest.fn(),
 }));
 
 const createComment = jest.fn();
 const createReview = jest.fn();
 const addLabels = jest.fn();
 const createDeployment = jest.fn();
+const getCombinedStatusForRef = jest.fn();
 
 jest.mock('../../shared/github-app', () => ({
   getGitHubInstallationClient: jest.fn(),
@@ -57,9 +59,16 @@ describe('GitHub Integration', () => {
         },
         repos: {
           createDeployment,
+          getCombinedStatusForRef,
         },
       },
     });
+
+    getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'success', statuses: [] },
+    });
+
+    (updateItemConditional as jest.Mock).mockResolvedValue(undefined);
 
     process.env.EXECUTIONS_TABLE_NAME = 'exec-table';
     process.env.EVENT_BUS_NAME = 'test-bus';
@@ -82,7 +91,7 @@ describe('GitHub Integration', () => {
     expect(createComment).toHaveBeenCalledTimes(1);
     expect(createReview).toHaveBeenCalledTimes(1);
     expect(addLabels).toHaveBeenCalledTimes(1);
-    expect(updateItem).toHaveBeenCalled();
+    expect(updateItemConditional).toHaveBeenCalled();
   });
 
   it('skips deployment for high risk scores', async () => {
@@ -143,6 +152,47 @@ describe('GitHub Integration', () => {
     );
   });
 
+  it('falls back to env vars on invalid deployment config JSON', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    process.env.DEPLOYMENT_CONFIG = '{invalid-json';
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+    delete process.env.DEPLOYMENT_CONFIG;
+  });
+
+  it('uses required contexts from deployment config', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    process.env.DEPLOYMENT_CONFIG = JSON.stringify({
+      deploymentRequiredContexts: ['ci', 'security'],
+    });
+
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: {
+        state: 'success',
+        statuses: [
+          { context: 'ci', state: 'success' },
+          { context: 'security', state: 'success' },
+        ],
+      },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).toHaveBeenCalled();
+    delete process.env.DEPLOYMENT_CONFIG;
+  });
+
   it('creates GitHub deployment when strategy is deployment', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'deployment';
 
@@ -179,6 +229,34 @@ describe('GitHub Integration', () => {
         deploymentMessage: 'Deployment trigger failed: boom',
       })
     );
+  });
+
+  it('skips deployment when approval already recorded', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    (updateItemConditional as jest.Mock).mockRejectedValueOnce({
+      name: 'ConditionalCheckFailedException',
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).not.toHaveBeenCalled();
+    expect(createDeployment).not.toHaveBeenCalled();
+    expect(addLabels).not.toHaveBeenCalled();
+  });
+
+  it('surfaces conditional update failures', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    (updateItemConditional as jest.Mock).mockRejectedValueOnce(new Error('ddb'));
+
+    await expect(
+      invokeHandler({
+        'detail-type': 'analysis.complete',
+        detail: baseDetail,
+      } as any)
+    ).rejects.toThrow('ddb');
   });
 
   it('logs and continues when auto-approve fails', async () => {
@@ -244,6 +322,9 @@ describe('GitHub Integration', () => {
   it('blocks deployment when tests are required but missing', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
     process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: { state: 'pending', statuses: [] },
+    });
 
     await invokeHandler({
       'detail-type': 'analysis.complete',
@@ -251,6 +332,103 @@ describe('GitHub Integration', () => {
     } as any);
 
     expect(publishEvent).not.toHaveBeenCalled();
+    expect(updateItemConditional).not.toHaveBeenCalled();
+  });
+
+  it('blocks deployment when combined status is not success', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    process.env.DEPLOYMENT_REQUIRED_CONTEXTS = '';
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: { state: 'failure', statuses: [] },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
+
+  it('allows deployment when required contexts are successful', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    process.env.DEPLOYMENT_REQUIRED_CONTEXTS = 'ci,security';
+
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: {
+        state: 'success',
+        statuses: [
+          { context: 'ci', state: 'success' },
+          { context: 'security', state: 'success' },
+        ],
+      },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).toHaveBeenCalled();
+  });
+
+  it('blocks deployment when required contexts are missing', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    process.env.DEPLOYMENT_REQUIRED_CONTEXTS = 'ci,security';
+
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: {
+        state: 'success',
+        statuses: [{ context: 'ci', state: 'success' }],
+      },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
+
+  it('blocks deployment when statuses are missing', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    process.env.DEPLOYMENT_REQUIRED_CONTEXTS = 'ci';
+
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: { state: 'success' },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
+
+  it('ignores malformed status entries when checking contexts', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    process.env.DEPLOYMENT_REQUIRED_CONTEXTS = 'ci';
+
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: {
+        state: 'success',
+        statuses: [{ context: 'ci', state: 'success' }, { state: 'success' }, { context: 'lint' }],
+      },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(publishEvent).toHaveBeenCalled();
   });
 
   it('ignores unknown event detail types', async () => {

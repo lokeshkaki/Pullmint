@@ -1,7 +1,7 @@
 import { EventBridgeHandler } from 'aws-lambda';
 import { getGitHubInstallationClient } from '../shared/github-app';
 import { publishEvent } from '../shared/eventbridge';
-import { updateItem } from '../shared/dynamodb';
+import { updateItem, updateItemConditional } from '../shared/dynamodb';
 import {
   PREvent,
   AnalysisResult,
@@ -145,27 +145,49 @@ async function maybeTriggerDeployment(
     return;
   }
 
-  if (config.deploymentRequireTests && detail.testsPassed !== true) {
-    console.log('Deployment blocked: tests required but not marked as passed.');
-    return;
-  }
-
   const [owner, repo] = detail.repoFullName.split('/');
   const octokit = await getOctokitClient(detail.repoFullName);
 
-  // Record deployment approval timestamp
-  await updateItem(
-    config.executionsTableName,
-    { executionId: detail.executionId },
-    {
-      status: 'deploying',
-      deploymentStatus: 'deploying',
-      deploymentEnvironment: config.deploymentEnvironment,
-      deploymentStrategy: config.deploymentStrategy,
-      deploymentApprovedAt: Date.now(),
-      updatedAt: Date.now(),
+  if (config.deploymentRequireTests && detail.testsPassed !== true) {
+    const checksPassed = await areRequiredChecksPassing(
+      octokit,
+      owner,
+      repo,
+      detail.headSha,
+      config.deploymentRequiredContexts
+    );
+
+    if (!checksPassed) {
+      console.log('Deployment blocked: tests required but not marked as passed.');
+      return;
     }
-  );
+  }
+
+  // Record deployment approval timestamp
+  try {
+    await updateItemConditional(
+      config.executionsTableName,
+      { executionId: detail.executionId },
+      {
+        status: 'deploying',
+        deploymentStatus: 'deploying',
+        deploymentEnvironment: config.deploymentEnvironment,
+        deploymentStrategy: config.deploymentStrategy,
+        deploymentApprovedAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      {
+        conditionExpression: 'attribute_not_exists(#deploymentApprovedAt)',
+        conditionAttributeNames: { '#deploymentApprovedAt': 'deploymentApprovedAt' },
+      }
+    );
+  } catch (error) {
+    if ((error as { name?: string }).name === 'ConditionalCheckFailedException') {
+      console.log(`Deployment already approved for execution ${detail.executionId}, skipping.`);
+      return;
+    }
+    throw error;
+  }
 
   try {
     if (config.deploymentStrategy === 'eventbridge') {
@@ -237,6 +259,35 @@ async function maybeTriggerDeployment(
     );
     throw error;
   }
+}
+
+async function areRequiredChecksPassing(
+  octokit: Awaited<ReturnType<typeof getGitHubInstallationClient>>,
+  owner: string,
+  repo: string,
+  ref: string,
+  requiredContexts: string[]
+): Promise<boolean> {
+  const response = await octokit.rest.repos.getCombinedStatusForRef({
+    owner,
+    repo,
+    ref,
+  });
+
+  const statuses = response.data.statuses || [];
+
+  if (requiredContexts.length === 0) {
+    return response.data.state === 'success';
+  }
+
+  const statusByContext = new Map<string, string>();
+  for (const status of statuses) {
+    if (status.context && status.state) {
+      statusByContext.set(status.context, status.state);
+    }
+  }
+
+  return requiredContexts.every((context) => statusByContext.get(context) === 'success');
 }
 
 async function getOctokitClient(repoFullName: string) {
@@ -380,17 +431,39 @@ function getDeploymentConfig(): DeploymentConfig {
     throw new Error('EXECUTIONS_TABLE_NAME is required');
   }
 
+  let parsedConfig: Partial<DeploymentConfig> = {};
+  if (process.env.DEPLOYMENT_CONFIG) {
+    try {
+      parsedConfig = JSON.parse(process.env.DEPLOYMENT_CONFIG) as Partial<DeploymentConfig>;
+    } catch (error) {
+      console.error('Invalid DEPLOYMENT_CONFIG JSON, falling back to env vars:', error);
+    }
+  }
+
+  const rawRequiredContexts =
+    Array.isArray(parsedConfig.deploymentRequiredContexts) &&
+    parsedConfig.deploymentRequiredContexts.length > 0
+      ? parsedConfig.deploymentRequiredContexts
+      : parseCsv(process.env.DEPLOYMENT_REQUIRED_CONTEXTS || '');
+
   return {
-    deploymentRiskThreshold: Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30'),
-    autoApproveRiskThreshold: Number(process.env.AUTO_APPROVE_RISK_THRESHOLD || '30'),
-    deploymentStrategy: (process.env.DEPLOYMENT_STRATEGY || 'eventbridge') as
-      | 'eventbridge'
-      | 'label'
-      | 'deployment',
-    deploymentLabel: process.env.DEPLOYMENT_LABEL || 'deploy:staging',
-    deploymentEnvironment: process.env.DEPLOYMENT_ENVIRONMENT || 'staging',
-    deploymentRequireTests: (process.env.DEPLOYMENT_REQUIRE_TESTS || 'false') === 'true',
-    deploymentRequiredContexts: parseCsv(process.env.DEPLOYMENT_REQUIRED_CONTEXTS || ''),
+    deploymentRiskThreshold: Number(
+      parsedConfig.deploymentRiskThreshold ?? process.env.DEPLOYMENT_RISK_THRESHOLD ?? '30'
+    ),
+    autoApproveRiskThreshold: Number(
+      parsedConfig.autoApproveRiskThreshold ?? process.env.AUTO_APPROVE_RISK_THRESHOLD ?? '30'
+    ),
+    deploymentStrategy: (parsedConfig.deploymentStrategy ||
+      process.env.DEPLOYMENT_STRATEGY ||
+      'eventbridge') as 'eventbridge' | 'label' | 'deployment',
+    deploymentLabel:
+      parsedConfig.deploymentLabel || process.env.DEPLOYMENT_LABEL || 'deploy:staging',
+    deploymentEnvironment:
+      parsedConfig.deploymentEnvironment || process.env.DEPLOYMENT_ENVIRONMENT || 'staging',
+    deploymentRequireTests:
+      parsedConfig.deploymentRequireTests ??
+      (process.env.DEPLOYMENT_REQUIRE_TESTS || 'false') === 'true',
+    deploymentRequiredContexts: rawRequiredContexts,
     eventBusName: process.env.EVENT_BUS_NAME,
     executionsTableName,
   };
