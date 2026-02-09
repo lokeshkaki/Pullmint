@@ -50,6 +50,9 @@ type PREventEnvelope = { detail: PREvent & { executionId: string } };
 
 /**
  * Architecture Agent - Analyzes PR for architecture quality
+ * 
+ * TODO: Add DLQ for failed analysis attempts (see Pullmint PR #13 review)
+ * TODO: Implement retry logic with exponential backoff for transient failures
  */
 export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
   for (const record of event.Records) {

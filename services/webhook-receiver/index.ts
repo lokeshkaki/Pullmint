@@ -193,6 +193,13 @@ function buildDeploymentStatusDetail(
   }
 
   const deploymentStatus = mapDeploymentStatus(payload.deployment_status.state);
+  
+  // Ignore inactive deployments
+  if (deploymentStatus === null) {
+    console.log('Deployment status is inactive, ignoring.');
+    return null;
+  }
+
   const deploymentEnvironment = payload.deployment.environment;
   const deploymentStrategy = deploymentPayload.deploymentStrategy || 'deployment';
 
@@ -214,7 +221,7 @@ function buildDeploymentStatusDetail(
 
 function mapDeploymentStatus(
   state: GitHubDeploymentStatusPayload['deployment_status']['state']
-): 'deploying' | 'deployed' | 'failed' {
+): 'deploying' | 'deployed' | 'failed' | null {
   if (state === 'success') {
     return 'deployed';
   }
@@ -223,5 +230,11 @@ function mapDeploymentStatus(
     return 'deploying';
   }
 
+  // Inactive status indicates deployment was deactivated, not failed
+  if (state === 'inactive') {
+    return null;
+  }
+
+  // failure, error, or other states map to failed
   return 'failed';
 }

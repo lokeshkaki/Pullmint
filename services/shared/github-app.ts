@@ -63,10 +63,11 @@ type GitHubAppClient = {
 export type GitHubClient = GitHubRestClient;
 
 let installationClient: GitHubClient | undefined;
+let cachedRepoFullName: string | undefined;
 let appClient: GitHubAppClient | undefined;
 
 export async function getGitHubInstallationClient(repoFullName: string): Promise<GitHubClient> {
-  if (installationClient) {
+  if (installationClient && cachedRepoFullName === repoFullName) {
     return installationClient;
   }
 
@@ -89,5 +90,6 @@ export async function getGitHubInstallationClient(repoFullName: string): Promise
   }
 
   installationClient = await appClient.getInstallationOctokit(installationId);
+  cachedRepoFullName = repoFullName;
   return installationClient;
 }

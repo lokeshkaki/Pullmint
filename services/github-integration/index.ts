@@ -97,9 +97,12 @@ async function handleDeploymentStatus(detail: DeploymentStatusEvent): Promise<vo
     deploymentStatus: detail.deploymentStatus,
     deploymentEnvironment: detail.deploymentEnvironment,
     deploymentStrategy: detail.deploymentStrategy,
-    deploymentMessage: detail.message,
     updatedAt: Date.now(),
   };
+
+  if (detail.message !== undefined) {
+    updates.deploymentMessage = detail.message;
+  }
 
   if (detail.deploymentStatus === 'deploying') {
     updates.status = 'deploying';
@@ -116,6 +119,8 @@ async function handleDeploymentStatus(detail: DeploymentStatusEvent): Promise<vo
     updates.deploymentCompletedAt = Date.now();
   }
 
+  // TODO: Implement optimistic locking for concurrent updates (see Pullmint PR #13 review)
+  // Add version field to PRExecution and use conditional updates to prevent race conditions
   await updateItem(config.executionsTableName, { executionId: detail.executionId }, updates);
 
   if (detail.deploymentStatus === 'deployed' || detail.deploymentStatus === 'failed') {
@@ -148,6 +153,7 @@ async function maybeTriggerDeployment(
   const [owner, repo] = detail.repoFullName.split('/');
   const octokit = await getOctokitClient(detail.repoFullName);
 
+  // Record deployment approval timestamp
   await updateItem(
     config.executionsTableName,
     { executionId: detail.executionId },
@@ -156,12 +162,13 @@ async function maybeTriggerDeployment(
       deploymentStatus: 'deploying',
       deploymentEnvironment: config.deploymentEnvironment,
       deploymentStrategy: config.deploymentStrategy,
-      deploymentStartedAt: Date.now(),
+      deploymentApprovedAt: Date.now(),
       updatedAt: Date.now(),
     }
   );
 
-  if (config.deploymentStrategy === 'eventbridge') {
+  try {
+    if (config.deploymentStrategy === 'eventbridge') {
     if (!config.eventBusName) {
       throw new Error('EVENT_BUS_NAME is required for eventbridge deployment strategy');
     }
@@ -214,6 +221,22 @@ async function maybeTriggerDeployment(
     },
   });
   console.log('Deployment created via GitHub Deployments API');
+  } catch (error) {
+    console.error('Failed to trigger deployment:', error);
+    // Revert execution status if deployment trigger fails
+    await updateItem(
+      config.executionsTableName,
+      { executionId: detail.executionId },
+      {
+        status: 'failed',
+        deploymentStatus: 'failed',
+        deploymentMessage: `Deployment trigger failed: ${error instanceof Error ? error.message : String(error)}`,
+        deploymentCompletedAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+    );
+    throw error;
+  }
 }
 
 async function getOctokitClient(repoFullName: string) {

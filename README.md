@@ -149,12 +149,62 @@ Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading fro
 ## How It Works
 
 1. **PR Created/Updated** → GitHub sends webhook event
-2. **Webhook Receiver** → Validates signature, creates execution record
-3. **EventBridge** → Routes event to LLM agent queue
-4. **Architecture Agent** → Fetches PR diff, analyzes with Claude Sonnet 4.5
-5. **GitHub Integration** → Posts findings as PR comment
-6. **Risk Gate (Phase B)** → Low-risk PRs can trigger a staging deploy via GitHub Actions
-7. **Auto-Approval** → Low-risk PRs (score < 30) automatically approved
+2. **Webhook Receiver** → Validates signature, creates execution record, publishes to EventBridge
+3. **EventBridge** → Routes event to LLM agent queue (SQS)
+4. **Architecture Agent** → Fetches PR diff, analyzes with Claude Sonnet 4.5, publishes results
+5. **GitHub Integration** → Posts findings as PR comment, evaluates deployment gates
+6. **Risk Gate (Phase B)** → Low-risk PRs (score < 30) trigger deployment orchestration
+7. **Deployment Orchestrator** → Executes deployment, updates status in DynamoDB and GitHub
+8. **Auto-Approval** → Low-risk PRs (score < 30) automatically approved
+
+## Deployment Configuration
+
+Pullmint supports risk-gated automatic deployments with the following environment variables:
+
+**Risk Thresholds:**
+- `DEPLOYMENT_RISK_THRESHOLD` (default: `30`) - Maximum risk score to allow deployment
+- `AUTO_APPROVE_RISK_THRESHOLD` (default: `30`) - Maximum risk score to auto-approve PR
+
+**Deployment Strategy:**
+- `DEPLOYMENT_STRATEGY` (default: `eventbridge`) - Options: `eventbridge`, `label`, `deployment`
+  - `eventbridge`: Trigger deployment via EventBridge orchestrator (recommended)
+  - `label`: Add deployment label to PR (legacy)
+  - `deployment`: Create GitHub deployment event (future)
+
+**Deployment Gates:**
+- `DEPLOYMENT_REQUIRE_TESTS` (default: `false`) - Block deployment until tests pass
+- `DEPLOYMENT_REQUIRED_CONTEXTS` (CSV) - List of required GitHub status checks (e.g., `ci,security-scan`)
+
+**Deployment Environment:**
+- `DEPLOYMENT_ENVIRONMENT` (default: `staging`) - Target environment name
+- `DEPLOYMENT_LABEL` (default: `deploy:staging`) - Label to add for label-based strategy
+
+**Note:** The current deployment orchestrator is a mock implementation for testing. See TODO comments in `services/deployment-orchestrator/index.ts` for integration points with real deployment systems (CodeDeploy, ECS, Kubernetes, etc.).
+
+## Monitoring and Observability
+
+Pullmint includes CloudWatch monitoring for production reliability:
+
+**CloudWatch Alarms:**
+- `pullmint-deployment-orchestrator-errors` - Alerts when deployment orchestrator has elevated error rate (≥3 errors in 5 minutes)
+- `pullmint-github-integration-errors` - Alerts when GitHub integration has elevated error rate (≥5 errors in 5 minutes)
+- `pullmint-webhook-handler-errors` - Alerts when webhook handler has elevated error rate (≥5 errors in 5 minutes)
+
+**Lambda Metrics:**
+- All Lambda functions expose standard metrics: Invocations, Errors, Duration, Throttles
+- Use CloudWatch Logs Insights to query execution logs and trace request flows
+
+**DynamoDB Metrics:**
+- Read/Write capacity monitoring for `pullmint-executions`, `pullmint-cache`, and `pullmint-dedup` tables
+- Prevent throttling with auto-scaling or on-demand billing
+
+**EventBridge Metrics:**
+- Event publishing success/failure rates
+- Rule invocation counts and failed invocations
+
+**Recommended Dashboards:**
+- Create CloudWatch dashboards to visualize PR processing latency, deployment success rate, and error rates
+- Set up SNS topics for alarm notifications
 
 ## Cost Breakdown
 
@@ -188,10 +238,13 @@ Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading fro
 - [x] End-to-end testing
 - [x] Documentation
 
-**Phase 2: Auto-Deploy and Dashboard** (PLANNED)
+**Phase 2: Auto-Deploy and Dashboard** (IN PROGRESS)
 
-- [ ] GitHub Actions deployment trigger (label or deployment event)
-- [ ] Deployment status sync back to Pullmint
+- [x] EventBridge-driven deployment orchestrator
+- [x] Risk-gated deployment triggers (score < 30)
+- [x] Test gate support for deployment approval
+- [x] Deployment status sync to GitHub and DynamoDB
+- [x] CloudWatch monitoring and alarms
 - [ ] Dashboard API for execution history
 - [ ] Lightweight UI with polling
 

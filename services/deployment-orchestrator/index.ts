@@ -31,6 +31,8 @@ export const handler: EventBridgeHandler<
 
   const outcome = await performDeployment(detail, config);
 
+  // TODO: Implement automated rollback on deployment failures (see Pullmint PR #13 review)
+  // Add rollback strategy configuration and integrate with deployment system
   await updateItem(
     config.executionsTableName,
     { executionId: detail.executionId },
@@ -106,6 +108,8 @@ function getDeploymentConfig(): DeploymentConfig {
   return {
     eventBusName,
     executionsTableName,
+    // TODO: Remove DEPLOYMENT_RESULT env var anti-pattern (see Pullmint PR #13 review)
+    // Replace with proper deployment integration (e.g., CodeDeploy, ECS, K8s API calls)
     deploymentResult: process.env.DEPLOYMENT_RESULT || 'success',
     deploymentDelayMs: Number(process.env.DEPLOYMENT_DELAY_MS || '0'),
   };

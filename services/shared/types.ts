@@ -27,6 +27,7 @@ export interface PRExecution {
   deploymentEnvironment?: string;
   deploymentStrategy?: 'eventbridge' | 'label' | 'deployment';
   deploymentMessage?: string;
+  deploymentApprovedAt?: number;
   deploymentStartedAt?: number;
   deploymentCompletedAt?: number;
 }

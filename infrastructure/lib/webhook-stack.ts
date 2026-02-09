@@ -6,6 +6,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
@@ -210,6 +211,10 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // Permissions
     // ===========================
+    // TODO: Refine IAM policies for least-privilege access (see Pullmint PR #13 review)
+    // - Add resource-level restrictions where possible (e.g., specific DynamoDB items)
+    // - Implement separate read/write roles for different stages
+    // - Add condition keys for enhanced security
 
     // Webhook handler permissions
     this.eventBus.grantPutEventsTo(webhookHandler);
@@ -309,6 +314,49 @@ export class WebhookStack extends cdk.Stack {
     const webhookResource = api.root.addResource('webhook');
     webhookResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler), {
       methodResponses: [{ statusCode: '202' }, { statusCode: '401' }, { statusCode: '500' }],
+    });
+
+    // ===========================
+    // CloudWatch Alarms
+    // ===========================
+
+    // Deployment orchestrator error alarm
+    new cloudwatch.Alarm(this, 'DeploymentOrchestratorErrors', {
+      alarmName: 'pullmint-deployment-orchestrator-errors',
+      alarmDescription: 'Alert when deployment orchestrator has elevated error rate',
+      metric: deploymentOrchestrator.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // GitHub integration error alarm
+    new cloudwatch.Alarm(this, 'GitHubIntegrationErrors', {
+      alarmName: 'pullmint-github-integration-errors',
+      alarmDescription: 'Alert when GitHub integration has elevated error rate',
+      metric: githubIntegration.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Webhook handler error alarm
+    new cloudwatch.Alarm(this, 'WebhookHandlerErrors', {
+      alarmName: 'pullmint-webhook-handler-errors',
+      alarmDescription: 'Alert when webhook handler has elevated error rate',
+      metric: webhookHandler.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
     // ===========================
