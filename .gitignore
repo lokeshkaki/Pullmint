@@ -1,5 +1,6 @@
 # Local Dev
 .local/
+.serena/
 
 # Dependencies
 node_modules/
