@@ -1,4 +1,4 @@
-import type { SQSEvent } from 'aws-lambda';
+import type { SQSEvent, SQSRecord } from 'aws-lambda';
 
 jest.mock('../../../shared/github-app', () => ({
   getGitHubInstallationClient: jest.fn(),
@@ -34,6 +34,8 @@ type OctokitMock = {
   rest: { pulls: { get: jest.Mock } };
 };
 
+type HandlerFn = (event: SQSEvent) => Promise<void>;
+
 const getSharedMocks = () => ({
   getGitHubInstallationClient: jest.requireMock('../../../shared/github-app')
     .getGitHubInstallationClient as jest.Mock,
@@ -54,13 +56,30 @@ const loadHandler = async () => {
   process.env.EVENT_BUS_NAME = 'event-bus';
 
   const module = await import('../index');
-  return module.handler;
+  return module.handler as HandlerFn;
 };
+
+const buildRecord = (body: string): SQSRecord => ({
+  messageId: 'message-id',
+  receiptHandle: 'receipt-handle',
+  body,
+  attributes: {
+    ApproximateReceiveCount: '1',
+    SentTimestamp: '1710000000000',
+    SenderId: 'sender-id',
+    ApproximateFirstReceiveTimestamp: '1710000000000',
+  },
+  messageAttributes: {},
+  md5OfBody: 'md5',
+  eventSource: 'aws:sqs',
+  eventSourceARN: 'arn:aws:sqs:us-east-1:123456789012:queue',
+  awsRegion: 'us-east-1',
+});
 
 const buildEvent = (detailOverrides?: Record<string, unknown>): SQSEvent => ({
   Records: [
-    {
-      body: JSON.stringify({
+    buildRecord(
+      JSON.stringify({
         detail: {
           executionId: 'exec-123',
           prNumber: 42,
@@ -68,8 +87,8 @@ const buildEvent = (detailOverrides?: Record<string, unknown>): SQSEvent => ({
           title: 'Improve architecture',
           ...detailOverrides,
         },
-      }),
-    },
+      })
+    ),
   ],
 });
 
@@ -82,10 +101,12 @@ describe('architecture-agent handler', () => {
     const handler = await loadHandler();
 
     const anthropicCreate = jest.fn();
-    const anthropicConstructor = require('@anthropic-ai/sdk').default as jest.Mock;
-    anthropicConstructor.mockImplementation((): AnthropicMock => ({
-      messages: { create: anthropicCreate },
-    }));
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
     const octokitMock: OctokitMock = {
@@ -165,10 +186,12 @@ describe('architecture-agent handler', () => {
       ],
       usage: { input_tokens: 10, output_tokens: 20 },
     });
-    const anthropicConstructor = require('@anthropic-ai/sdk').default as jest.Mock;
-    anthropicConstructor.mockImplementation((): AnthropicMock => ({
-      messages: { create: anthropicCreate },
-    }));
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
 
     const longDiff = 'a'.repeat(9000);
     const octokitMock: OctokitMock = {
@@ -227,10 +250,12 @@ describe('architecture-agent handler', () => {
       content: [{ type: 'text', text: 'invalid-json{' }],
       usage: { input_tokens: 1, output_tokens: 1 },
     });
-    const anthropicConstructor = require('@anthropic-ai/sdk').default as jest.Mock;
-    anthropicConstructor.mockImplementation((): AnthropicMock => ({
-      messages: { create: anthropicCreate },
-    }));
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
     const octokitMock: OctokitMock = {
@@ -274,10 +299,12 @@ describe('architecture-agent handler', () => {
   it('marks the execution as failed when processing errors occur', async () => {
     const handler = await loadHandler();
 
-    const anthropicConstructor = require('@anthropic-ai/sdk').default as jest.Mock;
-    anthropicConstructor.mockImplementation((): AnthropicMock => ({
-      messages: { create: jest.fn() },
-    }));
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: jest.fn() },
+      })
+    );
 
     const { getSecret, getGitHubInstallationClient, updateItem } = getSharedMocks();
 
@@ -297,13 +324,15 @@ describe('architecture-agent handler', () => {
   it('rejects invalid payloads', async () => {
     const handler = await loadHandler();
 
-    const anthropicConstructor = require('@anthropic-ai/sdk').default as jest.Mock;
-    anthropicConstructor.mockImplementation((): AnthropicMock => ({
-      messages: { create: jest.fn() },
-    }));
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: jest.fn() },
+      })
+    );
 
     const event: SQSEvent = {
-      Records: [{ body: JSON.stringify({}) }],
+      Records: [buildRecord(JSON.stringify({}))],
     };
 
     await expect(handler(event)).rejects.toThrow('Invalid PR event payload');

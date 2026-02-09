@@ -20,6 +20,9 @@ jest.mock('../../shared/github-app', () => ({
   getGitHubInstallationClient: jest.fn(),
 }));
 
+const invokeHandler = (event: Parameters<typeof handler>[0]) =>
+  handler(event, {} as any, () => undefined);
+
 describe('GitHub Integration', () => {
   const baseDetail = {
     executionId: 'exec-123',
@@ -71,7 +74,7 @@ describe('GitHub Integration', () => {
   it('posts analysis results and approves low risk PRs', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'label';
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'analysis.complete',
       detail: baseDetail,
     } as any);
@@ -86,7 +89,7 @@ describe('GitHub Integration', () => {
     process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
     process.env.DEPLOYMENT_RISK_THRESHOLD = '5';
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'analysis.complete',
       detail: { ...baseDetail, riskScore: 99 },
     } as any);
@@ -98,7 +101,7 @@ describe('GitHub Integration', () => {
   it('publishes deployment approval for eventbridge strategy', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'analysis.complete',
       detail: baseDetail,
     } as any);
@@ -124,7 +127,7 @@ describe('GitHub Integration', () => {
     delete process.env.DEPLOYMENT_REQUIRE_TESTS;
     delete process.env.DEPLOYMENT_REQUIRED_CONTEXTS;
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'analysis.complete',
       detail: baseDetail,
     } as any);
@@ -143,7 +146,7 @@ describe('GitHub Integration', () => {
   it('creates GitHub deployment when strategy is deployment', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'deployment';
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'analysis.complete',
       detail: baseDetail,
     } as any);
@@ -156,11 +159,33 @@ describe('GitHub Integration', () => {
     );
   });
 
+  it('records deployment trigger failures with non-error throws', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'deployment';
+    createDeployment.mockRejectedValueOnce('boom');
+
+    await expect(
+      invokeHandler({
+        'detail-type': 'analysis.complete',
+        detail: baseDetail,
+      } as any)
+    ).rejects.toBe('boom');
+
+    expect(updateItem).toHaveBeenCalledWith(
+      'exec-table',
+      { executionId: baseDetail.executionId },
+      expect.objectContaining({
+        status: 'failed',
+        deploymentStatus: 'failed',
+        deploymentMessage: 'Deployment trigger failed: boom',
+      })
+    );
+  });
+
   it('logs and continues when auto-approve fails', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'label';
     createReview.mockRejectedValueOnce(new Error('review failed'));
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'analysis.complete',
       detail: baseDetail,
     } as any);
@@ -172,7 +197,7 @@ describe('GitHub Integration', () => {
   it('updates deployment status and comments on completion', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'deployment.status',
       detail: {
         ...baseDetail,
@@ -188,7 +213,7 @@ describe('GitHub Integration', () => {
   });
 
   it('updates deployment status without commenting while deploying', async () => {
-    await handler({
+    await invokeHandler({
       'detail-type': 'deployment.status',
       detail: {
         ...baseDetail,
@@ -203,7 +228,7 @@ describe('GitHub Integration', () => {
   });
 
   it('comments on failed deployments without a message', async () => {
-    await handler({
+    await invokeHandler({
       'detail-type': 'deployment.status',
       detail: {
         ...baseDetail,
@@ -220,7 +245,7 @@ describe('GitHub Integration', () => {
     process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
     process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
 
-    await handler({
+    await invokeHandler({
       'detail-type': 'analysis.complete',
       detail: baseDetail,
     } as any);
@@ -229,7 +254,7 @@ describe('GitHub Integration', () => {
   });
 
   it('ignores unknown event detail types', async () => {
-    await handler({
+    await invokeHandler({
       'detail-type': 'unknown.event',
       detail: baseDetail,
     } as any);
@@ -243,7 +268,7 @@ describe('GitHub Integration', () => {
     delete process.env.EVENT_BUS_NAME;
 
     await expect(
-      handler({
+      invokeHandler({
         'detail-type': 'analysis.complete',
         detail: baseDetail,
       } as any)
@@ -254,7 +279,7 @@ describe('GitHub Integration', () => {
     delete process.env.EXECUTIONS_TABLE_NAME;
 
     await expect(
-      handler({
+      invokeHandler({
         'detail-type': 'analysis.complete',
         detail: baseDetail,
       } as any)

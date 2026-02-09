@@ -10,6 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
+    "isolatedModules": true,
     "types": ["node", "aws-lambda"]
   },
   "include": ["index.ts", "../shared/*.ts"],
