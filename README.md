@@ -19,8 +19,9 @@ An intelligent PR review automation platform that combines LLM-powered code anal
 ## Architecture Highlights
 
 - **Event-Driven:** EventBridge orchestrates webhook events to specialized agents
-- **Multi-Agent System:** Dedicated LLM agents for architecture, security, and performance analysis
+- **Agent-Driven Analysis:** Dedicated LLM agents provide structured findings and risk scoring
 - **Serverless-First:** Built entirely on AWS Lambda + DynamoDB for cost optimization
+- **Risk-Gated Deployments:** Optional staging deploys triggered by low-risk PRs
 - **Budget-Conscious:** ~$32/month operating cost for 250 PRs
 - **Production-Grade:** Comprehensive error handling, monitoring, and observability
 
@@ -152,7 +153,8 @@ Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading fro
 3. **EventBridge** → Routes event to LLM agent queue
 4. **Architecture Agent** → Fetches PR diff, analyzes with Claude Sonnet 4.5
 5. **GitHub Integration** → Posts findings as PR comment
-6. **Auto-Approval** → Low-risk PRs (score < 30) automatically approved
+6. **Risk Gate (Phase B)** → Low-risk PRs can trigger a staging deploy via GitHub Actions
+7. **Auto-Approval** → Low-risk PRs (score < 30) automatically approved
 
 ## Cost Breakdown
 
@@ -186,13 +188,12 @@ Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading fro
 - [x] End-to-end testing
 - [x] Documentation
 
-**Phase 2: Multi-Agent Intelligence** (PLANNED)
+**Phase 2: Auto-Deploy and Dashboard** (PLANNED)
 
-- [ ] Step Functions orchestration
-- [ ] Security agent (LLM + SAST)
-- [ ] Performance agent
-- [ ] Result aggregation and risk scoring
-- [ ] Cache layer for analysis results
+- [ ] GitHub Actions deployment trigger (label or deployment event)
+- [ ] Deployment status sync back to Pullmint
+- [ ] Dashboard API for execution history
+- [ ] Lightweight UI with polling
 
 ## Development
 
