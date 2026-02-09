@@ -17,12 +17,18 @@ export interface PRExecution {
   repoFullName: string;
   prNumber: number;
   headSha: string;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed';
+  status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'deploying' | 'deployed';
   timestamp?: number;
   findings?: Finding[];
   riskScore?: number;
   error?: string;
   updatedAt?: number;
+  deploymentStatus?: 'deploying' | 'deployed' | 'failed';
+  deploymentEnvironment?: string;
+  deploymentStrategy?: 'eventbridge' | 'label' | 'deployment';
+  deploymentMessage?: string;
+  deploymentStartedAt?: number;
+  deploymentCompletedAt?: number;
 }
 
 export interface Finding {
@@ -40,11 +46,27 @@ export interface AnalysisResult {
   agentType: 'architecture' | 'security' | 'performance';
   findings: Finding[];
   riskScore: number;
+  testsPassed?: boolean;
   metadata: {
     processingTime: number;
     tokensUsed: number;
     cached: boolean;
   };
+}
+
+export interface DeploymentApprovedEvent extends PREvent {
+  executionId: string;
+  riskScore: number;
+  deploymentEnvironment: string;
+  deploymentStrategy: 'eventbridge' | 'label' | 'deployment';
+}
+
+export interface DeploymentStatusEvent extends PREvent {
+  executionId: string;
+  deploymentEnvironment: string;
+  deploymentStatus: 'deploying' | 'deployed' | 'failed';
+  deploymentStrategy: 'eventbridge' | 'label' | 'deployment';
+  message?: string;
 }
 
 export interface GitHubPRPayload {
@@ -62,6 +84,35 @@ export interface GitHubPRPayload {
     base: {
       sha: string;
     };
+  };
+  repository: {
+    full_name: string;
+    owner: {
+      id: number;
+      login: string;
+    };
+  };
+}
+
+export interface GitHubDeploymentStatusPayload {
+  deployment: {
+    id: number;
+    environment: string;
+    sha: string;
+    payload?: {
+      executionId?: string;
+      prNumber?: number;
+      repoFullName?: string;
+      deploymentStrategy?: 'eventbridge' | 'label' | 'deployment';
+      baseSha?: string;
+      author?: string;
+      title?: string;
+      orgId?: string;
+    };
+  };
+  deployment_status: {
+    state: 'queued' | 'in_progress' | 'success' | 'failure' | 'inactive' | 'error';
+    description?: string;
   };
   repository: {
     full_name: string;

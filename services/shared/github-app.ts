@@ -29,6 +29,23 @@ type GitHubRestClient = {
         issue_number: number;
         body: string;
       }) => Promise<unknown>;
+      addLabels: (params: {
+        owner: string;
+        repo: string;
+        issue_number: number;
+        labels: string[];
+      }) => Promise<unknown>;
+    };
+    repos: {
+      createDeployment: (params: {
+        owner: string;
+        repo: string;
+        ref: string;
+        environment?: string;
+        auto_merge?: boolean;
+        required_contexts?: string[];
+        payload?: Record<string, unknown>;
+      }) => Promise<unknown>;
     };
   };
 };

@@ -4,7 +4,13 @@ import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { getSecret } from '../shared/secrets';
 import { publishEvent } from '../shared/eventbridge';
 import { verifyGitHubSignature, generateExecutionId, calculateTTL } from '../shared/utils';
-import { GitHubPRPayload, PREvent, PRExecution } from '../shared/types';
+import {
+  GitHubPRPayload,
+  GitHubDeploymentStatusPayload,
+  PREvent,
+  PRExecution,
+  DeploymentStatusEvent,
+} from '../shared/types';
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -35,22 +41,14 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     // 2. Parse event
     const eventType = event.headers['x-github-event'] || event.headers['X-GitHub-Event'];
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const payload: GitHubPRPayload = JSON.parse(event.body || '{}');
+    const payload: unknown = JSON.parse(event.body || '{}');
 
     // 3. Filter relevant events
-    if (eventType !== 'pull_request') {
+    if (eventType !== 'pull_request' && eventType !== 'deployment_status') {
       console.log(`Ignoring event type: ${eventType}`);
       return {
         statusCode: 200,
         body: JSON.stringify({ message: 'Event type ignored' }),
-      };
-    }
-
-    if (!['opened', 'synchronize', 'reopened'].includes(payload.action)) {
-      console.log(`Ignoring PR action: ${payload.action}`);
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ message: 'PR action ignored' }),
       };
     }
 
@@ -87,54 +85,88 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       throw error;
     }
 
-    // 5. Create PR event
-    const prEvent: PREvent = {
-      prNumber: payload.pull_request.number,
-      repoFullName: payload.repository.full_name,
-      headSha: payload.pull_request.head.sha,
-      baseSha: payload.pull_request.base.sha,
-      author: payload.pull_request.user.login,
-      title: payload.pull_request.title,
-      orgId: `org_${payload.repository.owner.id}`,
-    };
+    if (eventType === 'pull_request') {
+      const prPayload = payload as GitHubPRPayload;
 
-    // 6. Create execution record
-    const executionId = generateExecutionId(
-      prEvent.repoFullName,
-      prEvent.prNumber,
-      prEvent.headSha
+      if (!['opened', 'synchronize', 'reopened'].includes(prPayload.action)) {
+        console.log(`Ignoring PR action: ${prPayload.action}`);
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ message: 'PR action ignored' }),
+        };
+      }
+
+      // 5. Create PR event
+      const prEvent: PREvent = {
+        prNumber: prPayload.pull_request.number,
+        repoFullName: prPayload.repository.full_name,
+        headSha: prPayload.pull_request.head.sha,
+        baseSha: prPayload.pull_request.base.sha,
+        author: prPayload.pull_request.user.login,
+        title: prPayload.pull_request.title,
+        orgId: `org_${prPayload.repository.owner.id}`,
+      };
+
+      // 6. Create execution record
+      const executionId = generateExecutionId(
+        prEvent.repoFullName,
+        prEvent.prNumber,
+        prEvent.headSha
+      );
+
+      const execution: PRExecution = {
+        executionId,
+        repoFullName: prEvent.repoFullName,
+        prNumber: prEvent.prNumber,
+        headSha: prEvent.headSha,
+        status: 'pending',
+        timestamp: Date.now(),
+      };
+
+      await docClient.send(
+        new PutCommand({
+          TableName: EXECUTIONS_TABLE_NAME,
+          Item: execution,
+        })
+      );
+
+      // 7. Publish to EventBridge
+      await publishEvent(EVENT_BUS_NAME, 'pullmint.github', `pr.${prPayload.action}`, {
+        ...prEvent,
+        executionId,
+      });
+
+      console.log(`Published event for PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
+
+      return {
+        statusCode: 202,
+        body: JSON.stringify({
+          message: 'Event accepted',
+          executionId,
+        }),
+      };
+    }
+
+    const deploymentPayload = payload as GitHubDeploymentStatusPayload;
+    const deploymentDetail = buildDeploymentStatusDetail(deploymentPayload);
+
+    if (!deploymentDetail) {
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ message: 'Deployment status ignored' }),
+      };
+    }
+
+    await publishEvent(
+      EVENT_BUS_NAME,
+      'pullmint.github',
+      'deployment.status',
+      deploymentDetail as unknown as Record<string, unknown>
     );
-
-    const execution: PRExecution = {
-      executionId,
-      repoFullName: prEvent.repoFullName,
-      prNumber: prEvent.prNumber,
-      headSha: prEvent.headSha,
-      status: 'pending',
-      timestamp: Date.now(),
-    };
-
-    await docClient.send(
-      new PutCommand({
-        TableName: EXECUTIONS_TABLE_NAME,
-        Item: execution,
-      })
-    );
-
-    // 7. Publish to EventBridge
-    await publishEvent(EVENT_BUS_NAME, 'pullmint.github', `pr.${payload.action}`, {
-      ...prEvent,
-      executionId,
-    });
-
-    console.log(`Published event for PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
 
     return {
       statusCode: 202,
-      body: JSON.stringify({
-        message: 'Event accepted',
-        executionId,
-      }),
+      body: JSON.stringify({ message: 'Deployment status accepted' }),
     };
   } catch (error) {
     console.error('Webhook processing error:', error);
@@ -146,3 +178,50 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     };
   }
 };
+
+function buildDeploymentStatusDetail(
+  payload: GitHubDeploymentStatusPayload
+): DeploymentStatusEvent | null {
+  const deploymentPayload = payload.deployment.payload || {};
+  const executionId = deploymentPayload.executionId;
+  const prNumber = deploymentPayload.prNumber;
+  const repoFullName = deploymentPayload.repoFullName || payload.repository.full_name;
+
+  if (!executionId || !prNumber) {
+    console.log('Deployment status missing executionId or prNumber, ignoring.');
+    return null;
+  }
+
+  const deploymentStatus = mapDeploymentStatus(payload.deployment_status.state);
+  const deploymentEnvironment = payload.deployment.environment;
+  const deploymentStrategy = deploymentPayload.deploymentStrategy || 'deployment';
+
+  return {
+    executionId,
+    prNumber,
+    repoFullName,
+    headSha: payload.deployment.sha,
+    baseSha: deploymentPayload.baseSha || '',
+    author: deploymentPayload.author || 'unknown',
+    title: deploymentPayload.title || 'Deployment update',
+    orgId: deploymentPayload.orgId || `org_${payload.repository.owner.id}`,
+    deploymentEnvironment,
+    deploymentStrategy,
+    deploymentStatus,
+    message: payload.deployment_status.description,
+  };
+}
+
+function mapDeploymentStatus(
+  state: GitHubDeploymentStatusPayload['deployment_status']['state']
+): 'deploying' | 'deployed' | 'failed' {
+  if (state === 'success') {
+    return 'deployed';
+  }
+
+  if (state === 'queued' || state === 'in_progress') {
+    return 'deploying';
+  }
+
+  return 'failed';
+}

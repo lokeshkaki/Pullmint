@@ -1,8 +1,16 @@
 import { EventBridgeHandler } from 'aws-lambda';
 import { getGitHubInstallationClient } from '../shared/github-app';
-import { PREvent, AnalysisResult } from '../shared/types';
+import { publishEvent } from '../shared/eventbridge';
+import { updateItem } from '../shared/dynamodb';
+import {
+  PREvent,
+  AnalysisResult,
+  DeploymentApprovedEvent,
+  DeploymentStatusEvent,
+} from '../shared/types';
 
 let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
+let octokitRepoFullName: string | undefined;
 
 interface AnalysisCompleteEvent extends PREvent, AnalysisResult {}
 
@@ -10,60 +18,216 @@ interface AnalysisCompleteEvent extends PREvent, AnalysisResult {}
  * GitHub Integration Handler
  * Posts analysis results as PR comments
  */
-export const handler: EventBridgeHandler<'analysis.complete', AnalysisCompleteEvent, void> = async (
-  event
-): Promise<void> => {
+export const handler: EventBridgeHandler<
+  string,
+  AnalysisCompleteEvent | DeploymentStatusEvent,
+  void
+> = async (event): Promise<void> => {
   try {
+    const detailType = event['detail-type'];
     const { detail } = event;
 
-    console.log(`Posting results for PR #${detail.prNumber} in ${detail.repoFullName}`);
-
-    // 1. Initialize GitHub client
-    if (!octokitClient) {
-      octokitClient = await getGitHubInstallationClient(detail.repoFullName);
+    if (detailType === 'analysis.complete') {
+      await handleAnalysisComplete(detail as AnalysisCompleteEvent);
+      return;
     }
 
-    // 2. Build comment body
-    const commentBody = buildCommentBody(detail);
-
-    // 3. Post comment to PR
-    const [owner, repo] = detail.repoFullName.split('/');
-
-    await octokitClient.rest.issues.createComment({
-      owner,
-      repo,
-      issue_number: detail.prNumber,
-      body: commentBody,
-    });
-
-    console.log(`Successfully posted comment to PR #${detail.prNumber}`);
-
-    // 4. If low risk, approve the PR
-    if (detail.riskScore < 30) {
-      try {
-        await octokitClient.rest.pulls.createReview({
-          owner,
-          repo,
-          pull_number: detail.prNumber,
-          event: 'APPROVE',
-          body: 'Auto-approved by Pullmint: Low risk changes detected.',
-        });
-        console.log(`Auto-approved PR #${detail.prNumber}`);
-      } catch (error) {
-        console.error('Failed to auto-approve PR:', error);
-        // Non-fatal - continue execution
-      }
+    if (detailType === 'deployment.status') {
+      await handleDeploymentStatus(detail as DeploymentStatusEvent);
+      return;
     }
+
+    console.log(`Ignoring event detail type: ${detailType}`);
+    return;
   } catch (error) {
     console.error('Error posting to GitHub:', error);
     throw error;
   }
 };
 
+async function handleAnalysisComplete(detail: AnalysisCompleteEvent): Promise<void> {
+  const config = getDeploymentConfig();
+  console.log(`Posting results for PR #${detail.prNumber} in ${detail.repoFullName}`);
+
+  // 1. Initialize GitHub client
+  const octokit = await getOctokitClient(detail.repoFullName);
+
+  // 2. Build comment body
+  const commentBody = buildCommentBody(detail);
+
+  // 3. Post comment to PR
+  const [owner, repo] = detail.repoFullName.split('/');
+
+  await octokit.rest.issues.createComment({
+    owner,
+    repo,
+    issue_number: detail.prNumber,
+    body: commentBody,
+  });
+
+  console.log(`Successfully posted comment to PR #${detail.prNumber}`);
+
+  // 4. If low risk, approve the PR
+  if (detail.riskScore < config.autoApproveRiskThreshold) {
+    try {
+      await octokit.rest.pulls.createReview({
+        owner,
+        repo,
+        pull_number: detail.prNumber,
+        event: 'APPROVE',
+        body: 'Auto-approved by Pullmint: Low risk changes detected.',
+      });
+      console.log(`Auto-approved PR #${detail.prNumber}`);
+    } catch (error) {
+      console.error('Failed to auto-approve PR:', error);
+      // Non-fatal - continue execution
+    }
+  }
+
+  // 5. Trigger deployment if gate passes
+  await maybeTriggerDeployment(detail, config);
+}
+
+async function handleDeploymentStatus(detail: DeploymentStatusEvent): Promise<void> {
+  const config = getDeploymentConfig();
+  const [owner, repo] = detail.repoFullName.split('/');
+  const octokit = await getOctokitClient(detail.repoFullName);
+
+  const updates: Record<string, unknown> = {
+    deploymentStatus: detail.deploymentStatus,
+    deploymentEnvironment: detail.deploymentEnvironment,
+    deploymentStrategy: detail.deploymentStrategy,
+    deploymentMessage: detail.message,
+    updatedAt: Date.now(),
+  };
+
+  if (detail.deploymentStatus === 'deploying') {
+    updates.status = 'deploying';
+    updates.deploymentStartedAt = Date.now();
+  }
+
+  if (detail.deploymentStatus === 'deployed') {
+    updates.status = 'deployed';
+    updates.deploymentCompletedAt = Date.now();
+  }
+
+  if (detail.deploymentStatus === 'failed') {
+    updates.status = 'failed';
+    updates.deploymentCompletedAt = Date.now();
+  }
+
+  await updateItem(config.executionsTableName, { executionId: detail.executionId }, updates);
+
+  if (detail.deploymentStatus === 'deployed' || detail.deploymentStatus === 'failed') {
+    const body = buildDeploymentStatusComment(detail);
+    await octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: detail.prNumber,
+      body,
+    });
+  }
+}
+
+async function maybeTriggerDeployment(
+  detail: AnalysisCompleteEvent,
+  config: DeploymentConfig
+): Promise<void> {
+  if (detail.riskScore >= config.deploymentRiskThreshold) {
+    console.log(
+      `Deployment blocked: risk score ${detail.riskScore} >= ${config.deploymentRiskThreshold}`
+    );
+    return;
+  }
+
+  if (config.deploymentRequireTests && detail.testsPassed !== true) {
+    console.log('Deployment blocked: tests required but not marked as passed.');
+    return;
+  }
+
+  const [owner, repo] = detail.repoFullName.split('/');
+  const octokit = await getOctokitClient(detail.repoFullName);
+
+  await updateItem(
+    config.executionsTableName,
+    { executionId: detail.executionId },
+    {
+      status: 'deploying',
+      deploymentStatus: 'deploying',
+      deploymentEnvironment: config.deploymentEnvironment,
+      deploymentStrategy: config.deploymentStrategy,
+      deploymentStartedAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+  );
+
+  if (config.deploymentStrategy === 'eventbridge') {
+    if (!config.eventBusName) {
+      throw new Error('EVENT_BUS_NAME is required for eventbridge deployment strategy');
+    }
+
+    const eventDetail: DeploymentApprovedEvent = {
+      ...detail,
+      executionId: detail.executionId,
+      riskScore: detail.riskScore,
+      deploymentEnvironment: config.deploymentEnvironment,
+      deploymentStrategy: config.deploymentStrategy,
+    };
+
+    await publishEvent(
+      config.eventBusName,
+      'pullmint.review',
+      'deployment_approved',
+      eventDetail as unknown as Record<string, unknown>
+    );
+    console.log(`Deployment approved for PR #${detail.prNumber}`);
+    return;
+  }
+
+  if (config.deploymentStrategy === 'label') {
+    await octokit.rest.issues.addLabels({
+      owner,
+      repo,
+      issue_number: detail.prNumber,
+      labels: [config.deploymentLabel],
+    });
+    console.log(`Deployment label added: ${config.deploymentLabel}`);
+    return;
+  }
+
+  await octokit.rest.repos.createDeployment({
+    owner,
+    repo,
+    ref: detail.headSha,
+    environment: config.deploymentEnvironment,
+    auto_merge: false,
+    required_contexts: config.deploymentRequiredContexts,
+    payload: {
+      executionId: detail.executionId,
+      prNumber: detail.prNumber,
+      repoFullName: detail.repoFullName,
+      deploymentStrategy: config.deploymentStrategy,
+      baseSha: detail.baseSha,
+      author: detail.author,
+      title: detail.title,
+      orgId: detail.orgId,
+    },
+  });
+  console.log('Deployment created via GitHub Deployments API');
+}
+
+async function getOctokitClient(repoFullName: string) {
+  if (!octokitClient || octokitRepoFullName !== repoFullName) {
+    octokitClient = await getGitHubInstallationClient(repoFullName);
+    octokitRepoFullName = repoFullName;
+  }
+  return octokitClient;
+}
+
 /**
  * Build the PR comment body from analysis results
  */
-function buildCommentBody(analysis: AnalysisCompleteEvent): string {
+export function buildCommentBody(analysis: AnalysisCompleteEvent): string {
   const { findings, riskScore, metadata } = analysis;
 
   // Header
@@ -130,7 +294,7 @@ function buildCommentBody(analysis: AnalysisCompleteEvent): string {
 /**
  * Get risk level from score
  */
-function getRiskLevel(score: number): string {
+export function getRiskLevel(score: number): string {
   if (score >= 70) return 'High';
   if (score >= 40) return 'Medium';
   return 'Low';
@@ -139,7 +303,7 @@ function getRiskLevel(score: number): string {
 /**
  * Get emoji for risk level
  */
-function getRiskEmoji(level: string): string {
+export function getRiskEmoji(level: string): string {
   switch (level) {
     case 'High':
       return '🔴';
@@ -148,4 +312,63 @@ function getRiskEmoji(level: string): string {
     default:
       return '🟢';
   }
+}
+
+function buildDeploymentStatusComment(detail: DeploymentStatusEvent): string {
+  const statusLine = detail.deploymentStatus.toUpperCase();
+  const environment = detail.deploymentEnvironment;
+  const strategy = detail.deploymentStrategy;
+  const message = detail.message ? `\n\n${detail.message}` : '';
+
+  return [
+    '## Pullmint Deployment Status',
+    '',
+    `**Status:** ${statusLine}`,
+    `**Environment:** ${environment}`,
+    `**Strategy:** ${strategy}`,
+    message,
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+}
+
+function parseCsv(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+type DeploymentConfig = {
+  deploymentRiskThreshold: number;
+  autoApproveRiskThreshold: number;
+  deploymentStrategy: 'eventbridge' | 'label' | 'deployment';
+  deploymentLabel: string;
+  deploymentEnvironment: string;
+  deploymentRequireTests: boolean;
+  deploymentRequiredContexts: string[];
+  eventBusName?: string;
+  executionsTableName: string;
+};
+
+function getDeploymentConfig(): DeploymentConfig {
+  const executionsTableName = process.env.EXECUTIONS_TABLE_NAME;
+  if (!executionsTableName) {
+    throw new Error('EXECUTIONS_TABLE_NAME is required');
+  }
+
+  return {
+    deploymentRiskThreshold: Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30'),
+    autoApproveRiskThreshold: Number(process.env.AUTO_APPROVE_RISK_THRESHOLD || '30'),
+    deploymentStrategy: (process.env.DEPLOYMENT_STRATEGY || 'eventbridge') as
+      | 'eventbridge'
+      | 'label'
+      | 'deployment',
+    deploymentLabel: process.env.DEPLOYMENT_LABEL || 'deploy:staging',
+    deploymentEnvironment: process.env.DEPLOYMENT_ENVIRONMENT || 'staging',
+    deploymentRequireTests: (process.env.DEPLOYMENT_REQUIRE_TESTS || 'false') === 'true',
+    deploymentRequiredContexts: parseCsv(process.env.DEPLOYMENT_REQUIRED_CONTEXTS || ''),
+    eventBusName: process.env.EVENT_BUS_NAME,
+    executionsTableName,
+  };
 }

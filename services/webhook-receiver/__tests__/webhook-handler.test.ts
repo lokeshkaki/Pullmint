@@ -94,6 +94,37 @@ describe('Webhook Handler', () => {
     },
   });
 
+  const createDeploymentStatusPayload = (
+    state: 'queued' | 'in_progress' | 'success' | 'failure' = 'success'
+  ) => ({
+    deployment: {
+      id: 1,
+      environment: 'staging',
+      sha: 'abc123',
+      payload: {
+        executionId: 'exec-123',
+        prNumber: 123,
+        repoFullName: 'owner/repo',
+        deploymentStrategy: 'deployment',
+        baseSha: 'def456',
+        author: 'testuser',
+        title: 'Test PR',
+        orgId: 'org_12345',
+      },
+    },
+    deployment_status: {
+      state,
+      description: 'Deployment update',
+    },
+    repository: {
+      full_name: 'owner/repo',
+      owner: {
+        id: 12345,
+        login: 'owner',
+      },
+    },
+  });
+
   describe('Signature Validation', () => {
     it('should accept valid GitHub signature', async () => {
       const payload = createPRPayload();
@@ -212,6 +243,45 @@ describe('Webhook Handler', () => {
         message: 'Event type ignored',
       });
       expect(eventBridgeMock.calls()).toHaveLength(0);
+    });
+
+    it('should process deployment status events', async () => {
+      const payload = createDeploymentStatusPayload('success');
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(1);
+      const call = eventBridgeMock.call(0);
+      const entry = (call.args[0].input as any).Entries[0];
+      expect(entry.DetailType).toBe('deployment.status');
+    });
+
+    it('should map in-progress deployment status', async () => {
+      const payload = createDeploymentStatusPayload('in_progress');
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      const call = eventBridgeMock.call(0);
+      const entry = (call.args[0].input as any).Entries[0];
+      expect(JSON.parse(entry.Detail).deploymentStatus).toBe('deploying');
+    });
+
+    it('should ignore deployment status without execution id', async () => {
+      const payload = createDeploymentStatusPayload('failure');
+      delete payload.deployment.payload.executionId;
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({
+        message: 'Deployment status ignored',
+      });
+      expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(0);
     });
 
     it('should process opened PRs', async () => {

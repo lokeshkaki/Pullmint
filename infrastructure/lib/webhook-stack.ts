@@ -173,6 +173,33 @@ export class WebhookStack extends cdk.Stack {
         GITHUB_APP_ID: githubAppId ?? '',
         ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        EVENT_BUS_NAME: this.eventBus.eventBusName,
+        DEPLOYMENT_STRATEGY: process.env.DEPLOYMENT_STRATEGY || 'eventbridge',
+        DEPLOYMENT_RISK_THRESHOLD: process.env.DEPLOYMENT_RISK_THRESHOLD || '30',
+        AUTO_APPROVE_RISK_THRESHOLD: process.env.AUTO_APPROVE_RISK_THRESHOLD || '30',
+        DEPLOYMENT_LABEL: process.env.DEPLOYMENT_LABEL || 'deploy:staging',
+        DEPLOYMENT_ENVIRONMENT: process.env.DEPLOYMENT_ENVIRONMENT || 'staging',
+        DEPLOYMENT_REQUIRE_TESTS: process.env.DEPLOYMENT_REQUIRE_TESTS || 'false',
+        DEPLOYMENT_REQUIRED_CONTEXTS: process.env.DEPLOYMENT_REQUIRED_CONTEXTS || '',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Deployment orchestrator
+    const deploymentOrchestrator = new NodejsFunction(this, 'DeploymentOrchestrator', {
+      functionName: 'pullmint-deployment-orchestrator',
+      entry: path.join(__dirname, '../../services/deployment-orchestrator/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 512,
+      environment: {
+        EVENT_BUS_NAME: this.eventBus.eventBusName,
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        DEPLOYMENT_RESULT: process.env.DEPLOYMENT_RESULT || 'success',
       },
       bundling: {
         minify: true,
@@ -200,6 +227,11 @@ export class WebhookStack extends cdk.Stack {
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
     executionsTable.grantReadWriteData(githubIntegration);
+    this.eventBus.grantPutEventsTo(githubIntegration);
+
+    // Deployment orchestrator permissions
+    executionsTable.grantReadWriteData(deploymentOrchestrator);
+    this.eventBus.grantPutEventsTo(deploymentOrchestrator);
 
     // ===========================
     // EventBridge Rules
@@ -221,6 +253,26 @@ export class WebhookStack extends cdk.Stack {
       eventPattern: {
         source: ['pullmint.agent'],
         detailType: ['analysis.complete'],
+      },
+      targets: [new targets.LambdaFunction(githubIntegration)],
+    });
+
+    // Route deployment approvals to orchestrator
+    new events.Rule(this, 'RouteDeploymentApproved', {
+      eventBus: this.eventBus,
+      eventPattern: {
+        source: ['pullmint.review'],
+        detailType: ['deployment_approved'],
+      },
+      targets: [new targets.LambdaFunction(deploymentOrchestrator)],
+    });
+
+    // Route deployment status updates to GitHub integration
+    new events.Rule(this, 'RouteDeploymentStatus', {
+      eventBus: this.eventBus,
+      eventPattern: {
+        source: ['pullmint.orchestrator', 'pullmint.github'],
+        detailType: ['deployment.status'],
       },
       targets: [new targets.LambdaFunction(githubIntegration)],
     });

@@ -6,6 +6,9 @@ on:
   push:
     branches: [main, develop]
 
+env:
+  RUNNER_TOOL_CACHE: /tmp/runner-tool-cache
+
 jobs:
   lint:
     name: Lint Code
@@ -32,6 +35,8 @@ jobs:
         service:
           - services/shared
           - services/webhook-receiver
+          - services/github-integration
+          - services/deployment-orchestrator
     steps:
       - uses: actions/checkout@v4
       
