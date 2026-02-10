@@ -73,7 +73,61 @@ npm run deploy
 # - ExecutionsTableName
 ```
 
-### 2.2 Save Deployment Outputs
+### 2.2 Configure Deployment Webhook (Optional)
+
+To enable real deployments, configure deployment webhook environment variables before deploying:
+
+**For Development/Testing:**
+
+```bash
+# Minimal configuration for testing
+export DEPLOYMENT_WEBHOOK_URL=https://your-deployment-endpoint.example.com
+export DEPLOYMENT_WEBHOOK_AUTH_TOKEN=test-token-dev
+export DEPLOYMENT_WEBHOOK_TIMEOUT_MS=10000
+export DEPLOYMENT_WEBHOOK_RETRIES=0
+```
+
+**For Staging:**
+
+```bash
+# Moderate timeout and retries
+export DEPLOYMENT_WEBHOOK_URL=https://staging-deploy.example.com
+export DEPLOYMENT_WEBHOOK_AUTH_TOKEN=$(aws secretsmanager get-secret-value --secret-id pullmint/deployment-webhook-token --query SecretString --output text)
+export DEPLOYMENT_WEBHOOK_TIMEOUT_MS=30000
+export DEPLOYMENT_WEBHOOK_RETRIES=2
+```
+
+**For Production:**
+
+```bash
+# Maximum reliability with retries and rollback
+export DEPLOYMENT_WEBHOOK_URL=https://prod-deploy.example.com
+export DEPLOYMENT_WEBHOOK_AUTH_TOKEN=$(aws secretsmanager get-secret-value --secret-id pullmint/deployment-webhook-token --query SecretString --output text)
+export DEPLOYMENT_WEBHOOK_TIMEOUT_MS=60000
+export DEPLOYMENT_WEBHOOK_RETRIES=3
+export DEPLOYMENT_ROLLBACK_WEBHOOK_URL=https://prod-rollback.example.com
+```
+
+**Security Best Practice:** Always use Secrets Manager for production tokens:
+
+```bash
+# Create secret first
+aws secretsmanager create-secret \
+  --name pullmint/deployment-webhook-token \
+  --secret-string "$(openssl rand -base64 32)"
+
+# Then reference in deployment
+export DEPLOYMENT_WEBHOOK_AUTH_TOKEN=$(aws secretsmanager get-secret-value --secret-id pullmint/deployment-webhook-token --query SecretString --output text)
+```
+
+**Important Notes:**
+
+- Set these variables **before** running `npm run deploy`
+- Deployment webhook is optional; system works without it (analysis only mode)
+- Without webhook URL, deployments will be marked as "failed" with message "Deployment webhook URL is not configured"
+- See [README.md](README.md#deployment-orchestration-architecture) for webhook payload format and integration requirements
+
+### 2.3 Save Deployment Outputs
 
 Copy the following outputs from the deployment:
 
