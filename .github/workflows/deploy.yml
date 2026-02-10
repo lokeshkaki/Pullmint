@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      gsiStage:
+        description: "Optional DynamoDB GSI stage (ByRepo, ByRepoPr, ByTimestamp)"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -39,7 +44,15 @@ jobs:
           GITHUB_APP_ID: ${{ secrets.PULLMINT_GITHUB_APP_ID }}
 
       - name: CDK Deploy
-        run: cd infrastructure && npm run deploy -- --require-approval never
+        run: |
+          cd infrastructure
+          if [ -n "${{ inputs.gsiStage }}" ]; then
+            npm run deploy -- --require-approval never -c gsiStage=${{ inputs.gsiStage }}
+          else
+            npm run deploy -- --require-approval never -c gsiStage=ByRepo
+            npm run deploy -- --require-approval never -c gsiStage=ByRepoPr
+            npm run deploy -- --require-approval never -c gsiStage=ByTimestamp
+          fi
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1

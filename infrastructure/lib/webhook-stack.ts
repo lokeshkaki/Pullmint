@@ -71,24 +71,61 @@ export class WebhookStack extends cdk.Stack {
       stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
 
+    const gsiStage = this.node.tryGetContext('gsiStage') as string | undefined;
+    const normalizedGsiStage = gsiStage?.trim();
+    const allowedGsiStages = new Set(['ByRepo', 'ByRepoPr', 'ByTimestamp', 'all']);
+    const gsiStageOrder = ['ByRepo', 'ByRepoPr', 'ByTimestamp'];
+
+    if (normalizedGsiStage && !allowedGsiStages.has(normalizedGsiStage)) {
+      cdk.Annotations.of(this).addWarning(
+        `Unknown gsiStage "${normalizedGsiStage}". Expected one of: ByRepo, ByRepoPr, ByTimestamp, all.`
+      );
+    }
+
+    if (!normalizedGsiStage) {
+      cdk.Annotations.of(this).addWarning(
+        'DynamoDB only allows one GSI create/delete per update. For existing tables, deploy with -c gsiStage=ByRepo|ByRepoPr|ByTimestamp and repeat per index in order.'
+      );
+    }
+
+    const shouldAddGsi = (indexName: string): boolean => {
+      if (!normalizedGsiStage || normalizedGsiStage === 'all') {
+        return true;
+      }
+
+      const maxIndex = gsiStageOrder.indexOf(normalizedGsiStage);
+      const currentIndex = gsiStageOrder.indexOf(indexName);
+      if (maxIndex === -1 || currentIndex === -1) {
+        return true;
+      }
+
+      return currentIndex <= maxIndex;
+    };
+
     // GSI for querying by repo and timestamp
-    executionsTable.addGlobalSecondaryIndex({
-      indexName: 'ByRepo',
-      partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
-    });
+    if (shouldAddGsi('ByRepo')) {
+      executionsTable.addGlobalSecondaryIndex({
+        indexName: 'ByRepo',
+        partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
+        sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
+      });
+    }
 
-    executionsTable.addGlobalSecondaryIndex({
-      indexName: 'ByRepoPr',
-      partitionKey: { name: 'repoPrKey', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
-    });
+    if (shouldAddGsi('ByRepoPr')) {
+      executionsTable.addGlobalSecondaryIndex({
+        indexName: 'ByRepoPr',
+        partitionKey: { name: 'repoPrKey', type: dynamodb.AttributeType.STRING },
+        sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
+      });
+    }
 
-    executionsTable.addGlobalSecondaryIndex({
-      indexName: 'ByTimestamp',
-      partitionKey: { name: 'entityType', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
-    });
+    if (shouldAddGsi('ByTimestamp')) {
+      executionsTable.addGlobalSecondaryIndex({
+        indexName: 'ByTimestamp',
+        partitionKey: { name: 'entityType', type: dynamodb.AttributeType.STRING },
+        sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
+      });
+    }
 
     // LLM cache table
     const cacheTable = new dynamodb.Table(this, 'LLMCache', {
