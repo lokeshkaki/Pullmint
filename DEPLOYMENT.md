@@ -121,6 +121,7 @@ export DEPLOYMENT_WEBHOOK_AUTH_TOKEN=$(aws secretsmanager get-secret-value --sec
 ```
 
 **Important Notes:**
+
 - Set these variables **before** running `npm run deploy`
 - Deployment webhook is optional; system works without it (analysis only mode)
 - Without webhook URL, deployments will be marked as "failed" with message "Deployment webhook URL is not configured"

@@ -49,10 +49,14 @@ describe('Deployment Orchestrator', () => {
   });
 
   it('publishes deployment status on success', async () => {
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect(updateItem).toHaveBeenCalledTimes(2);
     expect(publishEvent).toHaveBeenCalledWith(
@@ -71,10 +75,14 @@ describe('Deployment Orchestrator', () => {
     delete process.env.DEPLOYMENT_WEBHOOK_RETRIES;
     delete process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS;
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect(publishEvent).toHaveBeenCalledWith(
       'test-bus',
@@ -93,10 +101,14 @@ describe('Deployment Orchestrator', () => {
       text: () => Promise.resolve('failed'),
     });
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect(updateItem).toHaveBeenCalledTimes(2);
     expect(publishEvent).toHaveBeenCalledWith(
@@ -112,13 +124,17 @@ describe('Deployment Orchestrator', () => {
 
   it('handles non-error exceptions from the deployment webhook', async () => {
     (globalThis as { fetch?: unknown }).fetch = jest.fn(() => {
-      throw 'boom';
+      throw new Error('boom');
     }) as unknown as typeof fetch;
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect(publishEvent).toHaveBeenCalledWith(
       'test-bus',
@@ -134,10 +150,14 @@ describe('Deployment Orchestrator', () => {
   it('fails when webhook retry count is not a number', async () => {
     process.env.DEPLOYMENT_WEBHOOK_RETRIES = 'NaN';
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect((globalThis as unknown as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
     expect(publishEvent).toHaveBeenCalledWith(
@@ -154,10 +174,14 @@ describe('Deployment Orchestrator', () => {
   it('fails when deployment webhook URL is missing', async () => {
     delete process.env.DEPLOYMENT_WEBHOOK_URL;
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect(publishEvent).toHaveBeenCalledWith(
       'test-bus',
@@ -186,10 +210,14 @@ describe('Deployment Orchestrator', () => {
         text: () => Promise.resolve('ok'),
       });
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect((globalThis as unknown as { fetch?: jest.Mock }).fetch).toHaveBeenCalledTimes(2);
     expect(publishEvent).toHaveBeenCalledWith(
@@ -216,10 +244,14 @@ describe('Deployment Orchestrator', () => {
         text: () => Promise.resolve('ok'),
       });
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect((globalThis as unknown as { fetch?: jest.Mock }).fetch).toHaveBeenCalledTimes(2);
     expect(publishEvent).toHaveBeenCalledWith(
@@ -249,10 +281,14 @@ describe('Deployment Orchestrator', () => {
         text: () => Promise.resolve('rollback failed'),
       });
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect(publishEvent).toHaveBeenCalledWith(
       'test-bus',
@@ -274,10 +310,14 @@ describe('Deployment Orchestrator', () => {
     });
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     const call = fetchMock.mock.calls[0][1];
     expect(call.headers.Authorization).toBe('Bearer token');
@@ -286,10 +326,14 @@ describe('Deployment Orchestrator', () => {
   it('fails when fetch is unavailable', async () => {
     delete (globalThis as { fetch?: unknown }).fetch;
 
-    await handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     expect(publishEvent).toHaveBeenCalledWith(
       'test-bus',
@@ -305,20 +349,25 @@ describe('Deployment Orchestrator', () => {
   it('aborts webhook requests after the timeout', async () => {
     jest.useFakeTimers();
     process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS = '5';
-    const fetchMock = jest.fn((_url: string, init: { signal: AbortSignal }) =>
-      new Promise((_resolve, reject) => {
-        init.signal.addEventListener('abort', () => {
-          reject(new Error('aborted'));
-        });
-      })
+    const fetchMock = jest.fn(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          });
+        })
     );
 
     (globalThis as { fetch?: unknown }).fetch = fetchMock as unknown as typeof fetch;
 
-    const handlerPromise = handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    const handlerPromise = handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     jest.advanceTimersByTime(5);
     await jest.runAllTimersAsync();
@@ -340,10 +389,14 @@ describe('Deployment Orchestrator', () => {
     jest.useFakeTimers();
     process.env.DEPLOYMENT_DELAY_MS = '10';
 
-    const handlerPromise = handler({
-      'detail-type': 'deployment_approved',
-      detail: baseDetail,
-    } as any, mockContext, mockCallback);
+    const handlerPromise = handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
 
     jest.advanceTimersByTime(10);
     await jest.runAllTimersAsync();
@@ -357,10 +410,14 @@ describe('Deployment Orchestrator', () => {
     delete process.env.EVENT_BUS_NAME;
 
     await expect(
-      handler({
-        'detail-type': 'deployment_approved',
-        detail: baseDetail,
-      } as any, mockContext, mockCallback)
+      handler(
+        {
+          'detail-type': 'deployment_approved',
+          detail: baseDetail,
+        } as any,
+        mockContext,
+        mockCallback
+      )
     ).rejects.toThrow('EVENT_BUS_NAME is required');
   });
 
@@ -368,10 +425,14 @@ describe('Deployment Orchestrator', () => {
     delete process.env.EXECUTIONS_TABLE_NAME;
 
     await expect(
-      handler({
-        'detail-type': 'deployment_approved',
-        detail: baseDetail,
-      } as any, mockContext, mockCallback)
+      handler(
+        {
+          'detail-type': 'deployment_approved',
+          detail: baseDetail,
+        } as any,
+        mockContext,
+        mockCallback
+      )
     ).rejects.toThrow('EXECUTIONS_TABLE_NAME is required');
   });
 });

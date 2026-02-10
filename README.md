@@ -173,6 +173,7 @@ Risk thresholds provide graduated control over automation:
 - **Manual Review (>40):** High-risk changes (architecture, security, API changes) require human review
 
 This separation ensures:
+
 - Staging deployments test changes before production
 - Human oversight for significant changes
 - Fast feedback loop for safe changes
@@ -183,11 +184,11 @@ This separation ensures:
 
 **Strategy Decision Framework:**
 
-| Strategy | Use When | Pros | Cons | Status |
-|----------|----------|------|------|--------|
-| `eventbridge` | Production deployments with webhook integration | Full control, error handling, retry logic, status tracking | Requires webhook setup | ✅ **Recommended** |
-| `label` | GitHub Actions-based deployments | Simple, no webhook needed, uses existing CI/CD | Limited error handling, no built-in retry | 🟡 Legacy Support |
-| `deployment` | GitHub Deployments API integration | Native GitHub integration, deployment history | Not yet implemented | 🔵 Future (Phase C) |
+| Strategy      | Use When                                        | Pros                                                       | Cons                                      | Status              |
+| ------------- | ----------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------- | ------------------- |
+| `eventbridge` | Production deployments with webhook integration | Full control, error handling, retry logic, status tracking | Requires webhook setup                    | ✅ **Recommended**  |
+| `label`       | GitHub Actions-based deployments                | Simple, no webhook needed, uses existing CI/CD             | Limited error handling, no built-in retry | 🟡 Legacy Support   |
+| `deployment`  | GitHub Deployments API integration              | Native GitHub integration, deployment history              | Not yet implemented                       | 🔵 Future (Phase C) |
 
 **When to use each:**
 
@@ -216,11 +217,13 @@ This separation ensures:
 **Webhook Timeout and Retry Configuration:**
 
 **Timeout Guidelines:**
+
 - **Simple deployments (static sites, serverless):** 10-30 seconds
 - **Container deployments (ECS, Kubernetes):** 30-60 seconds
 - **Complex deployments (multi-stage, database migrations):** 60-120 seconds
 
 **Retry Strategy:**
+
 - Uses exponential backoff: 1s, 2s, 4s delays between retries
 - Retries on network errors, 5xx responses, and timeouts
 - Does NOT retry on 4xx errors (client errors)
@@ -260,6 +263,7 @@ Low-risk PRs trigger automated deployment:
 6. On failure, calls rollback webhook (if configured)
 
 **Webhook Payload:**
+
 ```json
 {
   "executionId": "uuid-v4",
@@ -271,6 +275,7 @@ Low-risk PRs trigger automated deployment:
 ```
 
 **Requirements:**
+
 - Accept POST with JSON
 - Auth: `Authorization: Bearer <token>`
 - Return 200-299 (success), 500-599 (retry), 400-499 (fail)
@@ -279,6 +284,7 @@ Low-risk PRs trigger automated deployment:
 ## Security
 
 **Secret Management:**
+
 - All credentials stored in AWS Secrets Manager
 - GitHub webhook secret: Auto-generated, 90-day rotation
 - Anthropic API key: Manual rotation when needed
@@ -286,11 +292,13 @@ Low-risk PRs trigger automated deployment:
 - Deployment webhook token: 30-day rotation
 
 **Authentication:**
+
 - GitHub webhooks: HMAC-SHA256 signature validation
 - Deployment webhooks: Bearer token authentication
 - GitHub App: JWT-based installation tokens (1-hour expiration)
 
 **Best Practices:**
+
 - Never commit secrets to code
 - Use least-privilege IAM policies
 - Enable CloudTrail for audit logging
