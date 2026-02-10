@@ -1,0 +1,26 @@
+{
+  "name": "@pullmint/dashboard-api",
+  "version": "1.0.0",
+  "description": "Dashboard REST API for Pullmint PR executions",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.515.0",
+    "@aws-sdk/lib-dynamodb": "^3.515.0",
+    "@aws-sdk/types": "^3.515.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.136",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.19",
+    "aws-sdk-client-mock": "^3.0.1",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.3.3"
+  }
+}

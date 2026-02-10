@@ -15,10 +15,12 @@ export interface PREvent {
 export interface PRExecution {
   executionId: string;
   repoFullName: string;
+  repoPrKey?: string;
   prNumber: number;
   headSha: string;
   status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'deploying' | 'deployed';
   timestamp?: number;
+  entityType?: 'execution';
   findings?: Finding[];
   riskScore?: number;
   error?: string;
