@@ -45,16 +45,16 @@ Each deployment adds one GSI, complying with DynamoDB's one-operation-per-update
 
 ### GSI Descriptions
 
-| GSI Name | Partition Key | Sort Key | Purpose |
-|----------|---------------|----------|---------|
-| **ByRepo** | `repoFullName` | `timestamp` | Query all executions for a repository |
-| **ByRepoPr** | `repoPrKey` | `timestamp` | Query executions for specific PR |
-| **ByTimestamp** | `entityType` | `timestamp` | Query recent executions across all repos |
+| GSI Name        | Partition Key  | Sort Key    | Purpose                                  |
+| --------------- | -------------- | ----------- | ---------------------------------------- |
+| **ByRepo**      | `repoFullName` | `timestamp` | Query all executions for a repository    |
+| **ByRepoPr**    | `repoPrKey`    | `timestamp` | Query executions for specific PR         |
+| **ByTimestamp** | `entityType`   | `timestamp` | Query recent executions across all repos |
 
 ### Context Parameters
 
 - `gsiStage=ByRepo` - Include only ByRepo GSI
-- `gsiStage=ByRepoPr` - Include ByRepo + ByRepoPr GSIs  
+- `gsiStage=ByRepoPr` - Include ByRepo + ByRepoPr GSIs
 - `gsiStage=ByTimestamp` - Include all three GSIs
 - `gsiStage=all` - Include all GSIs (same as ByTimestamp)
 - No parameter - Include all GSIs with warning
@@ -71,6 +71,7 @@ The `gsiStage` parameter controls which GSIs are defined in the CDK stack:
 ```
 
 CDK compares the desired state (code) with current state (AWS):
+
 - **Existing GSI + Still in code = No change** (✓)
 - **Missing GSI + Now in code = CREATE** (1 operation)
 - **Existing GSI + Not in code = DELETE** (1 operation)
@@ -80,6 +81,7 @@ This ensures only one GSI operation per deployment.
 ### Common Scenarios
 
 #### Scenario 1: Regular Update to Existing Stack
+
 ```bash
 # Stack has all GSIs, just updating Lambda code
 npm run deploy -- -c gsiStage=all
@@ -87,6 +89,7 @@ npm run deploy -- -c gsiStage=all
 ```
 
 #### Scenario 2: Adding Missing GSI
+
 ```bash
 # Stack has ByRepo, need to add ByRepoPr
 npm run deploy -- -c gsiStage=ByRepoPr
@@ -94,6 +97,7 @@ npm run deploy -- -c gsiStage=ByRepoPr
 ```
 
 #### Scenario 3: Fresh Stack Creation
+
 ```bash
 # No existing resources
 npm run deploy -- -c gsiStage=ByRepo     # Creates table + ByRepo
@@ -110,6 +114,7 @@ This occurs when the stack definition differs significantly from deployed state.
 **Solution**: Use `gsiStage=all` for existing stacks to match the current state without GSI changes.
 
 **Check current GSIs:**
+
 ```bash
 aws dynamodb describe-table --table-name pullmint-pr-executions \
   --query 'Table.GlobalSecondaryIndexes[].IndexName' --output table
