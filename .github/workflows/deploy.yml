@@ -50,9 +50,7 @@ jobs:
           if [ -n "${{ inputs.gsiStage }}" ]; then
             npm run deploy -- --require-approval never -c gsiStage=${{ inputs.gsiStage }}
           else
-            npm run deploy -- --require-approval never -c gsiStage=ByRepo
-            npm run deploy -- --require-approval never -c gsiStage=ByRepoPr
-            npm run deploy -- --require-approval never -c gsiStage=ByTimestamp
+            npm run deploy -- --require-approval never
           fi
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
