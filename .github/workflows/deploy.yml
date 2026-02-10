@@ -50,9 +50,9 @@ jobs:
           if [ -n "${{ inputs.gsiStage }}" ]; then
             npm run deploy -- --require-approval never -c gsiStage=${{ inputs.gsiStage }}
           else
-            npm run deploy -- --require-approval never -c gsiStage=ByRepo
-            npm run deploy -- --require-approval never -c gsiStage=ByRepoPr
-            npm run deploy -- --require-approval never -c gsiStage=ByTimestamp
+            # For existing tables with GSIs already created, use gsiStage=all to avoid deletion
+            # For initial deployment of a NEW stack, use incremental GSI creation (see README)
+            npm run deploy -- --require-approval never -c gsiStage=all
           fi
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}

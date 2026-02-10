@@ -84,6 +84,51 @@ aws secretsmanager get-secret-value \
 5. Events: select Pull requests only.
 6. Keep the webhook active.
 
+## DynamoDB GSI Deployment Strategy
+
+DynamoDB has a limitation: **only one Global Secondary Index (GSI) can be created or deleted per update operation**. Pullmint's DynamoDB table uses 3 GSIs for different query patterns.
+
+### For Initial Deployments (New Stack)
+
+If you're deploying Pullmint for the first time and want to add GSIs incrementally:
+
+```bash
+cd infrastructure
+
+# First deployment: Create table with ByRepo GSI
+export GITHUB_APP_ID=your-github-app-id
+npm run deploy -- --require-approval never -c gsiStage=ByRepo
+
+# Second deployment: Add ByRepoPr GSI
+npm run deploy -- --require-approval never -c gsiStage=ByRepoPr
+
+# Third deployment: Add ByTimestamp GSI
+npm run deploy -- --require-approval never -c gsiStage=ByTimestamp
+```
+
+### For Existing Stacks (Updates)
+
+If your stack already has all GSIs created (which is the case for most deployments), always use:
+
+```bash
+cd infrastructure
+export GITHUB_APP_ID=your-github-app-id
+npm run deploy -- --require-approval never -c gsiStage=all
+```
+
+**This is the default behavior in CI/CD** - the GitHub Actions workflow uses `gsiStage=all` to ensure existing GSIs are maintained.
+
+### Manual GSI Management
+
+If you need to add a specific GSI to an existing table:
+
+```bash
+# Only add the ByTimestamp GSI (assumes ByRepo and ByRepoPr already exist)
+npm run deploy -- --require-approval never -c gsiStage=ByTimestamp
+```
+
+⚠️ **Warning**: Never deploy with a lower `gsiStage` than what's currently deployed, as this will attempt to delete existing GSIs and cause deployment failures.
+
 ## Deployment Configuration
 
 ### Risk thresholds
