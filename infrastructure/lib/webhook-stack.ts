@@ -223,6 +223,37 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    // Dashboard API
+    const dashboardApi = new NodejsFunction(this, 'DashboardApi', {
+      functionName: 'pullmint-dashboard-api',
+      entry: path.join(__dirname, '../../services/dashboard-api/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: {
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Dashboard UI
+    const dashboardUi = new NodejsFunction(this, 'DashboardUi', {
+      functionName: 'pullmint-dashboard-ui',
+      entry: path.join(__dirname, '../../services/dashboard-ui/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
     // ===========================
     // Permissions
     // ===========================
@@ -247,6 +278,9 @@ export class WebhookStack extends cdk.Stack {
     // Deployment orchestrator permissions
     executionsTable.grantReadWriteData(deploymentOrchestrator);
     this.eventBus.grantPutEventsTo(deploymentOrchestrator);
+
+    // Dashboard permissions
+    executionsTable.grantReadData(dashboardApi);
 
     // ===========================
     // EventBridge Rules
@@ -333,6 +367,45 @@ export class WebhookStack extends cdk.Stack {
     });
 
     // ===========================
+    // Dashboard routes
+    // ===========================
+
+    const dashboardResource = api.root.addResource('dashboard');
+
+    // Dashboard UI route (GET /dashboard)
+    dashboardResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardUi), {
+      methodResponses: [{ statusCode: '200' }],
+    });
+
+    // Dashboard API routes
+    const executionsResource = dashboardResource.addResource('executions');
+    executionsResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
+    const executionResource = executionsResource.addResource('{executionId}');
+    executionResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
+    // Dashboard repo routes (GET /dashboard/repos/:owner/:repo/prs/:number)
+    const reposResource = dashboardResource.addResource('repos');
+    const ownerResource = reposResource.addResource('{owner}');
+    const repoResource = ownerResource.addResource('{repo}');
+    const prsResource = repoResource.addResource('prs');
+    const prNumberResource = prsResource.addResource('{number}');
+    prNumberResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
+    // Enable CORS for dashboard endpoints
+    dashboardResource.addCorsPreflight({
+      allowOrigins: ['*'],
+      allowMethods: ['GET', 'OPTIONS'],
+      allowHeaders: ['Content-Type', 'Authorization'],
+    });
+
+    // ===========================
     // CloudWatch Alarms
     // ===========================
 
@@ -385,6 +458,12 @@ export class WebhookStack extends cdk.Stack {
       value: this.webhookUrl,
       description: 'Webhook URL for GitHub',
       exportName: 'PullmintWebhookURL',
+    });
+
+    new cdk.CfnOutput(this, 'DashboardURL', {
+      value: api.url + 'dashboard',
+      description: 'Dashboard UI URL',
+      exportName: 'PullmintDashboardURL',
     });
 
     new cdk.CfnOutput(this, 'WebhookSecretArn', {
