@@ -228,6 +228,48 @@ describe('Deployment Orchestrator', () => {
     );
   });
 
+  it('exhausts all retries when deployment webhook fails repeatedly', async () => {
+    process.env.DEPLOYMENT_WEBHOOK_RETRIES = '2';
+
+    (globalThis as { fetch?: unknown }).fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('failed attempt 1'),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('failed attempt 2'),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('failed attempt 3'),
+      });
+
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
+
+    expect((globalThis as unknown as { fetch?: jest.Mock }).fetch).toHaveBeenCalledTimes(3);
+    expect(publishEvent).toHaveBeenCalledWith(
+      'test-bus',
+      'pullmint.orchestrator',
+      'deployment.status',
+      expect.objectContaining({
+        deploymentStatus: 'failed',
+        message: expect.stringContaining('failed attempt 3'),
+      })
+    );
+  });
+
   it('triggers rollback on deployment failure', async () => {
     process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL = 'https://rollback.example.com';
 
