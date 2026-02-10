@@ -2,6 +2,7 @@
   "name": "@pullmint/dashboard-api",
   "version": "1.0.0",
   "description": "Dashboard REST API for Pullmint PR executions",
+  "private": true,
   "main": "index.ts",
   "scripts": {
     "build": "tsc",

@@ -97,7 +97,8 @@ describe('Dashboard UI Handler', () => {
       const event = createMockEvent('GET');
       const result = await handler(event);
 
-      expect(result.body).toContain('window.location.origin + "/dashboard"');
+      expect(result.body).toContain("const dashboardPath = '/dashboard'");
+      expect(result.body).toContain('window.location.pathname.slice');
     });
   });
 

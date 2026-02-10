@@ -4,9 +4,7 @@
 
 Pullmint includes three critical CloudWatch alarms for production reliability:
 
-###
-
-Deployment Orchestrator Errors
+### Deployment Orchestrator Errors
 
 ```typescript
 new cloudwatch.Alarm(this, 'DeploymentOrchestratorErrors', {

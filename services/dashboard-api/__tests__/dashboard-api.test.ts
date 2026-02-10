@@ -3,7 +3,6 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   QueryCommand,
-  ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
@@ -20,11 +19,12 @@ describe('Dashboard API Handler', () => {
   const createMockEvent = (
     path: string,
     method: string = 'GET',
-    queryParams: Record<string, string> | null = null
+    queryParams: Record<string, string> | null = null,
+    headers: Record<string, string> = {}
   ): APIGatewayProxyEvent => ({
     path,
     httpMethod: method,
-    headers: {},
+    headers,
     multiValueHeaders: {},
     queryStringParameters: queryParams,
     multiValueQueryStringParameters: null,
@@ -54,6 +54,34 @@ describe('Dashboard API Handler', () => {
 
       expect(result.statusCode).toBe(405);
       expect(JSON.parse(result.body)).toHaveProperty('error', 'Method not allowed');
+    });
+  });
+
+  describe('Authorization', () => {
+    afterEach(() => {
+      delete process.env.DASHBOARD_AUTH_TOKEN;
+    });
+
+    it('should reject requests without a token when auth is enabled', async () => {
+      process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
+      const event = createMockEvent('/dashboard/executions');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(401);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Unauthorized');
+    });
+
+    it('should allow requests with a valid bearer token', async () => {
+      process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
+      ddbMock.on(QueryCommand).resolves({ Items: [] });
+      const event = createMockEvent('/dashboard/executions', 'GET', null, {
+        Authorization: 'Bearer test-token',
+      });
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
     });
   });
 
@@ -212,7 +240,7 @@ describe('Dashboard API Handler', () => {
     ];
 
     it('should list all executions without filters', async () => {
-      ddbMock.on(ScanCommand).resolves({ Items: mockExecutions });
+      ddbMock.on(QueryCommand).resolves({ Items: mockExecutions });
 
       const event = createMockEvent('/dashboard/executions');
       const result = await handler(event);
@@ -241,7 +269,7 @@ describe('Dashboard API Handler', () => {
     });
 
     it('should filter by status', async () => {
-      ddbMock.on(ScanCommand).resolves({ Items: [mockExecutions[0]] });
+      ddbMock.on(QueryCommand).resolves({ Items: [mockExecutions[0]] });
 
       const event = createMockEvent('/dashboard/executions', 'GET', {
         status: 'completed',
@@ -251,8 +279,8 @@ describe('Dashboard API Handler', () => {
       expect(result.statusCode).toBe(200);
 
       // Verify filter expression was applied
-      const scanCall = ddbMock.commandCalls(ScanCommand)[0];
-      expect(scanCall.args[0].input.FilterExpression).toContain('status');
+      const queryCall = ddbMock.commandCalls(QueryCommand)[0];
+      expect(queryCall.args[0].input.FilterExpression).toContain('status');
     });
 
     it('should filter by both repo and status', async () => {
@@ -277,7 +305,7 @@ describe('Dashboard API Handler', () => {
         { ...mockExecutions[0], timestamp: 1000 },
         { ...mockExecutions[1], timestamp: 2000 },
       ];
-      ddbMock.on(ScanCommand).resolves({ Items: unsortedExecutions });
+      ddbMock.on(QueryCommand).resolves({ Items: unsortedExecutions });
 
       const event = createMockEvent('/dashboard/executions');
       const result = await handler(event);
@@ -287,13 +315,13 @@ describe('Dashboard API Handler', () => {
     });
 
     it('should use default limit when not specified', async () => {
-      ddbMock.on(ScanCommand).resolves({ Items: mockExecutions });
+      ddbMock.on(QueryCommand).resolves({ Items: mockExecutions });
 
       const event = createMockEvent('/dashboard/executions');
       await handler(event);
 
-      const scanCall = ddbMock.commandCalls(ScanCommand)[0];
-      expect(scanCall.args[0].input.Limit).toBe(50); // DEFAULT_LIMIT
+      const queryCall = ddbMock.commandCalls(QueryCommand)[0];
+      expect(queryCall.args[0].input.Limit).toBe(50); // DEFAULT_LIMIT
     });
   });
 
@@ -335,7 +363,7 @@ describe('Dashboard API Handler', () => {
 
     it('should handle empty Items from DynamoDB', async () => {
       const event = createMockEvent('/dashboard/executions');
-      ddbMock.on(ScanCommand).resolves({ Items: undefined });
+      ddbMock.on(QueryCommand).resolves({ Items: undefined });
 
       const result = await handler(event);
       expect(result.statusCode).toBe(200);
@@ -343,17 +371,17 @@ describe('Dashboard API Handler', () => {
       expect(body.executions).toEqual([]);
     });
 
-    it('should return 500 for invalid nextToken format in listExecutions', async () => {
+    it('should return 400 for invalid nextToken format in listExecutions', async () => {
       const nextToken = Buffer.from(JSON.stringify('not-an-object')).toString('base64');
       const event = createMockEvent('/dashboard/executions', 'GET', { nextToken });
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
-      expect(JSON.parse(result.body)).toHaveProperty('error', 'Internal server error');
+      expect(result.statusCode).toBe(400);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Invalid nextToken');
     });
 
-    it('should return 500 for array nextToken in getExecutionsByPR', async () => {
+    it('should return 400 for array nextToken in getExecutionsByPR', async () => {
       const nextToken = Buffer.from(JSON.stringify([])).toString('base64');
       const event = createMockEvent('/dashboard/repos/owner/repo/prs/42', 'GET', {
         nextToken,
@@ -361,8 +389,8 @@ describe('Dashboard API Handler', () => {
 
       const result = await handler(event);
 
-      expect(result.statusCode).toBe(500);
-      expect(JSON.parse(result.body)).toHaveProperty('error', 'Internal server error');
+      expect(result.statusCode).toBe(400);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Invalid nextToken');
     });
   });
 
@@ -391,12 +419,12 @@ describe('Dashboard API Handler', () => {
       expect(mockCalls[0].args[0].input.FilterExpression).toBe('#status = :status');
     });
 
-    it('should handle scan with status filter', async () => {
+    it('should handle query with status filter', async () => {
       const event = createMockEvent('/dashboard/executions', 'GET', {
         status: 'failed',
       });
 
-      ddbMock.on(ScanCommand).resolves({
+      ddbMock.on(QueryCommand).resolves({
         Items: [
           {
             executionId: 'exec-1',
@@ -410,14 +438,14 @@ describe('Dashboard API Handler', () => {
 
       const result = await handler(event);
       expect(result.statusCode).toBe(200);
-      const mockCalls = ddbMock.commandCalls(ScanCommand);
+      const mockCalls = ddbMock.commandCalls(QueryCommand);
       expect(mockCalls[0].args[0].input.FilterExpression).toBe('#status = :status');
     });
 
     it('should handle pagination with LastEvaluatedKey', async () => {
       const event = createMockEvent('/dashboard/executions');
 
-      ddbMock.on(ScanCommand).resolves({
+      ddbMock.on(QueryCommand).resolves({
         Items: [
           {
             executionId: 'exec-1',
@@ -439,7 +467,7 @@ describe('Dashboard API Handler', () => {
     it('should sort executions with different timestamps', async () => {
       const event = createMockEvent('/dashboard/executions');
 
-      ddbMock.on(ScanCommand).resolves({
+      ddbMock.on(QueryCommand).resolves({
         Items: [
           {
             executionId: 'exec-1',
@@ -467,7 +495,7 @@ describe('Dashboard API Handler', () => {
     it('should handle executions without timestamps', async () => {
       const event = createMockEvent('/dashboard/executions');
 
-      ddbMock.on(ScanCommand).resolves({
+      ddbMock.on(QueryCommand).resolves({
         Items: [
           {
             executionId: 'exec-1',

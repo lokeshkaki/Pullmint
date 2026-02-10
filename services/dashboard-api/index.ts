@@ -2,7 +2,6 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
   QueryCommand,
-  ScanCommand,
   GetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { NativeAttributeValue } from '@aws-sdk/util-dynamodb';
@@ -16,9 +15,21 @@ import type { PRExecution } from '../shared/types';
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-const EXECUTIONS_TABLE = process.env.EXECUTIONS_TABLE_NAME || 'pullmint-pr-executions';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
+const EXECUTION_ENTITY_TYPE = 'execution';
+const BY_REPO_INDEX = 'ByRepo';
+const BY_REPO_PR_INDEX = 'ByRepoPr';
+const BY_TIMESTAMP_INDEX = 'ByTimestamp';
+
+class BadRequestError extends Error {
+  public readonly statusCode = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'BadRequestError';
+  }
+}
 
 type QueryParams = APIGatewayProxyEventQueryStringParameters;
 
@@ -29,13 +40,40 @@ function decodeNextToken(
     return undefined;
   }
 
-  const parsed: unknown = JSON.parse(Buffer.from(nextToken, 'base64').toString());
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(nextToken, 'base64').toString());
 
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Invalid nextToken');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new BadRequestError('Invalid nextToken');
+    }
+
+    return parsed as Record<string, NativeAttributeValue>;
+  } catch (error) {
+    if (error instanceof BadRequestError) {
+      throw error;
+    }
+
+    throw new BadRequestError('Invalid nextToken');
+  }
+}
+
+function getExecutionsTableName(): string {
+  return process.env.EXECUTIONS_TABLE_NAME || 'pullmint-pr-executions';
+}
+
+function isAuthorized(event: APIGatewayProxyEvent): boolean {
+  const authToken = process.env.DASHBOARD_AUTH_TOKEN;
+  if (!authToken) {
+    return true;
   }
 
-  return parsed as Record<string, NativeAttributeValue>;
+  const headerValue = event.headers?.Authorization || event.headers?.authorization;
+  if (!headerValue) {
+    return false;
+  }
+
+  const token = headerValue.startsWith('Bearer ') ? headerValue.slice(7) : headerValue;
+  return token === authToken;
 }
 
 /**
@@ -49,15 +87,14 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     queryParams: event.queryStringParameters,
   });
 
-  try {
-    // CORS headers for browser access
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-      'Access-Control-Allow-Methods': 'GET,OPTIONS',
-      'Content-Type': 'application/json',
-    };
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Methods': 'GET,OPTIONS',
+    'Content-Type': 'application/json',
+  };
 
+  try {
     // Handle preflight requests
     if (event.httpMethod === 'OPTIONS') {
       return {
@@ -73,6 +110,14 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
         statusCode: 405,
         headers: corsHeaders,
         body: JSON.stringify({ error: 'Method not allowed' }),
+      };
+    }
+
+    if (!isAuthorized(event)) {
+      return {
+        statusCode: 401,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Unauthorized' }),
       };
     }
 
@@ -112,13 +157,18 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       body: JSON.stringify({ error: 'Not found' }),
     };
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return {
+        statusCode: error.statusCode,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: error.message }),
+      };
+    }
+
     console.error('Dashboard API error:', error);
     return {
       statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json',
-      },
+      headers: corsHeaders,
       body: JSON.stringify({
         error: 'Internal server error',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -136,7 +186,7 @@ async function getExecution(
 ): Promise<APIGatewayProxyResult> {
   const result = await docClient.send(
     new GetCommand({
-      TableName: EXECUTIONS_TABLE,
+      TableName: getExecutionsTableName(),
       Key: { executionId },
     })
   );
@@ -167,16 +217,16 @@ async function getExecutionsByPR(
 ): Promise<APIGatewayProxyResult> {
   const limit = Math.min(parseInt(queryParams?.limit || `${DEFAULT_LIMIT}`, 10), MAX_LIMIT);
 
-  // Query using GSI (ByRepo) with repoFullName and filter by prNumber
+  const repoPrKey = `${repoFullName}#${prNumber}`;
+
+  // Query using GSI (ByRepoPr) with repo+PR key
   const result = await docClient.send(
     new QueryCommand({
-      TableName: EXECUTIONS_TABLE,
-      IndexName: 'ByRepo',
-      KeyConditionExpression: 'repoFullName = :repo',
-      FilterExpression: 'prNumber = :pr',
+      TableName: getExecutionsTableName(),
+      IndexName: BY_REPO_PR_INDEX,
+      KeyConditionExpression: 'repoPrKey = :repoPrKey',
       ExpressionAttributeValues: {
-        ':repo': repoFullName,
-        ':pr': prNumber,
+        ':repoPrKey': repoPrKey,
       },
       Limit: limit,
       ScanIndexForward: false, // Latest first
@@ -222,8 +272,8 @@ async function listExecutions(
   if (repo) {
     // Query by repo using GSI
     const queryCommand = new QueryCommand({
-      TableName: EXECUTIONS_TABLE,
-      IndexName: 'ByRepo',
+      TableName: getExecutionsTableName(),
+      IndexName: BY_REPO_INDEX,
       KeyConditionExpression: 'repoFullName = :repo',
       ExpressionAttributeValues: {
         ':repo': repo,
@@ -245,21 +295,30 @@ async function listExecutions(
 
     result = await docClient.send(queryCommand);
   } else {
-    // Scan all executions (less efficient, but works without repo filter)
-    const scanCommand = new ScanCommand({
-      TableName: EXECUTIONS_TABLE,
+    // Query all executions by timestamp using GSI
+    const queryCommand = new QueryCommand({
+      TableName: getExecutionsTableName(),
+      IndexName: BY_TIMESTAMP_INDEX,
+      KeyConditionExpression: 'entityType = :entityType',
+      ExpressionAttributeValues: {
+        ':entityType': EXECUTION_ENTITY_TYPE,
+      },
       Limit: limit,
+      ScanIndexForward: false, // Latest first
       ExclusiveStartKey: decodeNextToken(queryParams?.nextToken),
     });
 
     // Add status filter if provided
     if (status) {
-      scanCommand.input.FilterExpression = '#status = :status';
-      scanCommand.input.ExpressionAttributeNames = { '#status': 'status' };
-      scanCommand.input.ExpressionAttributeValues = { ':status': status };
+      queryCommand.input.FilterExpression = '#status = :status';
+      queryCommand.input.ExpressionAttributeNames = { '#status': 'status' };
+      queryCommand.input.ExpressionAttributeValues = {
+        ...queryCommand.input.ExpressionAttributeValues,
+        ':status': status,
+      };
     }
 
-    result = await docClient.send(scanCommand);
+    result = await docClient.send(queryCommand);
   }
 
   const executions = (result.Items || []) as PRExecution[];

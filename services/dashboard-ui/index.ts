@@ -42,7 +42,6 @@ function getDashboardHTML(): string {
       box-sizing: border-box;
     }
 
-    body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
@@ -390,15 +389,28 @@ function getDashboardHTML(): string {
       </div>
       <div id="executionList" class="execution-list">
         <div class="loading">Loading executions...</div>
+        <div class="error" style="display: none;"></div>
+        <div class="empty" style="display: none;"></div>
       </div>
     </div>
   </div>
 
   <script>
-    const apiBase = window.location.origin + "/dashboard";
+    const dashboardPath = '/dashboard';
+    const dashboardIndex = window.location.pathname.indexOf(dashboardPath);
+    const apiBase =
+      window.location.origin +
+      (dashboardIndex >= 0
+        ? window.location.pathname.slice(0, dashboardIndex + dashboardPath.length)
+        : dashboardPath);
     let currentFilters = {};
     let nextToken = null;
     let pollingInterval = null;
+
+    function getAuthHeaders() {
+      const token = window.localStorage?.getItem('dashboardAuthToken');
+      return token ? { Authorization: 'Bearer ' + token } : {};
+    }
 
     async function loadExecutions(append = false) {
       try {
@@ -407,7 +419,9 @@ function getDashboardHTML(): string {
           params.set('nextToken', nextToken);
         }
 
-        const response = await fetch(\`\${apiBase}/executions?\${params}\`);
+        const response = await fetch(\`\${apiBase}/executions?\${params}\`, {
+          headers: getAuthHeaders(),
+        });
         if (!response.ok) throw new Error('Failed to fetch executions');
 
         const data = await response.json();
@@ -424,7 +438,10 @@ function getDashboardHTML(): string {
         if (nextToken && !loadMoreBtn) {
           const btn = document.createElement('div');
           btn.className = 'load-more';
-          btn.innerHTML = '<button onclick="loadExecutions(true)">Load More</button>';
+          const button = document.createElement('button');
+          button.textContent = 'Load More';
+          button.onclick = () => loadExecutions(true);
+          btn.appendChild(button);
           document.getElementById('executionList').appendChild(btn);
         } else if (!nextToken && loadMoreBtn) {
           loadMoreBtn.remove();
@@ -432,14 +449,18 @@ function getDashboardHTML(): string {
 
       } catch (error) {
         console.error('Error loading executions:', error);
-        document.getElementById('executionList').innerHTML = 
-          \`<div class="error">Error loading executions: \${error.message}</div>\`;
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        const container = document.getElementById('executionList');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error';
+        errorDiv.textContent = 'Error loading executions: ' + message;
+        container.replaceChildren(errorDiv);
       }
     }
 
     function renderExecutions(executions, append = false) {
       const container = document.getElementById('executionList');
-      
+
       if (!append) {
         container.innerHTML = '';
       } else {
@@ -449,7 +470,10 @@ function getDashboardHTML(): string {
       }
 
       if (executions.length === 0 && !append) {
-        container.innerHTML = '<div class="empty">No executions found</div>';
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty';
+        emptyDiv.textContent = 'No executions found';
+        container.appendChild(emptyDiv);
         return;
       }
 
@@ -457,24 +481,61 @@ function getDashboardHTML(): string {
         const item = document.createElement('div');
         item.className = 'execution-item';
         item.onclick = () => viewExecution(exec.executionId);
-        
+
         const timestamp = exec.timestamp ? new Date(exec.timestamp).toLocaleString() : 'Unknown';
         const riskClass = getRiskClass(exec.riskScore);
-        
-        item.innerHTML = \`
-          <div class="execution-header">
-            <div class="execution-title">\${exec.repoFullName} #\${exec.prNumber}</div>
-            <span class="badge \${exec.status}">\${exec.status}</span>
-          </div>
-          <div class="execution-meta">
-            <span>📅 \${timestamp}</span>
-            <span>🔗 \${exec.headSha.substring(0, 7)}</span>
-            \${exec.riskScore !== undefined ? \`<span class="risk-score \${riskClass}">Risk: \${exec.riskScore}</span>\` : ''}
-          </div>
-          \${exec.findings && exec.findings.length > 0 ? renderFindings(exec.findings) : ''}
-          \${exec.deploymentStatus ? renderDeployment(exec) : ''}
-        \`;
-        
+        const headSha = exec.headSha ? exec.headSha.substring(0, 7) : 'unknown';
+
+        const header = document.createElement('div');
+        header.className = 'execution-header';
+
+        const title = document.createElement('div');
+        title.className = 'execution-title';
+        title.textContent = exec.repoFullName + ' #' + exec.prNumber;
+
+        const statusBadge = document.createElement('span');
+        statusBadge.className = 'badge ' + exec.status;
+        statusBadge.textContent = exec.status;
+
+        header.appendChild(title);
+        header.appendChild(statusBadge);
+
+        const meta = document.createElement('div');
+        meta.className = 'execution-meta';
+
+        const timeSpan = document.createElement('span');
+        timeSpan.textContent = '📅 ' + timestamp;
+
+        const shaSpan = document.createElement('span');
+        shaSpan.textContent = '🔗 ' + headSha;
+
+        meta.appendChild(timeSpan);
+        meta.appendChild(shaSpan);
+
+        if (exec.riskScore !== undefined) {
+          const riskSpan = document.createElement('span');
+          riskSpan.className = 'risk-score ' + riskClass;
+          riskSpan.textContent = 'Risk: ' + exec.riskScore;
+          meta.appendChild(riskSpan);
+        }
+
+        item.appendChild(header);
+        item.appendChild(meta);
+
+        if (exec.findings && exec.findings.length > 0) {
+          const findingsNode = renderFindings(exec.findings);
+          if (findingsNode) {
+            item.appendChild(findingsNode);
+          }
+        }
+
+        if (exec.deploymentStatus) {
+          const deploymentNode = renderDeployment(exec);
+          if (deploymentNode) {
+            item.appendChild(deploymentNode);
+          }
+        }
+
         container.appendChild(item);
       });
     }
@@ -482,40 +543,81 @@ function getDashboardHTML(): string {
     function renderFindings(findings) {
       const criticalAndHigh = findings.filter(f => f.severity === 'critical' || f.severity === 'high');
       if (criticalAndHigh.length === 0) return '';
-      
-      return \`
-        <div class="findings">
-          <strong>Key Findings:</strong>
-          \${criticalAndHigh.slice(0, 3).map(f => \`
-            <div class="finding-item">
-              <span class="finding-severity \${f.severity}">\${f.severity}</span>
-              \${f.title}
-            </div>
-          \`).join('')}
-          \${findings.length > 3 ? \`<div style="font-size: 12px; color: #666; margin-top: 5px;">+\${findings.length - 3} more findings</div>\` : ''}
-        </div>
-      \`;
+
+      const findingsContainer = document.createElement('div');
+      findingsContainer.className = 'findings';
+
+      const title = document.createElement('strong');
+      title.textContent = 'Key Findings:';
+      findingsContainer.appendChild(title);
+
+      criticalAndHigh.slice(0, 3).forEach(finding => {
+        const item = document.createElement('div');
+        item.className = 'finding-item';
+
+        const severity = document.createElement('span');
+        severity.className = 'finding-severity ' + finding.severity;
+        severity.textContent = finding.severity;
+
+        const text = document.createElement('span');
+        text.textContent = ' ' + finding.title;
+
+        item.appendChild(severity);
+        item.appendChild(text);
+        findingsContainer.appendChild(item);
+      });
+
+      if (findings.length > 3) {
+        const more = document.createElement('div');
+        more.style.fontSize = '12px';
+        more.style.color = '#666';
+        more.style.marginTop = '5px';
+        more.textContent = '+' + (findings.length - 3) + ' more findings';
+        findingsContainer.appendChild(more);
+      }
+
+      return findingsContainer;
     }
 
     function renderDeployment(exec) {
-      return \`
-        <div class="deployment-timeline">
-          <div class="timeline-item">
-            <div class="timeline-dot"></div>
-            <span>Environment: \${exec.deploymentEnvironment || 'staging'}</span>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot"></div>
-            <span>Status: \${exec.deploymentStatus}</span>
-          </div>
-          \${exec.deploymentCompletedAt ? \`
-            <div class="timeline-item">
-              <div class="timeline-dot"></div>
-              <span>Completed: \${new Date(exec.deploymentCompletedAt).toLocaleString()}</span>
-            </div>
-          \` : ''}
-        </div>
-      \`;
+      const timeline = document.createElement('div');
+      timeline.className = 'deployment-timeline';
+
+      const environmentItem = document.createElement('div');
+      environmentItem.className = 'timeline-item';
+      const environmentDot = document.createElement('div');
+      environmentDot.className = 'timeline-dot';
+      const environmentText = document.createElement('span');
+      environmentText.textContent =
+        'Environment: ' + (exec.deploymentEnvironment || 'staging');
+      environmentItem.appendChild(environmentDot);
+      environmentItem.appendChild(environmentText);
+      timeline.appendChild(environmentItem);
+
+      const statusItem = document.createElement('div');
+      statusItem.className = 'timeline-item';
+      const statusDot = document.createElement('div');
+      statusDot.className = 'timeline-dot';
+      const statusText = document.createElement('span');
+      statusText.textContent = 'Status: ' + exec.deploymentStatus;
+      statusItem.appendChild(statusDot);
+      statusItem.appendChild(statusText);
+      timeline.appendChild(statusItem);
+
+      if (exec.deploymentCompletedAt) {
+        const completedItem = document.createElement('div');
+        completedItem.className = 'timeline-item';
+        const completedDot = document.createElement('div');
+        completedDot.className = 'timeline-dot';
+        const completedText = document.createElement('span');
+        completedText.textContent =
+          'Completed: ' + new Date(exec.deploymentCompletedAt).toLocaleString();
+        completedItem.appendChild(completedDot);
+        completedItem.appendChild(completedText);
+        timeline.appendChild(completedItem);
+      }
+
+      return timeline;
     }
 
     function getRiskClass(score) {
@@ -530,16 +632,22 @@ function getDashboardHTML(): string {
       document.getElementById('totalCount').textContent = total;
 
       if (total > 0) {
-        const avgRisk = executions
-          .filter(e => e.riskScore !== undefined)
-          .reduce((sum, e) => sum + e.riskScore, 0) / total;
-        document.getElementById('avgRisk').textContent = avgRisk.toFixed(1);
+        const scoredExecutions = executions.filter(e => e.riskScore !== undefined);
+        const scoredCount = scoredExecutions.length;
+
+        if (scoredCount > 0) {
+          const avgRisk =
+            scoredExecutions.reduce((sum, e) => sum + e.riskScore, 0) / scoredCount;
+          document.getElementById('avgRisk').textContent = avgRisk.toFixed(1);
+        } else {
+          document.getElementById('avgRisk').textContent = '-';
+        }
 
         const deployed = executions.filter(e => e.deploymentStatus === 'deployed').length;
         document.getElementById('deployedCount').textContent = deployed;
 
         const completed = executions.filter(e => e.status === 'completed' || e.status === 'deployed').length;
-        const successRate = (completed / total * 100).toFixed(1);
+        const successRate = ((completed / total) * 100).toFixed(1);
         document.getElementById('successRate').textContent = successRate + '%';
       }
     }
@@ -566,7 +674,9 @@ function getDashboardHTML(): string {
 
     async function viewExecution(executionId) {
       try {
-        const response = await fetch(\`\${apiBase}/executions/\${executionId}\`);
+        const response = await fetch(\`\${apiBase}/executions/\${executionId}\`, {
+          headers: getAuthHeaders(),
+        });
         if (!response.ok) throw new Error('Failed to fetch execution details');
         
         const exec = await response.json();

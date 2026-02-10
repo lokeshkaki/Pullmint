@@ -73,7 +73,8 @@ pullmint/
 ├── infrastructure/       # AWS CDK (CloudFormation templates)
 ├── services/
 │   ├── webhook-receiver/      # GitHub webhook handler
-│   ├── architecture-agent/    # LLM-powered analysis
+│   ├── llm-agents/
+│   │   └── architecture-agent/ # LLM-powered analysis
 │   ├── github-integration/    # Post results to GitHub
 │   ├── deployment-orchestrator/ # Auto-deploy logic
 │   ├── dashboard-api/         # REST API

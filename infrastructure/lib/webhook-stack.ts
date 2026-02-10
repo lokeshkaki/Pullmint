@@ -78,6 +78,18 @@ export class WebhookStack extends cdk.Stack {
       sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
     });
 
+    executionsTable.addGlobalSecondaryIndex({
+      indexName: 'ByRepoPr',
+      partitionKey: { name: 'repoPrKey', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
+    });
+
+    executionsTable.addGlobalSecondaryIndex({
+      indexName: 'ByTimestamp',
+      partitionKey: { name: 'entityType', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.NUMBER },
+    });
+
     // LLM cache table
     const cacheTable = new dynamodb.Table(this, 'LLMCache', {
       tableName: 'pullmint-llm-cache',
@@ -399,11 +411,16 @@ export class WebhookStack extends cdk.Stack {
     });
 
     // Enable CORS for dashboard endpoints
-    dashboardResource.addCorsPreflight({
+    const dashboardCors = {
       allowOrigins: ['*'],
       allowMethods: ['GET', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization'],
-    });
+    };
+
+    dashboardResource.addCorsPreflight(dashboardCors);
+    executionsResource.addCorsPreflight(dashboardCors);
+    executionResource.addCorsPreflight(dashboardCors);
+    prNumberResource.addCorsPreflight(dashboardCors);
 
     // ===========================
     // CloudWatch Alarms
