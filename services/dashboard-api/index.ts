@@ -5,6 +5,7 @@ import {
   ScanCommand,
   GetCommand,
 } from '@aws-sdk/lib-dynamodb';
+import type { NativeAttributeValue } from '@aws-sdk/util-dynamodb';
 import type {
   APIGatewayProxyEvent,
   APIGatewayProxyResult,
@@ -20,6 +21,22 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
 type QueryParams = APIGatewayProxyEventQueryStringParameters;
+
+function decodeNextToken(
+  nextToken?: string | null
+): Record<string, NativeAttributeValue> | undefined {
+  if (!nextToken) {
+    return undefined;
+  }
+
+  const parsed: unknown = JSON.parse(Buffer.from(nextToken, 'base64').toString());
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid nextToken');
+  }
+
+  return parsed as Record<string, NativeAttributeValue>;
+}
 
 /**
  * Dashboard API Handler
@@ -75,7 +92,12 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       const repo = parts[4];
       const prNumber = parseInt(parts[6], 10);
       const repoFullName = `${owner}/${repo}`;
-      return await getExecutionsByPR(repoFullName, prNumber, event.queryStringParameters, corsHeaders);
+      return await getExecutionsByPR(
+        repoFullName,
+        prNumber,
+        event.queryStringParameters,
+        corsHeaders
+      );
     }
 
     // GET /dashboard/executions
@@ -143,10 +165,7 @@ async function getExecutionsByPR(
   queryParams: QueryParams | null,
   headers: Record<string, string>
 ): Promise<APIGatewayProxyResult> {
-  const limit = Math.min(
-    parseInt(queryParams?.limit || `${DEFAULT_LIMIT}`, 10),
-    MAX_LIMIT
-  );
+  const limit = Math.min(parseInt(queryParams?.limit || `${DEFAULT_LIMIT}`, 10), MAX_LIMIT);
 
   // Query using GSI (ByRepo) with repoFullName and filter by prNumber
   const result = await docClient.send(
@@ -161,9 +180,7 @@ async function getExecutionsByPR(
       },
       Limit: limit,
       ScanIndexForward: false, // Latest first
-      ExclusiveStartKey: queryParams?.nextToken
-        ? JSON.parse(Buffer.from(queryParams.nextToken, 'base64').toString())
-        : undefined,
+      ExclusiveStartKey: decodeNextToken(queryParams?.nextToken),
     })
   );
 
@@ -196,10 +213,7 @@ async function listExecutions(
   queryParams: QueryParams | null,
   headers: Record<string, string>
 ): Promise<APIGatewayProxyResult> {
-  const limit = Math.min(
-    parseInt(queryParams?.limit || `${DEFAULT_LIMIT}`, 10),
-    MAX_LIMIT
-  );
+  const limit = Math.min(parseInt(queryParams?.limit || `${DEFAULT_LIMIT}`, 10), MAX_LIMIT);
   const repo = queryParams?.repo;
   const status = queryParams?.status;
 
@@ -216,9 +230,7 @@ async function listExecutions(
       },
       Limit: limit,
       ScanIndexForward: false, // Latest first
-      ExclusiveStartKey: queryParams?.nextToken
-        ? JSON.parse(Buffer.from(queryParams.nextToken, 'base64').toString())
-        : undefined,
+      ExclusiveStartKey: decodeNextToken(queryParams?.nextToken),
     });
 
     // Add status filter if provided
@@ -237,9 +249,7 @@ async function listExecutions(
     const scanCommand = new ScanCommand({
       TableName: EXECUTIONS_TABLE,
       Limit: limit,
-      ExclusiveStartKey: queryParams?.nextToken
-        ? JSON.parse(Buffer.from(queryParams.nextToken, 'base64').toString())
-        : undefined,
+      ExclusiveStartKey: decodeNextToken(queryParams?.nextToken),
     });
 
     // Add status filter if provided

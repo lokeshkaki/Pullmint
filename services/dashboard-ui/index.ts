@@ -16,13 +16,15 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     };
   }
 
+  const html = await Promise.resolve(getDashboardHTML());
+
   return {
     statusCode: 200,
     headers: {
       'Content-Type': 'text/html',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
     },
-    body: getDashboardHTML(),
+    body: html,
   };
 }
 

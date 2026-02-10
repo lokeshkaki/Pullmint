@@ -22,11 +22,13 @@ Or construct manually: `https://<api-gateway-id>.execute-api.<region>.amazonaws.
 ## Dashboard Features
 
 ### Real-Time Updates
+
 - **Auto-refresh**: Polls API every 10 seconds when tab is active
 - **Smart polling**: Pauses when tab is hidden (saves API calls)
 - **Manual refresh**: Click the refresh button anytime
 
 ### Filtering and Search
+
 - **By repository**: Filter executions for specific repo (`owner/repo`)
 - **By status**: Filter by execution status
   - `pending`: Webhook received, waiting for analysis
@@ -38,12 +40,14 @@ Or construct manually: `https://<api-gateway-id>.execute-api.<region>.amazonaws.
 - **Combined filters**: Use repo + status together
 
 ### Key Metrics (Top Cards)
+
 - **Total Executions**: Count of all PR analyses
 - **Average Risk Score**: Mean risk across all executions
 - **Auto-Deployed**: Count of low-risk PRs auto-deployed
 - **Success Rate**: Percentage of successful executions
 
 ### Execution List
+
 - **Risk score badge**: Color-coded (green < 30, yellow < 60, red ≥ 60)
 - **Status badge**: Current execution state
 - **Findings preview**: Count of critical/high severity issues
@@ -51,6 +55,7 @@ Or construct manually: `https://<api-gateway-id>.execute-api.<region>.amazonaws.
 - **Metadata**: Repository, PR number, SHA, timestamp
 
 ### Pagination
+
 - **Default page size**: 50 executions
 - **Maximum page size**: 100 executions
 - **Load More button**: Seamless pagination without page reloads
@@ -64,17 +69,20 @@ The dashboard is backed by a REST API accessible at `/dashboard/*`:
 List all PR executions with optional filtering.
 
 **Query Parameters:**
+
 - `repo` (optional): Filter by repository (e.g., `owner/repo`)
 - `status` (optional): Filter by status (`pending`, `analyzing`, `completed`, `failed`, `deploying`, `deployed`)
 - `limit` (optional): Results per page (default: 50, max: 100)
 - `nextToken` (optional): Pagination token from previous response
 
 **Example Request:**
+
 ```bash
 curl "https://<api-url>/dashboard/executions?repo=owner/repo&status=completed&limit=20"
 ```
 
 **Example Response:**
+
 ```json
 {
   "executions": [
@@ -110,6 +118,7 @@ curl "https://<api-url>/dashboard/executions?repo=owner/repo&status=completed&li
 ```
 
 **Status Codes:**
+
 - `200 OK`: Success
 - `400 Bad Request`: Invalid query parameters
 - `500 Internal Server Error`: Server error
@@ -119,14 +128,17 @@ curl "https://<api-url>/dashboard/executions?repo=owner/repo&status=completed&li
 Get detailed information about a specific execution.
 
 **Path Parameters:**
+
 - `executionId`: Unique execution identifier (UUID)
 
 **Example Request:**
+
 ```bash
 curl "https://<api-url>/dashboard/executions/abc-123-def-456"
 ```
 
 **Example Response:**
+
 ```json
 {
   "executionId": "abc-123-def-456",
@@ -156,6 +168,7 @@ curl "https://<api-url>/dashboard/executions/abc-123-def-456"
 ```
 
 **Status Codes:**
+
 - `200 OK`: Success
 - `404 Not Found`: Execution not found
 - `500 Internal Server Error`: Server error
@@ -165,20 +178,24 @@ curl "https://<api-url>/dashboard/executions/abc-123-def-456"
 Get all executions for a specific pull request (useful for tracking analysis across multiple commits).
 
 **Path Parameters:**
+
 - `owner`: Repository owner
 - `repo`: Repository name
 - `number`: Pull request number
 
 **Query Parameters:**
+
 - `limit` (optional): Results per page (default: 50, max: 100)
 - `nextToken` (optional): Pagination token
 
 **Example Request:**
+
 ```bash
 curl "https://<api-url>/dashboard/repos/owner/repo/prs/42?limit=10"
 ```
 
 **Example Response:**
+
 ```json
 {
   "executions": [
@@ -207,6 +224,7 @@ curl "https://<api-url>/dashboard/repos/owner/repo/prs/42?limit=10"
 ```
 
 **Status Codes:**
+
 - `200 OK`: Success
 - `404 Not Found`: No executions found for PR
 - `500 Internal Server Error`: Server error
@@ -214,24 +232,28 @@ curl "https://<api-url>/dashboard/repos/owner/repo/prs/42?limit=10"
 ## Dashboard Architecture
 
 ### Frontend
+
 - **Technology**: Single-page HTML/CSS/JavaScript application
 - **Dependencies**: None (vanilla JavaScript)
 - **Responsive**: Mobile-friendly design with CSS Grid/Flexbox
 - **Hosting**: Served via Lambda function (dashboard-ui)
 
 ### Backend
+
 - **API Function**: dashboard-api Lambda
 - **Database**: DynamoDB with GSI for efficient queries
 - **CORS**: Enabled for browser access (`Access-Control-Allow-Origin: *`)
 - **Pagination**: Base64-encoded tokens for stateless pagination
 
 ### Performance
+
 - **Client-side polling**: 10-second intervals (configurable)
 - **Automatic pause**: Stops polling when tab hidden
 - **Query optimization**: DynamoDB GSI (`ByRepo` index)
 - **Response compression**: API Gateway compression enabled
 
 ### Security
+
 - **CORS**: Configured for browser access (internal tool)
 - **No authentication**: Currently open (add auth for public deployments)
 - **Rate limiting**: API Gateway throttling (100 req/sec)
@@ -242,6 +264,7 @@ curl "https://<api-url>/dashboard/repos/owner/repo/prs/42?limit=10"
 ### View All Executions
 
 Navigate to the dashboard URL. The main view shows:
+
 - Total executions count
 - Average risk score
 - Auto-deployed count
@@ -271,6 +294,7 @@ Navigate to the dashboard URL. The main view shows:
 ### Combine Filters
 
 Filter by both repository and status to narrow results:
+
 1. Enter repository: `owner/repo`
 2. Select status: `completed`
 3. Click "Apply Filters"
@@ -280,6 +304,7 @@ Filter by both repository and status to narrow results:
 ### View Execution Details
 
 Click on any execution row to expand and see:
+
 - Full list of findings with severity, file, line number, suggestions
 - Deployment timeline with timestamps
 - Risk score calculation details
@@ -301,13 +326,11 @@ Use the API endpoints to build custom integrations:
 
 ```javascript
 // Fetch recent executions
-const response = await fetch(
-  'https://<api-url>/dashboard/executions?limit=10'
-);
+const response = await fetch('https://<api-url>/dashboard/executions?limit=10');
 const data = await response.json();
 
 console.log(`Total: ${data.count}`);
-data.executions.forEach(exec => {
+data.executions.forEach((exec) => {
   console.log(`PR #${exec.prNumber}: Risk ${exec.riskScore}`);
 });
 ```
@@ -319,11 +342,9 @@ Build alerts or notifications based on execution data:
 ```javascript
 // Poll for new failed executions
 setInterval(async () => {
-  const response = await fetch(
-    'https://<api-url>/dashboard/executions?status=failed&limit=5'
-  );
+  const response = await fetch('https://<api-url>/dashboard/executions?status=failed&limit=5');
   const { executions } = await response.json();
-  
+
   if (executions.length > 0) {
     // Send Slack notification
     await sendSlackAlert(executions);

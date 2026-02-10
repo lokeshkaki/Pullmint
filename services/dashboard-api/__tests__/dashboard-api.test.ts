@@ -1,5 +1,10 @@
 import { handler } from '../index';
-import { DynamoDBDocumentClient, GetCommand, QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  QueryCommand,
+  ScanCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import type { PRExecution } from '../../shared/types';
@@ -180,9 +185,7 @@ describe('Dashboard API Handler', () => {
       expect(body).toHaveProperty('nextToken');
 
       // Verify nextToken can be decoded
-      const decodedKey = JSON.parse(
-        Buffer.from(body.nextToken, 'base64').toString()
-      );
+      const decodedKey = JSON.parse(Buffer.from(body.nextToken, 'base64').toString());
       expect(decodedKey).toEqual(lastEvaluatedKey);
     });
   });

@@ -8,13 +8,7 @@
 
 ## What is Pullmint?
 
-Pullmint combines LLM-powered code analysis with automated deployment to streamline your GitHub PR workflow:
-
-🚀 **Auto-deploy low-risk PRs** — Changes with risk scores < 40 automatically deploy to staging  
-💡 **Instant AI feedback** — Claude Sonnet 4.5 analyzes architecture, security, and code quality  
-⚡ **70% faster reviews** — Get structured PR feedback in 20-60 seconds  
-📊 **Real-time dashboard** — Monitor all PRs, risk scores, and deployments in one place  
-💰 **Budget-friendly** — ~$32/month for 250 PRs (serverless architecture)
+Pullmint automates PR analysis and risk-gated deployments for GitHub. It reviews code changes with LLMs, posts structured findings, and deploys low-risk changes to staging with full traceability.
 
 ## Quick Start
 
@@ -29,7 +23,7 @@ export GITHUB_APP_ID=your-app-id
 npm run deploy
 ```
 
-> 📖 **Full setup instructions:** [Deployment Guide](docs/DEPLOYMENT.md)
+**Full setup instructions:** [Deployment Guide](docs/DEPLOYMENT.md)
 
 ## How It Works
 
@@ -40,40 +34,17 @@ PR Created → Webhook → LLM Analysis → Risk Scoring → Auto-Deploy (if low
 1. **GitHub webhook** → Pullmint receives PR events
 2. **Claude Sonnet 4.5** → Analyzes code changes for quality, security, and risk
 3. **Risk scoring** → Calculates 0-100 risk score based on findings
-4. **Auto-deployment** → PRs < 40 risk automatically deploy to staging
+4. **Auto-deployment** → Low-risk PRs deploy to staging (threshold configurable)
 5. **Dashboard** → Real-time visibility into all executions
 
-> 📖 **Detailed architecture:** [Architecture Guide](docs/ARCHITECTURE.md)
+**Detailed architecture:** [Architecture Guide](docs/ARCHITECTURE.md)
 
 ## Features
 
-### 🤖 AI-Powered Analysis
-- Architecture quality assessment
-- Code complexity detection
-- Risk score calculation (0-100)
-- Structured findings with file/line references
-- Auto-approval for trivial changes (< 30 risk)
-
-### 🚀 Auto-Deployment
-- Risk-gated deployments (configurable thresholds)
-- Webhook-based deployment triggers
-- Retry logic with exponential backoff
-- Rollback on failure
-- DynamoDB + GitHub status tracking
-
-### 📊 Real-Time Dashboard
-- Filter by repo, status, risk score
-- View findings and deployment timelines
-- Auto-refresh with smart polling
-- REST API for custom integrations
-- Pagination for large datasets
-
-### 🔒 Production-Ready
-- Serverless AWS architecture (Lambda, DynamoDB, EventBridge)
-- Comprehensive error handling and monitoring
-- CloudWatch alarms for critical errors
-- Secret management via AWS Secrets Manager
-- 80%+ test coverage across all services
+- PR analysis with structured findings and risk scoring
+- Risk-gated deployment orchestration with retries and rollback hooks
+- Dashboard and REST API for execution history
+- Serverless AWS architecture with CloudWatch monitoring
 
 ## Tech Stack
 
@@ -86,16 +57,14 @@ PR Created → Webhook → LLM Analysis → Risk Scoring → Auto-Deploy (if low
 
 ## Documentation
 
-📚 **Comprehensive guides:**
-
-- [🚀 Deployment Guide](docs/DEPLOYMENT.md) - Setup, configuration, environment variables
-- [🏗️ Architecture](docs/ARCHITECTURE.md) - System design, data models, tech stack
-- [📊 Dashboard](docs/DASHBOARD.md) - Features, API endpoints, usage
-- [🔒 Security](docs/SECURITY.md) - Best practices, secret management, compliance
-- [📈 Monitoring](docs/MONITORING.md) - CloudWatch metrics, alarms, debugging
-- [💰 Cost Analysis](docs/COST.md) - Pricing breakdown, optimization tips
-- [👨‍💻 Development](docs/DEVELOPMENT.md) - Local setup, testing, contributing
-- [⚠️ Critical Gaps](docs/CRITICAL-GAPS.md) - Production gaps, next steps
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Dashboard](docs/DASHBOARD.md)
+- [Security](docs/SECURITY.md)
+- [Monitoring](docs/MONITORING.md)
+- [Cost Analysis](docs/COST.md)
+- [Development](docs/DEVELOPMENT.md)
+- [Critical Gaps](docs/CRITICAL-GAPS.md)
 
 ## Project Structure
 
@@ -115,16 +84,7 @@ pullmint/
 
 ## Cost
 
-~**$32/month** for 250 PRs:
-
-| Service | Cost | % of Total |
-|---------|------|------------|
-| Anthropic API (Claude) | ~$25 | 78% |
-| AWS Infrastructure | ~$5 | 16% |
-| Data Transfer | ~$2 | 6% |
-
-> 💡 **Scales linearly:** 500 PRs = ~$62/month, 1,000 PRs = ~$122/month  
-> 📖 **Detailed breakdown:** [Cost Analysis](docs/COST.md)
+~**$32/month** for 250 PRs. See [Cost Analysis](docs/COST.md) for details and scaling projections.
 
 ## Development
 
@@ -143,25 +103,13 @@ npm run format
 cd infrastructure && npm run deploy
 ```
 
-> 📖 **Full development guide:** [Development](docs/DEVELOPMENT.md)
+**Full development guide:** [Development](docs/DEVELOPMENT.md)
 
 ## Status
 
-**✅ Phase 1:** Core infrastructure (completed)  
-**✅ Phase 2:** Auto-deployment + Dashboard (completed)  
-**📋 Phase 3:** Production hardening (see [Critical Gaps](docs/CRITICAL-GAPS.md))
+Phase 2 complete. Phase 3 planned (see [Critical Gaps](docs/CRITICAL-GAPS.md)).
 
 ## License
 
 MIT License - Copyright (c) 2026 Lokesh Kaki
 
-## Links
-
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Dashboard](docs/DASHBOARD.md)
-- [Security](docs/SECURITY.md)
-- [Monitoring](docs/MONITORING.md)
-- [Cost Analysis](docs/COST.md)
-- [Development](docs/DEVELOPMENT.md)
-- [Critical Gaps](docs/CRITICAL-GAPS.md)

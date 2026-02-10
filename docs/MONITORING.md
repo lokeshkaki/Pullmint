@@ -6,7 +6,7 @@ Pullmint includes three critical CloudWatch alarms for production reliability:
 
 ###
 
- Deployment Orchestrator Errors
+Deployment Orchestrator Errors
 
 ```typescript
 new cloudwatch.Alarm(this, 'DeploymentOrchestratorErrors', {
@@ -23,6 +23,7 @@ new cloudwatch.Alarm(this, 'DeploymentOrchestratorErrors', {
 ```
 
 **Why ≥3 errors/5min?**
+
 - Deployment runs are lower volume than webhook/analysis
 - Single deployment failure could indicate infrastructure issue
 - 3 failures in 5 minutes suggests systemic problem
@@ -44,6 +45,7 @@ new cloudwatch.Alarm(this, 'GitHubIntegrationErrors', {
 ```
 
 **Why ≥5 errors/5min?**
+
 - Higher throughput service (every PR gets analysis)
 - Temporary GitHub API issues may cause transient errors
 - 5 failures indicates persistent problem
@@ -65,6 +67,7 @@ new cloudwatch.Alarm(this, 'WebhookHandlerErrors', {
 ```
 
 **Why ≥5 errors/5min?**
+
 - Highest throughput service (every webhook event)
 - Signature validation errors may be malicious traffic
 - 5 failures suggests webhook secret mismatch or DynamoDB issue
@@ -76,26 +79,32 @@ All Lambda functions expose standard AWS metrics:
 ### Function-Level Metrics
 
 **Invocations:**
+
 - Total number of function invocations
 - Use to track PR volume and system usage
 
 **Errors:**
+
 - Number of invocations that resulted in function errors
 - Includes both handled and unhandled exceptions
 
 **Duration:**
+
 - Execution time in milliseconds (min, max, avg)
 - Use to identify performance regressions
 
 **Throttles:**
+
 - Number of invocations throttled due to concurrency limits
 - Indicates need to increase reserved concurrency
 
 **Concurrent Executions:**
+
 - Number of function instances running simultaneously
 - Use to right-size concurrency limits
 
 **DeadLetterErrors:**
+
 - Number of failed asynchronous invocations sent to DLQ
 - Critical for identifying lost events
 
@@ -128,6 +137,7 @@ aws cloudwatch get-metric-statistics \
 ### Log Groups
 
 Each Lambda function has a dedicated log group:
+
 - `/aws/lambda/pullmint-webhook-receiver`
 - `/aws/lambda/pullmint-architecture-agent`
 - `/aws/lambda/pullmint-github-integration`
@@ -158,6 +168,7 @@ All logs use JSON format for machine readability:
 ### CloudWatch Logs Insights Queries
 
 **Find all failed executions:**
+
 ```sql
 fields @timestamp, executionId, repo, prNumber, error
 | filter status = "failed"
@@ -166,6 +177,7 @@ fields @timestamp, executionId, repo, prNumber, error
 ```
 
 **Calculate average LLM latency:**
+
 ```sql
 fields @timestamp, executionId, duration
 | filter service = "architecture-agent" and event = "llm.completed"
@@ -173,6 +185,7 @@ fields @timestamp, executionId, duration
 ```
 
 **Identify slow PR analyses:**
+
 ```sql
 fields @timestamp, executionId, repo, prNumber, duration
 | filter service = "architecture-agent" and duration > 30000
@@ -181,15 +194,17 @@ fields @timestamp, executionId, repo, prNumber, duration
 ```
 
 **Track deployment success rate:**
+
 ```sql
 fields @timestamp, executionId, deploymentStatus
 | filter service = "deployment-orchestrator"
-| stats count(*) as total, 
+| stats count(*) as total,
         count(deploymentStatus = "deployed") as successful
 | extend successRate = (successful / total) * 100
 ```
 
 **Find webhook signature validation failures:**
+
 ```sql
 fields @timestamp, deliveryId, error
 | filter service = "webhook-receiver" and error like /signature/
@@ -201,15 +216,18 @@ fields @timestamp, deliveryId, error
 ### Table-Level Metrics
 
 **Read/Write Capacity:**
+
 - `ConsumedReadCapacityUnits`: Actual read capacity consumed
 - `ConsumedWriteCapacityUnits`: Actual write capacity consumed
 - Important for on-demand billing cost estimation
 
 **Throttled Requests:**
+
 - `SystemErrors`: Server-side errors (usually throttling)
 - `UserErrors`: Client-side errors (validation failures)
 
 **Latency:**
+
 - `SuccessfulRequestLatency`: Time to complete requests
 - Use to identify slow queries or index inefficiencies
 
@@ -242,14 +260,17 @@ aws cloudwatch get-metric-statistics \
 ### Event Bus Metrics
 
 **Invocations:**
+
 - Total number of events published to bus
 - Use to track event volume
 
 **FailedInvocations:**
+
 - Events that failed to invoke targets
 - Critical for identifying dead letter queue issues
 
 **TriggeredRules:**
+
 - Number of rules matched by events
 - Use to verify routing is working
 
@@ -272,18 +293,22 @@ aws cloudwatch get-metric-statistics \
 ### Request Metrics
 
 **Count:**
+
 - Total number of API requests
 - Use to track dashboard usage
 
 **Latency:**
+
 - Time between receiving request and returning response
 - Use to identify performance issues
 
 **4XXError:**
+
 - Client errors (bad requests, unauthorized)
 - High rate indicates API misuse or bugs
 
 **5XXError:**
+
 - Server errors (Lambda failures, timeouts)
 - Critical for identifying system issues
 
@@ -346,9 +371,7 @@ await cloudwatch.putMetricData({
       Value: riskScore,
       Unit: 'None',
       Timestamp: new Date(),
-      Dimensions: [
-        { Name: 'Repo', Value: repoFullName },
-      ],
+      Dimensions: [{ Name: 'Repo', Value: repoFullName }],
     },
   ],
 });
@@ -357,17 +380,20 @@ await cloudwatch.putMetricData({
 ### Recommended Custom Metrics
 
 **Business Metrics:**
+
 - `PRAnalysisCompleted`: Count of PRs analyzed
 - `AutoDeploymentTriggered`: Count of auto-deployed PRs
 - `HumanOverride`: Count of manual approvals after high risk score
 - `CacheHitRate`: Percentage of LLM cache hits
 
 **Performance Metrics:**
+
 - `LLMLatency`: Time to complete LLM analysis
 - `DeploymentLatency`: Time from approval to deployment
 - `EndToEndLatency`: Time from webhook to comment posted
 
 **Cost Metrics:**
+
 - `LLMTokensUsed`: Total tokens consumed
 - `DynamoDBReadCapacity`: Actual read capacity units used
 - `DynamoDBWriteCapacity`: Actual write capacity units used
@@ -438,14 +464,10 @@ const alertTopic = new sns.Topic(this, 'AlertTopic', {
 });
 
 // Subscribe email
-alertTopic.addSubscription(
-  new subscriptions.EmailSubscription('team@example.com')
-);
+alertTopic.addSubscription(new subscriptions.EmailSubscription('team@example.com'));
 
 // Subscribe Slack (via Lambda)
-alertTopic.addSubscription(
-  new subscriptions.LambdaSubscription(slackNotifierLambda)
-);
+alertTopic.addSubscription(new subscriptions.LambdaSubscription(slackNotifierLambda));
 
 // Add SNS action to alarms
 alarm.addAlarmAction(new actions.SnsAction(alertTopic));
@@ -457,7 +479,7 @@ alarm.addAlarmAction(new actions.SnsAction(alertTopic));
 // Slack notifier Lambda
 export async function handler(event: SNSEvent) {
   const message = JSON.parse(event.Records[0].Sns.Message);
-  
+
   await fetch(process.env.SLACK_WEBHOOK_URL!, {
     method: 'POST',
     body: JSON.stringify({
@@ -476,7 +498,7 @@ await fetch('https://events.pagerduty.com/v2/enqueue', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Token token=${process.env.PAGERDUTY_API_KEY}`,
+    Authorization: `Token token=${process.env.PAGERDUTY_API_KEY}`,
   },
   body: JSON.stringify({
     routing_key: process.env.PAGERDUTY_ROUTING_KEY,
@@ -506,14 +528,16 @@ const lambda = new lambda.Function(this, 'ArchitectureAgent', {
 ```
 
 **Benefits:**
+
 - Visualize request flow across services
 - Identify bottlenecks in event processing
 - Trace errors to specific service
 
 **Sample Trace:**
+
 ```
-API Gateway → Lambda (webhook-receiver) → EventBridge → 
-  SQS → Lambda (architecture-agent) → EventBridge → 
+API Gateway → Lambda (webhook-receiver) → EventBridge →
+  SQS → Lambda (architecture-agent) → EventBridge →
   Lambda (github-integration)
 ```
 
@@ -529,6 +553,7 @@ new logs.LogGroup(this, 'WebhookReceiverLogs', {
 ```
 
 **Recommended Retention:**
+
 - **Production**: 30 days (compliance, debugging)
 - **Development**: 7 days (cost optimization)
 - **Audit logs**: 90 days or longer
@@ -570,24 +595,28 @@ new logs.LogGroup(this, 'WebhookReceiverLogs', {
 ## Best Practices
 
 ### Logging
+
 - Use structured JSON logs for machine readability
 - Include correlation IDs (executionId) in all logs
 - Log at appropriate levels (INFO, WARN, ERROR)
 - Avoid logging sensitive data (secrets, PII)
 
 ### Metrics
+
 - Publish custom metrics for business KPIs
 - Use dimensions for filtering and grouping
 - Set appropriate alarm thresholds based on SLOs
 - Monitor cost metrics to prevent budget overruns
 
 ### Alerting
+
 - Alert on symptoms, not causes (SLI-based)
 - Reduce alert fatigue (tune thresholds)
 - Route alerts to appropriate teams (SNS topics)
 - Include actionable information in alerts
 
 ### Dashboards
+
 - Build dashboards for different audiences (ops, business)
 - Include both technical and business metrics
 - Use appropriate visualizations (gauge, graph, number)

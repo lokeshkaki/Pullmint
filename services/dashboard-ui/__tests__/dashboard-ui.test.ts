@@ -32,10 +32,7 @@ describe('Dashboard UI Handler', () => {
       const event = createMockEvent('GET');
       const result = await handler(event);
 
-      expect(result.headers).toHaveProperty(
-        'Cache-Control',
-        'no-cache, no-store, must-revalidate'
-      );
+      expect(result.headers).toHaveProperty('Cache-Control', 'no-cache, no-store, must-revalidate');
     });
 
     it('should contain dashboard application', async () => {

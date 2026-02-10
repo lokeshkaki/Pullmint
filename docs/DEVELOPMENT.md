@@ -394,10 +394,7 @@ npm run lint -- --fix
 
 ```json
 {
-  "extends": [
-    "eslint:recommended",
-    "plugin:@typescript-eslint/recommended"
-  ],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
   "parser": "@typescript-eslint/parser",
   "plugins": ["@typescript-eslint"],
   "rules": {
@@ -525,6 +522,7 @@ npx husky add .husky/pre-commit "npm test && npm run lint"
 **Issue:** `Cannot find module '../shared/types'`
 
 **Solution:**
+
 ```bash
 # Rebuild shared module
 cd services/shared
@@ -547,6 +545,7 @@ npm run build
 **Issue:** AWS SDK mock not working
 
 **Solution:**
+
 ```typescript
 // Reset mock before each test
 beforeEach(() => {
@@ -562,6 +561,7 @@ ddbMock.on(GetCommand).resolves({ Item: {...} });
 **Issue:** `Cannot find name 'dashboardResource'`
 
 **Solution:**
+
 ```bash
 # Check for syntax errors in webhook-stack.ts
 cd infrastructure
@@ -576,6 +576,7 @@ npx tsc --noEmit
 **Issue:** Lambda times out during local testing
 
 **Solution:**
+
 ```typescript
 // Increase timeout in CDK
 new lambda.Function(this, 'ArchitectureAgent', {
