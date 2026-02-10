@@ -342,6 +342,28 @@ describe('Dashboard API Handler', () => {
       const body = JSON.parse(result.body);
       expect(body.executions).toEqual([]);
     });
+
+    it('should return 500 for invalid nextToken format in listExecutions', async () => {
+      const nextToken = Buffer.from(JSON.stringify('not-an-object')).toString('base64');
+      const event = createMockEvent('/dashboard/executions', 'GET', { nextToken });
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(500);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Internal server error');
+    });
+
+    it('should return 500 for array nextToken in getExecutionsByPR', async () => {
+      const nextToken = Buffer.from(JSON.stringify([])).toString('base64');
+      const event = createMockEvent('/dashboard/repos/owner/repo/prs/42', 'GET', {
+        nextToken,
+      });
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(500);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Internal server error');
+    });
   });
 
   describe('Advanced query scenarios', () => {
