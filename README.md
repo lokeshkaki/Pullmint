@@ -64,7 +64,7 @@ PR Created → Webhook → LLM Analysis → Risk Scoring → Auto-Deploy (if low
 - [Monitoring](docs/MONITORING.md)
 - [Cost Analysis](docs/COST.md)
 - [Development](docs/DEVELOPMENT.md)
-- [Critical Gaps](docs/CRITICAL-GAPS.md)
+- [Next Phase](docs/NEXT-PHASE.md)
 
 ## Project Structure
 
@@ -108,7 +108,7 @@ cd infrastructure && npm run deploy
 
 ## Status
 
-Phase 2 complete. Phase 3 planned (see [Critical Gaps](docs/CRITICAL-GAPS.md)).
+Phase 2 complete. Phase 3 planned (see [Next Phase](docs/NEXT-PHASE.md)).
 
 ## License
 
