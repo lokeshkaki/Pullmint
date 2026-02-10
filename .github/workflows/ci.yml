@@ -34,6 +34,8 @@ jobs:
           - services/webhook-receiver
           - services/github-integration
           - services/deployment-orchestrator
+          - services/dashboard-api
+          - services/dashboard-ui
     steps:
       - uses: actions/checkout@v4
 

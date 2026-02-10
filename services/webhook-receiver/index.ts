@@ -117,10 +117,12 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       const execution: PRExecution = {
         executionId,
         repoFullName: prEvent.repoFullName,
+        repoPrKey: `${prEvent.repoFullName}#${prEvent.prNumber}`,
         prNumber: prEvent.prNumber,
         headSha: prEvent.headSha,
         status: 'pending',
         timestamp: Date.now(),
+        entityType: 'execution',
       };
 
       await docClient.send(
