@@ -140,9 +140,9 @@ aws secretsmanager get-secret-value \
    - Events: Select "Pull requests"
    - Active: ✓
 
-### Migration Note
+### Configuration Notes
 
-Pullmint uses Anthropic Claude Sonnet 4.5 for analysis. If you are upgrading from an OpenAI-backed deployment, update your Secrets Manager entry to `pullmint/anthropic-api-key` and refresh any environment references to `ANTHROPIC_API_KEY`.
+Pullmint uses Anthropic Claude Sonnet 4.5 for code analysis. Ensure your API key is stored in AWS Secrets Manager at `pullmint/anthropic-api-key`.
 
 ## How It Works
 
@@ -161,20 +161,44 @@ Pullmint supports risk-gated automatic deployments with the following environmen
 
 **Risk Thresholds:**
 
-- `DEPLOYMENT_RISK_THRESHOLD` (default: `30`) - Maximum risk score to allow deployment
+- `DEPLOYMENT_RISK_THRESHOLD` (default: `40`) - Maximum risk score to allow deployment
 - `AUTO_APPROVE_RISK_THRESHOLD` (default: `30`) - Maximum risk score to auto-approve PR
+
+**Threshold Rationale:**
+
+Risk thresholds provide graduated control over automation:
+
+- **Auto-Approve (30):** Only trivial changes (typos, docs, formatting) auto-approve
+- **Auto-Deploy (40):** Low-risk changes (minor features, refactors) deploy to staging
+- **Manual Review (>40):** High-risk changes (architecture, security, API changes) require human review
+
+This separation ensures:
+- Staging deployments test changes before production
+- Human oversight for significant changes
+- Fast feedback loop for safe changes
 
 **Deployment Strategy:**
 
 - `DEPLOYMENT_STRATEGY` (default: `eventbridge`) - Options: `eventbridge`, `label`, `deployment`
-  - `eventbridge`: Trigger deployment via EventBridge orchestrator (recommended)
-  - `label`: Add deployment label to PR (legacy)
-  - `deployment`: Create GitHub deployment event (future)
+
+**Strategy Decision Framework:**
+
+| Strategy | Use When | Pros | Cons | Status |
+|----------|----------|------|------|--------|
+| `eventbridge` | Production deployments with webhook integration | Full control, error handling, retry logic, status tracking | Requires webhook setup | ✅ **Recommended** |
+| `label` | GitHub Actions-based deployments | Simple, no webhook needed, uses existing CI/CD | Limited error handling, no built-in retry | 🟡 Legacy Support |
+| `deployment` | GitHub Deployments API integration | Native GitHub integration, deployment history | Not yet implemented | 🔵 Future (Phase C) |
+
+**When to use each:**
+
+- **eventbridge:** Default choice for production. Provides webhook-based deployment with comprehensive error handling, automatic retries, and DynamoDB-tracked status.
+- **label:** Use if you have an existing GitHub Actions workflow triggered by labels and don't want to set up a deployment webhook.
+- **deployment:** Not yet available. Planned for organizations using GitHub Deployments API for deployment tracking.
 
 **Deployment Gates:**
 
 - `DEPLOYMENT_REQUIRE_TESTS` (default: `false`) - Block deployment until tests pass
-- `DEPLOYMENT_REQUIRED_CONTEXTS` (CSV) - List of required GitHub status checks (e.g., `ci,security-scan`)
+- `DEPLOYMENT_REQUIRED_CONTEXTS` (CSV) - Comma-separated list of required GitHub status checks that must pass before deployment (e.g., `ci,security-scan,build`). Leave empty to skip status check requirements.
 
 **Deployment Environment:**
 
@@ -185,15 +209,92 @@ Pullmint supports risk-gated automatic deployments with the following environmen
 
 - `DEPLOYMENT_WEBHOOK_URL` (required for real deployments) - HTTP endpoint to trigger deployments
 - `DEPLOYMENT_WEBHOOK_AUTH_TOKEN` (optional) - Bearer token for webhook authentication
-- `DEPLOYMENT_WEBHOOK_TIMEOUT_MS` (default: `10000`) - Webhook timeout in ms
-- `DEPLOYMENT_WEBHOOK_RETRIES` (default: `2`) - Retry attempts for webhook failures
+- `DEPLOYMENT_WEBHOOK_TIMEOUT_MS` (default: `30000`) - Webhook timeout in milliseconds
+- `DEPLOYMENT_WEBHOOK_RETRIES` (default: `3`) - Retry attempts for webhook failures
 - `DEPLOYMENT_ROLLBACK_WEBHOOK_URL` (optional) - HTTP endpoint to trigger rollback
+
+**Webhook Timeout and Retry Configuration:**
+
+**Timeout Guidelines:**
+- **Simple deployments (static sites, serverless):** 10-30 seconds
+- **Container deployments (ECS, Kubernetes):** 30-60 seconds
+- **Complex deployments (multi-stage, database migrations):** 60-120 seconds
+
+**Retry Strategy:**
+- Uses exponential backoff: 1s, 2s, 4s delays between retries
+- Retries on network errors, 5xx responses, and timeouts
+- Does NOT retry on 4xx errors (client errors)
+- Failed deployments after all retries trigger rollback webhook (if configured)
+
+**Environment-Specific Configuration:**
+
+```bash
+# Development: Short timeout, no retries
+DEPLOYMENT_WEBHOOK_TIMEOUT_MS=10000
+DEPLOYMENT_WEBHOOK_RETRIES=0
+
+# Staging: Moderate timeout, some retries
+DEPLOYMENT_WEBHOOK_TIMEOUT_MS=30000
+DEPLOYMENT_WEBHOOK_RETRIES=2
+
+# Production: Long timeout, max retries
+DEPLOYMENT_WEBHOOK_TIMEOUT_MS=60000
+DEPLOYMENT_WEBHOOK_RETRIES=3
+```
 
 **Deployment Config (optional):**
 
 - `DEPLOYMENT_CONFIG` - JSON configuration that can replace individual deployment env vars
 
-**Note:** Deployment orchestration triggers an external deployment webhook. Configure `DEPLOYMENT_WEBHOOK_URL` to integrate with your deployment system.
+**Security Note:** Always store `DEPLOYMENT_WEBHOOK_AUTH_TOKEN` in AWS Secrets Manager for production.
+
+## How Deployment Works
+
+Low-risk PRs trigger automated deployment:
+
+1. **GitHub Integration** evaluates risk score
+2. If `riskScore < DEPLOYMENT_RISK_THRESHOLD`, publishes `deployment.approved` event
+3. **EventBridge** routes to Deployment Orchestrator
+4. **Orchestrator** POSTs to webhook with exponential backoff retries (1s, 2s, 4s)
+5. DynamoDB tracks: `pending` → `deploying` → `deployed`|`failed`
+6. On failure, calls rollback webhook (if configured)
+
+**Webhook Payload:**
+```json
+{
+  "executionId": "uuid-v4",
+  "prNumber": 123,
+  "repoFullName": "owner/repo",
+  "headSha": "abc123...",
+  "deploymentEnvironment": "staging"
+}
+```
+
+**Requirements:**
+- Accept POST with JSON
+- Auth: `Authorization: Bearer <token>`
+- Return 200-299 (success), 500-599 (retry), 400-499 (fail)
+- Implement idempotency via `executionId`
+
+## Security
+
+**Secret Management:**
+- All credentials stored in AWS Secrets Manager
+- GitHub webhook secret: Auto-generated, 90-day rotation
+- Anthropic API key: Manual rotation when needed
+- GitHub App private key: Annual rotation
+- Deployment webhook token: 30-day rotation
+
+**Authentication:**
+- GitHub webhooks: HMAC-SHA256 signature validation
+- Deployment webhooks: Bearer token authentication
+- GitHub App: JWT-based installation tokens (1-hour expiration)
+
+**Best Practices:**
+- Never commit secrets to code
+- Use least-privilege IAM policies
+- Enable CloudTrail for audit logging
+- Monitor secret access with CloudWatch alarms
 
 ## Monitoring and Observability
 
