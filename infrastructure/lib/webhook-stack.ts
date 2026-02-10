@@ -6,6 +6,7 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
@@ -113,6 +114,11 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    const deploymentDLQ = new sqs.Queue(this, 'DeploymentDLQ', {
+      queueName: 'pullmint-deployment-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
     // ===========================
     // Lambda Functions
     // ===========================
@@ -173,6 +179,43 @@ export class WebhookStack extends cdk.Stack {
         GITHUB_APP_ID: githubAppId ?? '',
         ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        EVENT_BUS_NAME: this.eventBus.eventBusName,
+        DEPLOYMENT_CONFIG: JSON.stringify({
+          deploymentStrategy: process.env.DEPLOYMENT_STRATEGY || 'eventbridge',
+          deploymentRiskThreshold: Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30'),
+          autoApproveRiskThreshold: Number(process.env.AUTO_APPROVE_RISK_THRESHOLD || '30'),
+          deploymentLabel: process.env.DEPLOYMENT_LABEL || 'deploy:staging',
+          deploymentEnvironment: process.env.DEPLOYMENT_ENVIRONMENT || 'staging',
+          deploymentRequireTests: (process.env.DEPLOYMENT_REQUIRE_TESTS || 'false') === 'true',
+          deploymentRequiredContexts: (process.env.DEPLOYMENT_REQUIRED_CONTEXTS || '')
+            .split(',')
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0),
+        }),
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Deployment orchestrator
+    const deploymentOrchestrator = new NodejsFunction(this, 'DeploymentOrchestrator', {
+      functionName: 'pullmint-deployment-orchestrator',
+      entry: path.join(__dirname, '../../services/deployment-orchestrator/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 512,
+      environment: {
+        EVENT_BUS_NAME: this.eventBus.eventBusName,
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        DEPLOYMENT_WEBHOOK_URL: process.env.DEPLOYMENT_WEBHOOK_URL || '',
+        DEPLOYMENT_WEBHOOK_AUTH_TOKEN: process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN || '',
+        DEPLOYMENT_WEBHOOK_TIMEOUT_MS: process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS || '10000',
+        DEPLOYMENT_WEBHOOK_RETRIES: process.env.DEPLOYMENT_WEBHOOK_RETRIES || '2',
+        DEPLOYMENT_ROLLBACK_WEBHOOK_URL: process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL || '',
+        DEPLOYMENT_DELAY_MS: process.env.DEPLOYMENT_DELAY_MS || '0',
       },
       bundling: {
         minify: true,
@@ -183,7 +226,6 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
     // Permissions
     // ===========================
-
     // Webhook handler permissions
     this.eventBus.grantPutEventsTo(webhookHandler);
     githubWebhookSecret.grantRead(webhookHandler);
@@ -200,6 +242,11 @@ export class WebhookStack extends cdk.Stack {
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
     executionsTable.grantReadWriteData(githubIntegration);
+    this.eventBus.grantPutEventsTo(githubIntegration);
+
+    // Deployment orchestrator permissions
+    executionsTable.grantReadWriteData(deploymentOrchestrator);
+    this.eventBus.grantPutEventsTo(deploymentOrchestrator);
 
     // ===========================
     // EventBridge Rules
@@ -221,6 +268,32 @@ export class WebhookStack extends cdk.Stack {
       eventPattern: {
         source: ['pullmint.agent'],
         detailType: ['analysis.complete'],
+      },
+      targets: [new targets.LambdaFunction(githubIntegration)],
+    });
+
+    // Route deployment approvals to orchestrator
+    new events.Rule(this, 'RouteDeploymentApproved', {
+      eventBus: this.eventBus,
+      eventPattern: {
+        source: ['pullmint.review'],
+        detailType: ['deployment_approved'],
+      },
+      targets: [
+        new targets.LambdaFunction(deploymentOrchestrator, {
+          deadLetterQueue: deploymentDLQ,
+          retryAttempts: 2,
+          maxEventAge: cdk.Duration.hours(2),
+        }),
+      ],
+    });
+
+    // Route deployment status updates to GitHub integration
+    new events.Rule(this, 'RouteDeploymentStatus', {
+      eventBus: this.eventBus,
+      eventPattern: {
+        source: ['pullmint.orchestrator', 'pullmint.github'],
+        detailType: ['deployment.status'],
       },
       targets: [new targets.LambdaFunction(githubIntegration)],
     });
@@ -257,6 +330,49 @@ export class WebhookStack extends cdk.Stack {
     const webhookResource = api.root.addResource('webhook');
     webhookResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler), {
       methodResponses: [{ statusCode: '202' }, { statusCode: '401' }, { statusCode: '500' }],
+    });
+
+    // ===========================
+    // CloudWatch Alarms
+    // ===========================
+
+    // Deployment orchestrator error alarm
+    new cloudwatch.Alarm(this, 'DeploymentOrchestratorErrors', {
+      alarmName: 'pullmint-deployment-orchestrator-errors',
+      alarmDescription: 'Alert when deployment orchestrator has elevated error rate',
+      metric: deploymentOrchestrator.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // GitHub integration error alarm
+    new cloudwatch.Alarm(this, 'GitHubIntegrationErrors', {
+      alarmName: 'pullmint-github-integration-errors',
+      alarmDescription: 'Alert when GitHub integration has elevated error rate',
+      metric: githubIntegration.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Webhook handler error alarm
+    new cloudwatch.Alarm(this, 'WebhookHandlerErrors', {
+      alarmName: 'pullmint-webhook-handler-errors',
+      alarmDescription: 'Alert when webhook handler has elevated error rate',
+      metric: webhookHandler.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
     // ===========================

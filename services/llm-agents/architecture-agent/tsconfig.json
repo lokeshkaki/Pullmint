@@ -10,7 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "types": ["node", "aws-lambda"]
+    "isolatedModules": true,
+    "types": ["node", "aws-lambda", "jest"]
   },
   "include": ["**/*.ts", "../../shared/*.ts"],
   "exclude": ["node_modules", "dist", "../../shared/__tests__"]

@@ -4,8 +4,9 @@ import {
   PutCommand,
   GetCommand,
   UpdateCommand,
+  UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import { putItem, getItem, updateItem } from '../dynamodb';
+import { putItem, getItem, updateItem, updateItemConditional } from '../dynamodb';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -181,7 +182,7 @@ describe('DynamoDB Client', () => {
 
       expect(ddbMock.calls()).toHaveLength(1);
       const call = ddbMock.call(0);
-      const input = call.args[0].input;
+      const input = call.args[0].input as UpdateCommandInput;
 
       expect(input.TableName).toBe(tableName);
       expect(input.Key).toEqual(key);
@@ -206,7 +207,7 @@ describe('DynamoDB Client', () => {
       await updateItem(tableName, key, updates);
 
       const call = ddbMock.call(0);
-      const input = call.args[0].input;
+      const input = call.args[0].input as UpdateCommandInput;
 
       expect(input.UpdateExpression).toBe('SET #attr0 = :val0');
       expect(input.ExpressionAttributeNames).toEqual({
@@ -231,7 +232,7 @@ describe('DynamoDB Client', () => {
       await updateItem(tableName, key, updates);
 
       const call = ddbMock.call(0);
-      const input = call.args[0].input;
+      const input = call.args[0].input as UpdateCommandInput;
 
       expect(input.ExpressionAttributeValues).toEqual({
         ':val0': { nested: 'value' },
@@ -263,12 +264,40 @@ describe('DynamoDB Client', () => {
       await updateItem(tableName, key, updates);
 
       const call = ddbMock.call(0);
-      const input = call.args[0].input;
+      const input = call.args[0].input as UpdateCommandInput;
 
       // Verify attribute names are properly escaped
       expect(input.ExpressionAttributeNames).toEqual({
         '#attr0': 'name',
         '#attr1': 'status',
+      });
+    });
+  });
+
+  describe('updateItemConditional', () => {
+    it('should apply condition expression with updates', async () => {
+      const tableName = 'TestTable';
+      const key = { id: 'test-conditional' };
+      const updates = { status: 'deploying' };
+
+      ddbMock.on(UpdateCommand).resolves({});
+
+      await updateItemConditional(tableName, key, updates, {
+        conditionExpression: 'attribute_not_exists(#deploymentApprovedAt)',
+        conditionAttributeNames: { '#deploymentApprovedAt': 'deploymentApprovedAt' },
+      });
+
+      const call = ddbMock.call(0);
+      const input = call.args[0].input as UpdateCommandInput;
+
+      expect(input.UpdateExpression).toBe('SET #attr0 = :val0');
+      expect(input.ConditionExpression).toBe('attribute_not_exists(#deploymentApprovedAt)');
+      expect(input.ExpressionAttributeNames).toEqual({
+        '#attr0': 'status',
+        '#deploymentApprovedAt': 'deploymentApprovedAt',
+      });
+      expect(input.ExpressionAttributeValues).toEqual({
+        ':val0': 'deploying',
       });
     });
   });

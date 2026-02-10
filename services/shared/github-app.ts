@@ -29,6 +29,29 @@ type GitHubRestClient = {
         issue_number: number;
         body: string;
       }) => Promise<unknown>;
+      addLabels: (params: {
+        owner: string;
+        repo: string;
+        issue_number: number;
+        labels: string[];
+      }) => Promise<unknown>;
+    };
+    repos: {
+      createDeployment: (params: {
+        owner: string;
+        repo: string;
+        ref: string;
+        environment?: string;
+        auto_merge?: boolean;
+        required_contexts?: string[];
+        payload?: Record<string, unknown>;
+      }) => Promise<unknown>;
+      getCombinedStatusForRef: (params: { owner: string; repo: string; ref: string }) => Promise<{
+        data: {
+          state: string;
+          statuses: { context?: string; state?: string }[];
+        };
+      }>;
     };
   };
 };
@@ -46,10 +69,11 @@ type GitHubAppClient = {
 export type GitHubClient = GitHubRestClient;
 
 let installationClient: GitHubClient | undefined;
+let cachedRepoFullName: string | undefined;
 let appClient: GitHubAppClient | undefined;
 
 export async function getGitHubInstallationClient(repoFullName: string): Promise<GitHubClient> {
-  if (installationClient) {
+  if (installationClient && cachedRepoFullName === repoFullName) {
     return installationClient;
   }
 
@@ -72,5 +96,6 @@ export async function getGitHubInstallationClient(repoFullName: string): Promise
   }
 
   installationClient = await appClient.getInstallationOctokit(installationId);
+  cachedRepoFullName = repoFullName;
   return installationClient;
 }

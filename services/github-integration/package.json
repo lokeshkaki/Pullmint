@@ -5,17 +5,22 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "test": "jest"
+    "test": "jest",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.490.0",
+    "@aws-sdk/client-eventbridge": "^3.490.0",
     "@aws-sdk/client-secrets-manager": "^3.490.0",
     "@aws-sdk/lib-dynamodb": "^3.490.0",
     "octokit": "^4.0.2"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.133",
+    "@types/jest": "^29.5.14",
     "@types/node": "^20.11.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
     "typescript": "^5.3.3"
   }
 }

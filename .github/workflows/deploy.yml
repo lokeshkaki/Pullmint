@@ -12,39 +12,39 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1
-      
+
       - name: Bootstrap CDK
         run: cd infrastructure && npx cdk bootstrap ${{ secrets.AWS_ACCOUNT_ID }}/us-east-1
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
           GITHUB_APP_ID: ${{ secrets.PULLMINT_GITHUB_APP_ID }}
-      
+
       - name: CDK Deploy
         run: cd infrastructure && npm run deploy -- --require-approval never
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
           GITHUB_APP_ID: ${{ secrets.PULLMINT_GITHUB_APP_ID }}
-      
+
       - name: Post deployment status
         if: success()
         run: |

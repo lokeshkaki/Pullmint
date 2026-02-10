@@ -75,3 +75,54 @@ export async function updateItem(
     })
   );
 }
+
+type ConditionalUpdateOptions = {
+  conditionExpression: string;
+  conditionAttributeNames?: Record<string, string>;
+  conditionAttributeValues?: Record<string, unknown>;
+};
+
+/**
+ * Update an item in DynamoDB with a condition expression.
+ */
+export async function updateItemConditional(
+  tableName: string,
+  key: Record<string, unknown>,
+  updates: Record<string, unknown>,
+  options: ConditionalUpdateOptions
+): Promise<void> {
+  const updateKeys = Object.keys(updates);
+
+  if (updateKeys.length === 0) {
+    return;
+  }
+
+  const updateExpression = updateKeys.map((_k, i) => `#attr${i} = :val${i}`).join(', ');
+
+  const updateAttributeNames: Record<string, string> = updateKeys.reduce(
+    (acc, k, i) => ({ ...acc, [`#attr${i}`]: k }),
+    {} as Record<string, string>
+  );
+
+  const updateAttributeValues: Record<string, unknown> = updateKeys.reduce(
+    (acc, k, i) => ({ ...acc, [`:val${i}`]: updates[k] }),
+    {} as Record<string, unknown>
+  );
+
+  await docClient.send(
+    new UpdateCommand({
+      TableName: tableName,
+      Key: key,
+      UpdateExpression: `SET ${updateExpression}`,
+      ExpressionAttributeNames: {
+        ...updateAttributeNames,
+        ...(options.conditionAttributeNames || {}),
+      },
+      ExpressionAttributeValues: {
+        ...updateAttributeValues,
+        ...(options.conditionAttributeValues || {}),
+      },
+      ConditionExpression: options.conditionExpression,
+    })
+  );
+}
