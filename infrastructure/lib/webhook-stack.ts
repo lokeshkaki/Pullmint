@@ -84,7 +84,7 @@ export class WebhookStack extends cdk.Stack {
 
     if (!normalizedGsiStage) {
       cdk.Annotations.of(this).addWarning(
-        'DynamoDB only allows one GSI create/delete per update. For existing tables, deploy with -c gsiStage=ByRepo|ByRepoPr|ByTimestamp and repeat per index in order.'
+        'No gsiStage specified. Deploying with all GSIs. For tables with existing GSIs, use -c gsiStage=all. For new table initial deployment with incremental GSI creation, deploy 3 times with gsiStage=ByRepo, then ByRepoPr, then ByTimestamp.'
       );
     }
 
