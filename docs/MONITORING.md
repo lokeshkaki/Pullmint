@@ -419,26 +419,32 @@ aws cloudformation describe-stacks --stack-name WebhookStack \
 The dashboard is organized into 6 rows covering all key metrics:
 
 #### Row 1: Lambda Invocations and Errors
+
 - **Lambda Invocations**: Total invocation count for all Lambda functions
 - **Lambda Errors**: Error count with color-coded severity (red for critical services)
 
 #### Row 2: Lambda Performance
+
 - **Lambda Duration**: Average and maximum execution times
 - **Lambda Throttles & Concurrent Executions**: Throttling events and concurrent execution capacity
 
 #### Row 3: DynamoDB Metrics
+
 - **DynamoDB Consumed Capacity**: Read/Write capacity units consumed by tables
 - **DynamoDB Throttles & Latency**: System errors, user errors, and request latency
 
 #### Row 4: API Gateway Metrics
+
 - **API Gateway Requests**: Total requests and HTTP error rates (4XX, 5XX)
 - **API Gateway Latency**: Average and p99 latency for API responses
 
 #### Row 5: EventBridge and SQS
+
 - **EventBridge Events**: Published events and failed invocations
 - **SQS Queue Metrics**: Queue depth for LLM queue and DLQ message counts
 
 #### Row 6: Summary Statistics (24h)
+
 - **Total PR Executions**: Webhook invocations in last 24 hours
 - **Total Errors**: Sum of all Lambda errors across services
 - **Avg Analysis Duration**: Average LLM analysis time (1h window)
@@ -471,7 +477,10 @@ dashboard.addWidgets(
       webhookHandler.metricInvocations({ statistic: 'Sum', label: 'Webhook Handler' }),
       architectureAgent.metricInvocations({ statistic: 'Sum', label: 'Architecture Agent' }),
       githubIntegration.metricInvocations({ statistic: 'Sum', label: 'GitHub Integration' }),
-      deploymentOrchestrator.metricInvocations({ statistic: 'Sum', label: 'Deployment Orchestrator' }),
+      deploymentOrchestrator.metricInvocations({
+        statistic: 'Sum',
+        label: 'Deployment Orchestrator',
+      }),
     ],
   })
 );
