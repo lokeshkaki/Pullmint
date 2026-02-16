@@ -1,6 +1,7 @@
 import { EventBridgeHandler } from 'aws-lambda';
 import { publishEvent } from '../shared/eventbridge';
 import { updateItem } from '../shared/dynamodb';
+import { createStructuredError } from '../shared/error-handling';
 import { DeploymentApprovedEvent, DeploymentStatusEvent } from '../shared/types';
 
 type DeploymentOutcome = {
@@ -24,50 +25,65 @@ export const handler: EventBridgeHandler<
   DeploymentApprovedEvent,
   void
 > = async (event): Promise<void> => {
-  const detail = event.detail;
-  const config = getDeploymentConfig();
+  try {
+    const detail = event.detail;
+    const config = getDeploymentConfig();
 
-  await updateItem(
-    config.executionsTableName,
-    { executionId: detail.executionId },
-    {
-      status: 'deploying',
-      deploymentStatus: 'deploying',
-      deploymentEnvironment: detail.deploymentEnvironment,
-      deploymentStrategy: detail.deploymentStrategy,
-      deploymentStartedAt: Date.now(),
-      updatedAt: Date.now(),
-    }
-  );
+    await updateItem(
+      config.executionsTableName,
+      { executionId: detail.executionId },
+      {
+        status: 'deploying',
+        deploymentStatus: 'deploying',
+        deploymentEnvironment: detail.deploymentEnvironment,
+        deploymentStrategy: detail.deploymentStrategy,
+        deploymentStartedAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+    );
 
-  const outcome = await performDeployment(detail, config);
+    const outcome = await performDeployment(detail, config);
 
-  await updateItem(
-    config.executionsTableName,
-    { executionId: detail.executionId },
-    {
-      status: outcome.status === 'deployed' ? 'deployed' : 'failed',
+    await updateItem(
+      config.executionsTableName,
+      { executionId: detail.executionId },
+      {
+        status: outcome.status === 'deployed' ? 'deployed' : 'failed',
+        deploymentStatus: outcome.status,
+        deploymentEnvironment: detail.deploymentEnvironment,
+        deploymentStrategy: detail.deploymentStrategy,
+        deploymentMessage: outcome.message,
+        deploymentCompletedAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+    );
+
+    const statusEvent: DeploymentStatusEvent = {
+      ...detail,
       deploymentStatus: outcome.status,
-      deploymentEnvironment: detail.deploymentEnvironment,
-      deploymentStrategy: detail.deploymentStrategy,
-      deploymentMessage: outcome.message,
-      deploymentCompletedAt: Date.now(),
-      updatedAt: Date.now(),
-    }
-  );
+      message: outcome.message,
+    };
 
-  const statusEvent: DeploymentStatusEvent = {
-    ...detail,
-    deploymentStatus: outcome.status,
-    message: outcome.message,
-  };
+    await publishEvent(
+      config.eventBusName,
+      'pullmint.orchestrator',
+      'deployment.status',
+      statusEvent as unknown as Record<string, unknown>
+    );
+  } catch (error) {
+    // Structured error logging for CloudWatch
+    const structuredError = createStructuredError(
+      error instanceof Error ? error : new Error('Unknown error'),
+      {
+        context: 'deployment-orchestrator',
+        executionId: event.detail?.executionId,
+        repoFullName: event.detail?.repoFullName,
+      }
+    );
 
-  await publishEvent(
-    config.eventBusName,
-    'pullmint.orchestrator',
-    'deployment.status',
-    statusEvent as unknown as Record<string, unknown>
-  );
+    console.error('Deployment orchestration error:', JSON.stringify(structuredError));
+    throw error;
+  }
 };
 
 async function performDeployment(

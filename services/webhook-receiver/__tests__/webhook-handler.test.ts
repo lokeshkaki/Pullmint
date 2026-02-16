@@ -356,6 +356,30 @@ describe('Webhook Handler', () => {
       expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(0);
     });
 
+    it('should map failure deployment status to failed', async () => {
+      const payload = createDeploymentStatusPayload('failure');
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      const call = eventBridgeMock.call(0);
+      const entry = (call.args[0].input as any).Entries[0];
+      expect(JSON.parse(entry.Detail).deploymentStatus).toBe('failed');
+    });
+
+    it('should map queued deployment status to deploying', async () => {
+      const payload = createDeploymentStatusPayload('queued');
+      const event = createMockEvent(payload, 'deployment_status');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      const call = eventBridgeMock.call(0);
+      const entry = (call.args[0].input as any).Entries[0];
+      expect(JSON.parse(entry.Detail).deploymentStatus).toBe('deploying');
+    });
+
     it('should process opened PRs', async () => {
       const payload = createPRPayload('opened');
       const event = createMockEvent(payload);
