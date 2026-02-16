@@ -1,5 +1,10 @@
 import { mockClient } from 'aws-sdk-client-mock';
-import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  GetCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import * as crypto from 'crypto';
@@ -10,13 +15,13 @@ const secretsManagerMock = mockClient(SecretsManagerClient);
 
 /**
  * Integration Tests for PR Workflow
- * 
+ *
  * Tests the complete end-to-end flow:
  * 1. Webhook receives PR event → creates execution → publishes to EventBridge
  * 2. LLM agent analyzes PR → updates execution → publishes analysis.complete
  * 3. GitHub integration posts comment → triggers deployment (if low risk)
  * 4. Deployment orchestrator deploys → updates status
- * 
+ *
  * These tests verify:
  * - Cross-service data flow
  * - EventBridge event routing
@@ -63,7 +68,7 @@ describe('PR Workflow Integration Tests', () => {
     ddbMock.on(PutCommand).resolves({});
     ddbMock.on(GetCommand).resolves({});
     ddbMock.on(UpdateCommand).resolves({});
-    
+
     eventBridgeMock.on(PutEventsCommand).resolves({
       FailedEntryCount: 0,
       Entries: [{ EventId: 'test-event-id' }],
@@ -132,12 +137,14 @@ describe('PR Workflow Integration Tests', () => {
       const { handler: webhookHandler } = await import('../../webhook-receiver/index');
 
       // Mock duplicate delivery check failure
-      ddbMock.on(PutCommand, {
-        TableName: DEDUP_TABLE_NAME,
-      }).rejects({
-        name: 'ConditionalCheckFailedException',
-        message: 'Item already exists',
-      });
+      ddbMock
+        .on(PutCommand, {
+          TableName: DEDUP_TABLE_NAME,
+        })
+        .rejects({
+          name: 'ConditionalCheckFailedException',
+          message: 'Item already exists',
+        });
 
       const prPayload = createPRPayload('opened', 123);
       const webhookEvent = createMockWebhookEvent(prPayload, 'pull_request', 'duplicate-delivery');
@@ -163,7 +170,7 @@ describe('PR Workflow Integration Tests', () => {
 
       const prPayload = createPRPayload('opened', 123);
       const webhookEvent = createMockWebhookEvent(prPayload, 'pull_request', 'delivery-456');
-      
+
       // Corrupt the signature
       webhookEvent.headers['x-hub-signature-256'] = 'sha256=invalid-signature';
 
@@ -226,7 +233,7 @@ describe('PR Workflow Integration Tests', () => {
       expect(calls.length).toBe(4);
 
       // Verify status values in each call
-      const statuses = calls.map(call => {
+      const statuses = calls.map((call) => {
         const expressionValues = call.args[0].input.ExpressionAttributeValues;
         // The updateItem implementation uses :val0, :val1, etc.
         return expressionValues?.[':val0'];
@@ -237,17 +244,21 @@ describe('PR Workflow Integration Tests', () => {
 
     it('should handle failure status transition', async () => {
       const executionId = 'owner-repo-456-fedcba';
-      
+
       const { updateItem } = await import('../dynamodb');
 
-      await updateItem(EXECUTIONS_TABLE_NAME, { executionId }, { 
-        status: 'failed',
-        errorMessage: 'Analysis failed: API timeout',
-      });
+      await updateItem(
+        EXECUTIONS_TABLE_NAME,
+        { executionId },
+        {
+          status: 'failed',
+          errorMessage: 'Analysis failed: API timeout',
+        }
+      );
 
       const updateCalls = ddbMock.commandCalls(UpdateCommand);
       expect(updateCalls.length).toBe(1);
-      
+
       const expressionValues = updateCalls[0].args[0].input.ExpressionAttributeValues;
       // The updateItem implementation uses :val0, :val1 for attribute values
       expect(expressionValues).toMatchObject({
@@ -287,7 +298,7 @@ describe('PR Workflow Integration Tests', () => {
       const calls = eventBridgeMock.commandCalls(PutEventsCommand);
       expect(calls.length).toBe(4);
 
-      const detailTypes = calls.map(call => call.args[0].input.Entries?.[0]?.DetailType);
+      const detailTypes = calls.map((call) => call.args[0].input.Entries?.[0]?.DetailType);
       expect(detailTypes).toEqual([
         'pr.opened',
         'analysis.complete',
@@ -310,7 +321,7 @@ describe('PR Workflow Integration Tests', () => {
       const { publishEvent } = await import('../eventbridge');
 
       const executionId = 'owner-repo-789-abc123';
-      
+
       await publishEvent(EVENT_BUS_NAME, 'pullmint.github', 'pr.opened', {
         prNumber: 789,
         repoFullName: 'owner/repo',
@@ -319,7 +330,7 @@ describe('PR Workflow Integration Tests', () => {
 
       const calls = eventBridgeMock.commandCalls(PutEventsCommand);
       const detail = JSON.parse(calls[0].args[0].input.Entries?.[0]?.Detail || '{}');
-      
+
       expect(detail.executionId).toBe(executionId);
     });
   });
@@ -348,12 +359,12 @@ describe('PR Workflow Integration Tests', () => {
 
       try {
         const { publishEvent } = await import('../eventbridge');
-        
+
         // publishEvent will use empty string for missing EVENT_BUS_NAME
         // EventBridge mock will handle it, so this won't throw
         // In a real scenario, EventBridge would reject empty bus names
         await publishEvent('', 'test.source', 'test.event', {});
-        
+
         const calls = eventBridgeMock.commandCalls(PutEventsCommand);
         expect(calls.length).toBe(1);
         expect(calls[0].args[0].input.Entries?.[0]?.EventBusName).toBe('');
