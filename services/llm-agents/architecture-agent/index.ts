@@ -4,7 +4,7 @@ import { publishEvent } from '../../shared/eventbridge';
 import { getItem, updateItem, putItem } from '../../shared/dynamodb';
 import { hashContent } from '../../shared/utils';
 import { getGitHubInstallationClient } from '../../shared/github-app';
-import { createStructuredError, retryWithBackoff, isTransientError } from '../../shared/error-handling';
+import { createStructuredError, retryWithBackoff } from '../../shared/error-handling';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 
 type AnthropicMessageInput = {
@@ -51,10 +51,10 @@ type PREventEnvelope = { detail: PREvent & { executionId: string } };
 
 /**
  * Architecture Agent - Analyzes PR for architecture quality
- * 
+ *
  * Features:
  * - LLM-powered code analysis with Claude Sonnet 4.5
- * - Automatic retry with exponential backoff for transient failures  
+ * - Automatic retry with exponential backoff for transient failures
  * - Structured error logging and DLQ support via SQS configuration
  * - Intelligent caching to reduce API costs
  */
@@ -206,12 +206,23 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       );
     } catch (error) {
       // Structured error logging for CloudWatch
+      let prNumber: number | undefined;
+      let executionId: string | undefined;
+
+      try {
+        const eventData = parseEvent(record.body);
+        prNumber = eventData.detail.prNumber;
+        executionId = eventData.detail.executionId;
+      } catch {
+        // Unable to parse event data, continue without context
+      }
+
       const structuredError = createStructuredError(
         error instanceof Error ? error : new Error('Unknown error'),
         {
           context: 'architecture-agent',
-          prNumber: record.body ? JSON.parse(record.body).detail?.prNumber : undefined,
-          executionId: record.body ? JSON.parse(record.body).detail?.executionId : undefined,
+          prNumber,
+          executionId,
         }
       );
 

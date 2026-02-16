@@ -1,6 +1,6 @@
 /**
  * Error Handling Utilities
- * 
+ *
  * Provides standardized error handling patterns for Lambda functions:
  * - Structured error logging
  * - Retry logic with exponential backoff
@@ -202,11 +202,11 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Retry function with exponential backoff
- * 
+ *
  * @param fn Function to retry
  * @param config Retry configuration
  * @returns Result of function or throws last error
- * 
+ *
  * @example
  * ```typescript
  * const result = await retryWithBackoff(
@@ -238,9 +238,7 @@ export async function retryWithBackoff<T>(
 
       // Don't retry on last attempt
       if (attempt === retryConfig.maxAttempts) {
-        console.error(
-          `Max retry attempts (${retryConfig.maxAttempts}) reached, giving up`
-        );
+        console.error(`Max retry attempts (${retryConfig.maxAttempts}) reached, giving up`);
         break;
       }
 
@@ -259,7 +257,7 @@ export async function retryWithBackoff<T>(
 
 /**
  * Wrap async function with error handling and retry logic
- * 
+ *
  * @example
  * ```typescript
  * const safeFetchPR = withErrorHandling(

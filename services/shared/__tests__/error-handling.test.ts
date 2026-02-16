@@ -198,9 +198,9 @@ describe('Error Handling Utilities', () => {
       const permanentError = new Error('Invalid input');
       const failFn = jest.fn().mockRejectedValue(permanentError);
 
-      await expect(
-        retryWithBackoff(failFn, { maxAttempts: 3, baseDelayMs: 10 })
-      ).rejects.toThrow('Invalid input');
+      await expect(retryWithBackoff(failFn, { maxAttempts: 3, baseDelayMs: 10 })).rejects.toThrow(
+        'Invalid input'
+      );
 
       expect(failFn).toHaveBeenCalledTimes(1);
     });
@@ -209,9 +209,9 @@ describe('Error Handling Utilities', () => {
       const transientError = new Error('ECONNRESET');
       const failFn = jest.fn().mockRejectedValue(transientError);
 
-      await expect(
-        retryWithBackoff(failFn, { maxAttempts: 3, baseDelayMs: 10 })
-      ).rejects.toThrow('ECONNRESET');
+      await expect(retryWithBackoff(failFn, { maxAttempts: 3, baseDelayMs: 10 })).rejects.toThrow(
+        'ECONNRESET'
+      );
 
       expect(failFn).toHaveBeenCalledTimes(3);
     });
@@ -304,10 +304,12 @@ describe('Error Handling Utilities', () => {
     it('should return typed results', async () => {
       type TestResult = { data: string; count: number };
 
-      const successFn = async (): Promise<TestResult> => ({
-        data: 'test',
-        count: 42,
-      });
+      const successFn = async (): Promise<TestResult> => {
+        return Promise.resolve({
+          data: 'test',
+          count: 42,
+        });
+      };
 
       const result = await retryWithBackoff(successFn);
 
