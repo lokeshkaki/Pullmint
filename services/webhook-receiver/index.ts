@@ -4,6 +4,7 @@ import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { getSecret } from '../shared/secrets';
 import { publishEvent } from '../shared/eventbridge';
 import { verifyGitHubSignature, generateExecutionId, calculateTTL } from '../shared/utils';
+import { createStructuredError } from '../shared/error-handling';
 import {
   GitHubPRPayload,
   GitHubDeploymentStatusPayload,
@@ -171,7 +172,17 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       body: JSON.stringify({ message: 'Deployment status accepted' }),
     };
   } catch (error) {
-    console.error('Webhook processing error:', error);
+    // Structured error logging for CloudWatch
+    const structuredError = createStructuredError(
+      error instanceof Error ? error : new Error('Unknown error'),
+      {
+        context: 'webhook-receiver',
+        path: event.path,
+        eventType: event.headers['x-github-event'] || event.headers['X-GitHub-Event'],
+      }
+    );
+
+    console.error('Webhook processing error:', JSON.stringify(structuredError));
     return {
       statusCode: 500,
       body: JSON.stringify({

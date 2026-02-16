@@ -4,3 +4,4 @@ export * from './eventbridge';
 export * from './secrets';
 export * from './types';
 export * from './utils';
+export * from './error-handling';

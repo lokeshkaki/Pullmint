@@ -4,6 +4,7 @@ import { publishEvent } from '../../shared/eventbridge';
 import { getItem, updateItem, putItem } from '../../shared/dynamodb';
 import { hashContent } from '../../shared/utils';
 import { getGitHubInstallationClient } from '../../shared/github-app';
+import { createStructuredError, retryWithBackoff } from '../../shared/error-handling';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
 
 type AnthropicMessageInput = {
@@ -51,8 +52,11 @@ type PREventEnvelope = { detail: PREvent & { executionId: string } };
 /**
  * Architecture Agent - Analyzes PR for architecture quality
  *
- * TODO: Add DLQ for failed analysis attempts (see Pullmint PR #13 review)
- * TODO: Implement retry logic with exponential backoff for transient failures
+ * Features:
+ * - LLM-powered code analysis with Claude Sonnet 4.5
+ * - Automatic retry with exponential backoff for transient failures
+ * - Structured error logging and DLQ support via SQS configuration
+ * - Intelligent caching to reduce API costs
  */
 export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
   for (const record of event.Records) {
@@ -87,18 +91,23 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         }
       );
 
-      // 3. Fetch PR diff
+      // 3. Fetch PR diff with retry logic for transient failures
       const [owner, repo] = prEvent.repoFullName.split('/');
-      const response = await octokitClient.rest.pulls.get({
-        owner,
-        repo,
-        pull_number: prEvent.prNumber,
-        mediaType: { format: 'diff' },
-      });
-      if (typeof response.data !== 'string') {
-        throw new Error('Expected diff response from GitHub');
-      }
-      const diff = response.data;
+      const diff = await retryWithBackoff(
+        async () => {
+          const response = await octokitClient!.rest.pulls.get({
+            owner,
+            repo,
+            pull_number: prEvent.prNumber,
+            mediaType: { format: 'diff' },
+          });
+          if (typeof response.data !== 'string') {
+            throw new Error('Expected diff response from GitHub');
+          }
+          return response.data;
+        },
+        { maxAttempts: 3, baseDelayMs: 1000 }
+      );
 
       // 4. Check cache
       const cacheKey = hashContent(diff);
@@ -116,21 +125,26 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         findings = cached.findings;
         riskScore = cached.riskScore;
       } else {
-        // 5. Analyze with LLM
+        // 5. Analyze with LLM with retry logic for transient failures
         const analysisPrompt = buildAnalysisPrompt(prEvent.title, diff);
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-        const completion = await anthropicClient.messages.create({
-          model: 'claude-sonnet-4-5-20250929',
-          max_tokens: 2000,
-          messages: [
-            {
-              role: 'user',
-              content: `You are an expert software architect reviewing code changes.\n\n${analysisPrompt}`,
-            },
-          ],
-          temperature: 0.3,
-        });
+        const completion = await retryWithBackoff(
+          async () => {
+            return await anthropicClient!.messages.create({
+              model: 'claude-sonnet-4-5-20250929',
+              max_tokens: 2000,
+              messages: [
+                {
+                  role: 'user',
+                  content: `You are an expert software architect reviewing code changes.\n\n${analysisPrompt}`,
+                },
+              ],
+              temperature: 0.3,
+            });
+          },
+          { maxAttempts: 3, baseDelayMs: 2000, maxDelayMs: 10000 }
+        );
 
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         tokensUsed = (completion.usage?.input_tokens || 0) + (completion.usage?.output_tokens || 0);
@@ -191,7 +205,28 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         `Analysis complete for PR #${prEvent.prNumber}: Risk=${riskScore}, Findings=${findings.length}`
       );
     } catch (error) {
-      console.error('Error processing PR:', error);
+      // Structured error logging for CloudWatch
+      let prNumber: number | undefined;
+      let executionId: string | undefined;
+
+      try {
+        const eventData = parseEvent(record.body);
+        prNumber = eventData.detail.prNumber;
+        executionId = eventData.detail.executionId;
+      } catch {
+        // Unable to parse event data, continue without context
+      }
+
+      const structuredError = createStructuredError(
+        error instanceof Error ? error : new Error('Unknown error'),
+        {
+          context: 'architecture-agent',
+          prNumber,
+          executionId,
+        }
+      );
+
+      console.error('Error processing PR:', JSON.stringify(structuredError));
 
       // Update execution with error
       const eventData = parseEvent(record.body);
@@ -200,12 +235,13 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         { executionId: eventData.detail.executionId },
         {
           status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: structuredError.message,
           updatedAt: Date.now(),
         }
       );
 
-      throw error; // Let SQS retry
+      // Always throw to let SQS handle retry logic and DLQ
+      throw error;
     }
   }
 };

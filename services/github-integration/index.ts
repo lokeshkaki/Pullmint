@@ -2,6 +2,7 @@ import { EventBridgeHandler } from 'aws-lambda';
 import { getGitHubInstallationClient } from '../shared/github-app';
 import { publishEvent } from '../shared/eventbridge';
 import { updateItem, updateItemConditional } from '../shared/dynamodb';
+import { createStructuredError, retryWithBackoff } from '../shared/error-handling';
 import {
   PREvent,
   AnalysisResult,
@@ -40,7 +41,17 @@ export const handler: EventBridgeHandler<
     console.log(`Ignoring event detail type: ${detailType}`);
     return;
   } catch (error) {
-    console.error('Error posting to GitHub:', error);
+    // Structured error logging for CloudWatch
+    const structuredError = createStructuredError(
+      error instanceof Error ? error : new Error('Unknown error'),
+      {
+        context: 'github-integration',
+        detailType: event['detail-type'],
+        executionId: event.detail.executionId,
+      }
+    );
+
+    console.error('Error posting to GitHub:', JSON.stringify(structuredError));
     throw error;
   }
 };
@@ -55,28 +66,38 @@ async function handleAnalysisComplete(detail: AnalysisCompleteEvent): Promise<vo
   // 2. Build comment body
   const commentBody = buildCommentBody(detail);
 
-  // 3. Post comment to PR
+  // 3. Post comment to PR with retry logic
   const [owner, repo] = detail.repoFullName.split('/');
 
-  await octokit.rest.issues.createComment({
-    owner,
-    repo,
-    issue_number: detail.prNumber,
-    body: commentBody,
-  });
+  await retryWithBackoff(
+    async () => {
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: detail.prNumber,
+        body: commentBody,
+      });
+    },
+    { maxAttempts: 3, baseDelayMs: 1000 }
+  );
 
   console.log(`Successfully posted comment to PR #${detail.prNumber}`);
 
   // 4. If low risk, approve the PR
   if (detail.riskScore < config.autoApproveRiskThreshold) {
     try {
-      await octokit.rest.pulls.createReview({
-        owner,
-        repo,
-        pull_number: detail.prNumber,
-        event: 'APPROVE',
-        body: 'Auto-approved by Pullmint: Low risk changes detected.',
-      });
+      await retryWithBackoff(
+        async () => {
+          await octokit.rest.pulls.createReview({
+            owner,
+            repo,
+            pull_number: detail.prNumber,
+            event: 'APPROVE',
+            body: 'Auto-approved by Pullmint: Low risk changes detected.',
+          });
+        },
+        { maxAttempts: 3, baseDelayMs: 1000 }
+      );
       console.log(`Auto-approved PR #${detail.prNumber}`);
     } catch (error) {
       console.error('Failed to auto-approve PR:', error);
@@ -125,12 +146,17 @@ async function handleDeploymentStatus(detail: DeploymentStatusEvent): Promise<vo
 
   if (detail.deploymentStatus === 'deployed' || detail.deploymentStatus === 'failed') {
     const body = buildDeploymentStatusComment(detail);
-    await octokit.rest.issues.createComment({
-      owner,
-      repo,
-      issue_number: detail.prNumber,
-      body,
-    });
+    await retryWithBackoff(
+      async () => {
+        await octokit.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: detail.prNumber,
+          body,
+        });
+      },
+      { maxAttempts: 3, baseDelayMs: 1000 }
+    );
   }
 }
 
@@ -149,12 +175,17 @@ async function maybeTriggerDeployment(
   const octokit = await getOctokitClient(detail.repoFullName);
 
   if (config.deploymentRequireTests && detail.testsPassed !== true) {
-    const checksPassed = await areRequiredChecksPassing(
-      octokit,
-      owner,
-      repo,
-      detail.headSha,
-      config.deploymentRequiredContexts
+    const checksPassed = await retryWithBackoff(
+      async () => {
+        return await areRequiredChecksPassing(
+          octokit,
+          owner,
+          repo,
+          detail.headSha,
+          config.deploymentRequiredContexts
+        );
+      },
+      { maxAttempts: 3, baseDelayMs: 1000 }
     );
 
     if (!checksPassed) {
@@ -214,34 +245,44 @@ async function maybeTriggerDeployment(
     }
 
     if (config.deploymentStrategy === 'label') {
-      await octokit.rest.issues.addLabels({
-        owner,
-        repo,
-        issue_number: detail.prNumber,
-        labels: [config.deploymentLabel],
-      });
+      await retryWithBackoff(
+        async () => {
+          await octokit.rest.issues.addLabels({
+            owner,
+            repo,
+            issue_number: detail.prNumber,
+            labels: [config.deploymentLabel],
+          });
+        },
+        { maxAttempts: 3, baseDelayMs: 1000 }
+      );
       console.log(`Deployment label added: ${config.deploymentLabel}`);
       return;
     }
 
-    await octokit.rest.repos.createDeployment({
-      owner,
-      repo,
-      ref: detail.headSha,
-      environment: config.deploymentEnvironment,
-      auto_merge: false,
-      required_contexts: config.deploymentRequiredContexts,
-      payload: {
-        executionId: detail.executionId,
-        prNumber: detail.prNumber,
-        repoFullName: detail.repoFullName,
-        deploymentStrategy: config.deploymentStrategy,
-        baseSha: detail.baseSha,
-        author: detail.author,
-        title: detail.title,
-        orgId: detail.orgId,
+    await retryWithBackoff(
+      async () => {
+        await octokit.rest.repos.createDeployment({
+          owner,
+          repo,
+          ref: detail.headSha,
+          environment: config.deploymentEnvironment,
+          auto_merge: false,
+          required_contexts: config.deploymentRequiredContexts,
+          payload: {
+            executionId: detail.executionId,
+            prNumber: detail.prNumber,
+            repoFullName: detail.repoFullName,
+            deploymentStrategy: config.deploymentStrategy,
+            baseSha: detail.baseSha,
+            author: detail.author,
+            title: detail.title,
+            orgId: detail.orgId,
+          },
+        });
       },
-    });
+      { maxAttempts: 3, baseDelayMs: 1000 }
+    );
     console.log('Deployment created via GitHub Deployments API');
   } catch (error) {
     console.error('Failed to trigger deployment:', error);
