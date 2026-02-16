@@ -503,6 +503,312 @@ export class WebhookStack extends cdk.Stack {
     });
 
     // ===========================
+    // CloudWatch Dashboard
+    // ===========================
+
+    const dashboard = new cloudwatch.Dashboard(this, 'PullmintDashboard', {
+      dashboardName: 'pullmint-overview',
+    });
+
+    // Row 1: Lambda Invocations and Errors
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Invocations',
+        width: 12,
+        left: [
+          webhookHandler.metricInvocations({ statistic: 'Sum', label: 'Webhook Handler' }),
+          architectureAgent.metricInvocations({ statistic: 'Sum', label: 'Architecture Agent' }),
+          githubIntegration.metricInvocations({ statistic: 'Sum', label: 'GitHub Integration' }),
+          deploymentOrchestrator.metricInvocations({
+            statistic: 'Sum',
+            label: 'Deployment Orchestrator',
+          }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Errors',
+        width: 12,
+        left: [
+          webhookHandler.metricErrors({
+            statistic: 'Sum',
+            label: 'Webhook Handler',
+            color: cloudwatch.Color.RED,
+          }),
+          architectureAgent.metricErrors({
+            statistic: 'Sum',
+            label: 'Architecture Agent',
+            color: cloudwatch.Color.ORANGE,
+          }),
+          githubIntegration.metricErrors({
+            statistic: 'Sum',
+            label: 'GitHub Integration',
+            color: cloudwatch.Color.PURPLE,
+          }),
+          deploymentOrchestrator.metricErrors({
+            statistic: 'Sum',
+            label: 'Deployment Orchestrator',
+            color: cloudwatch.Color.PINK,
+          }),
+        ],
+      })
+    );
+
+    // Row 2: Lambda Duration and Throttles
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Duration (ms)',
+        width: 12,
+        left: [
+          webhookHandler.metricDuration({ statistic: 'Average', label: 'Webhook Handler (avg)' }),
+          architectureAgent.metricDuration({
+            statistic: 'Average',
+            label: 'Architecture Agent (avg)',
+          }),
+          githubIntegration.metricDuration({
+            statistic: 'Average',
+            label: 'GitHub Integration (avg)',
+          }),
+          deploymentOrchestrator.metricDuration({
+            statistic: 'Average',
+            label: 'Deployment Orchestrator (avg)',
+          }),
+        ],
+        right: [
+          architectureAgent.metricDuration({
+            statistic: 'Maximum',
+            label: 'Architecture Agent (max)',
+            color: cloudwatch.Color.GREY,
+          }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Throttles & Concurrent Executions',
+        width: 12,
+        left: [
+          webhookHandler.metricThrottles({
+            statistic: 'Sum',
+            label: 'Webhook Throttles',
+            color: cloudwatch.Color.RED,
+          }),
+          architectureAgent.metricThrottles({
+            statistic: 'Sum',
+            label: 'Agent Throttles',
+            color: cloudwatch.Color.ORANGE,
+          }),
+        ],
+        right: [
+          architectureAgent.metric('ConcurrentExecutions', {
+            statistic: 'Maximum',
+            label: 'Agent Concurrent',
+            color: cloudwatch.Color.BLUE,
+          }),
+        ],
+      })
+    );
+
+    // Row 3: DynamoDB Metrics
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'DynamoDB Consumed Capacity',
+        width: 12,
+        left: [
+          executionsTable.metricConsumedReadCapacityUnits({
+            statistic: 'Sum',
+            label: 'Executions Read',
+          }),
+          cacheTable.metricConsumedReadCapacityUnits({ statistic: 'Sum', label: 'Cache Read' }),
+        ],
+        right: [
+          executionsTable.metricConsumedWriteCapacityUnits({
+            statistic: 'Sum',
+            label: 'Executions Write',
+            color: cloudwatch.Color.PURPLE,
+          }),
+          cacheTable.metricConsumedWriteCapacityUnits({
+            statistic: 'Sum',
+            label: 'Cache Write',
+            color: cloudwatch.Color.PINK,
+          }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'DynamoDB Throttles & Latency',
+        width: 12,
+        left: [
+          executionsTable.metricSystemErrorsForOperations({
+            operations: [dynamodb.Operation.PUT_ITEM, dynamodb.Operation.UPDATE_ITEM],
+            statistic: 'Sum',
+            label: 'System Errors',
+            color: cloudwatch.Color.RED,
+          }),
+          executionsTable.metricUserErrors({
+            statistic: 'Sum',
+            label: 'User Errors',
+            color: cloudwatch.Color.ORANGE,
+          }),
+        ],
+        right: [
+          executionsTable.metricSuccessfulRequestLatency({
+            dimensionsMap: { Operation: 'GetItem', TableName: executionsTable.tableName },
+            statistic: 'Average',
+            label: 'GetItem Latency (avg)',
+            color: cloudwatch.Color.BLUE,
+          }),
+          executionsTable.metricSuccessfulRequestLatency({
+            dimensionsMap: { Operation: 'UpdateItem', TableName: executionsTable.tableName },
+            statistic: 'Average',
+            label: 'UpdateItem Latency (avg)',
+            color: cloudwatch.Color.GREEN,
+          }),
+        ],
+      })
+    );
+
+    // Row 4: API Gateway and EventBridge
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'API Gateway Requests',
+        width: 12,
+        left: [
+          api.metricCount({ statistic: 'Sum', label: 'Total Requests' }),
+          api.metric('4XXError', {
+            statistic: 'Sum',
+            label: '4XX Errors',
+            color: cloudwatch.Color.ORANGE,
+          }),
+          api.metric('5XXError', {
+            statistic: 'Sum',
+            label: '5XX Errors',
+            color: cloudwatch.Color.RED,
+          }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'API Gateway Latency',
+        width: 12,
+        left: [
+          api.metricLatency({ statistic: 'Average', label: 'Latency (avg)' }),
+          api.metricLatency({
+            statistic: 'p99',
+            label: 'Latency (p99)',
+            color: cloudwatch.Color.ORANGE,
+          }),
+        ],
+      })
+    );
+
+    // Row 5: EventBridge and SQS
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'EventBridge Events',
+        width: 12,
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AWS/Events',
+            metricName: 'Invocations',
+            dimensionsMap: {
+              EventBusName: this.eventBus.eventBusName,
+            },
+            statistic: 'Sum',
+            label: 'Events Published',
+          }),
+          new cloudwatch.Metric({
+            namespace: 'AWS/Events',
+            metricName: 'FailedInvocations',
+            dimensionsMap: {
+              EventBusName: this.eventBus.eventBusName,
+            },
+            statistic: 'Sum',
+            label: 'Failed Invocations',
+            color: cloudwatch.Color.RED,
+          }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'SQS Queue Metrics',
+        width: 12,
+        left: [
+          llmQueue.metricApproximateNumberOfMessagesVisible({
+            statistic: 'Average',
+            label: 'LLM Queue Depth',
+          }),
+          webhookDLQ.metricApproximateNumberOfMessagesVisible({
+            statistic: 'Sum',
+            label: 'Webhook DLQ Messages',
+            color: cloudwatch.Color.ORANGE,
+          }),
+          deploymentDLQ.metricApproximateNumberOfMessagesVisible({
+            statistic: 'Sum',
+            label: 'Deployment DLQ Messages',
+            color: cloudwatch.Color.RED,
+          }),
+        ],
+      })
+    );
+
+    // Row 6: Summary Statistics
+    dashboard.addWidgets(
+      new cloudwatch.SingleValueWidget({
+        title: 'Total PR Executions (24h)',
+        width: 6,
+        metrics: [
+          webhookHandler.metricInvocations({ statistic: 'Sum', period: cdk.Duration.days(1) }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'Total Errors (24h)',
+        width: 6,
+        metrics: [
+          new cloudwatch.MathExpression({
+            expression: 'm1 + m2 + m3 + m4',
+            usingMetrics: {
+              m1: webhookHandler.metricErrors({ statistic: 'Sum', period: cdk.Duration.days(1) }),
+              m2: architectureAgent.metricErrors({
+                statistic: 'Sum',
+                period: cdk.Duration.days(1),
+              }),
+              m3: githubIntegration.metricErrors({
+                statistic: 'Sum',
+                period: cdk.Duration.days(1),
+              }),
+              m4: deploymentOrchestrator.metricErrors({
+                statistic: 'Sum',
+                period: cdk.Duration.days(1),
+              }),
+            },
+            label: 'Total Errors',
+            color: cloudwatch.Color.RED,
+          }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'Avg Analysis Duration (1h)',
+        width: 6,
+        metrics: [
+          architectureAgent.metricDuration({
+            statistic: 'Average',
+            period: cdk.Duration.hours(1),
+          }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'DLQ Messages',
+        width: 6,
+        metrics: [
+          new cloudwatch.MathExpression({
+            expression: 'm1 + m2',
+            usingMetrics: {
+              m1: webhookDLQ.metricApproximateNumberOfMessagesVisible({ statistic: 'Sum' }),
+              m2: deploymentDLQ.metricApproximateNumberOfMessagesVisible({ statistic: 'Sum' }),
+            },
+            label: 'Total DLQ Messages',
+            color: cloudwatch.Color.RED,
+          }),
+        ],
+      })
+    );
+
+    // ===========================
     // Outputs
     // ===========================
 
@@ -536,6 +842,12 @@ export class WebhookStack extends cdk.Stack {
       value: executionsTable.tableName,
       description: 'DynamoDB table for PR executions',
       exportName: 'PullmintExecutionsTableName',
+    });
+
+    new cdk.CfnOutput(this, 'CloudWatchDashboardURL', {
+      value: `https://console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`,
+      description: 'CloudWatch Dashboard URL',
+      exportName: 'PullmintDashboardCloudWatchURL',
     });
   }
 }
