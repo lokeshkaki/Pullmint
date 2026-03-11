@@ -81,4 +81,3 @@ services/**/*.js
 infrastructure/**/*.js
 !infrastructure/bin/*.js
 !infrastructure/lib/*.js
-.worktrees/
