@@ -38,6 +38,7 @@ jobs:
           - services/deployment-orchestrator
           - services/dashboard-api
           - services/dashboard-ui
+          - services/llm-agents/architecture-agent
     steps:
       - uses: actions/checkout@v4
 
