@@ -398,6 +398,149 @@ describe('architecture-agent handler', () => {
     );
   });
 
+  it('handles missing usage fields in LLM response', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ findings: [], riskScore: 10, summary: 'ok' }),
+        },
+      ],
+      // no usage field
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-no-usage');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    expect(publishEvent).toHaveBeenCalledWith(
+      'event-bus',
+      'pullmint.agent',
+      'analysis.complete',
+      expect.objectContaining({ metadata: expect.objectContaining({ tokensUsed: 0 }) })
+    );
+  });
+
+  it('parses LLM response wrapped in markdown code block', async () => {
+    const handler = await loadHandler();
+
+    const findings = [
+      {
+        type: 'security',
+        severity: 'high',
+        title: 'Issue',
+        description: 'Desc',
+        suggestion: 'Fix',
+      },
+    ];
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text:
+            '```json\n' + JSON.stringify({ findings, riskScore: 70, summary: 'Risk' }) + '\n```',
+        },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-markdown');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    expect(publishEvent).toHaveBeenCalledWith(
+      'event-bus',
+      'pullmint.agent',
+      'analysis.complete',
+      expect.objectContaining({ riskScore: 70 })
+    );
+  });
+
+  it('throws when GitHub returns non-string diff data', async () => {
+    const handler = await loadHandler();
+
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: jest.fn() },
+      })
+    );
+
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: { unexpected: 'object' } }) } },
+    };
+
+    const { getSecret, getGitHubInstallationClient, updateItem } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    updateItem.mockResolvedValue(undefined);
+
+    await expect(handler(buildEvent())).rejects.toThrow('Expected diff response from GitHub');
+
+    expect(updateItem).toHaveBeenCalledWith(
+      'executions-table',
+      { executionId: 'exec-123' },
+      expect.objectContaining({ status: 'failed' })
+    );
+  });
+
   it('rejects invalid payloads', async () => {
     const handler = await loadHandler();
 
