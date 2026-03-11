@@ -161,7 +161,7 @@ type DeploymentConfig = {
   executionsTableName: string;
   deploymentDelayMs: number;
   deploymentWebhookUrl?: string;
-  deploymentWebhookAuthToken?: string;
+  deploymentWebhookAuthToken: string;
   deploymentWebhookTimeoutMs: number;
   deploymentWebhookRetries: number;
   rollbackWebhookUrl?: string;
@@ -170,6 +170,7 @@ type DeploymentConfig = {
 function getDeploymentConfig(): DeploymentConfig {
   const eventBusName = process.env.EVENT_BUS_NAME;
   const executionsTableName = process.env.EXECUTIONS_TABLE_NAME;
+  const deploymentWebhookAuthToken = process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN;
 
   if (!eventBusName) {
     throw new Error('EVENT_BUS_NAME is required');
@@ -179,12 +180,16 @@ function getDeploymentConfig(): DeploymentConfig {
     throw new Error('EXECUTIONS_TABLE_NAME is required');
   }
 
+  if (!deploymentWebhookAuthToken) {
+    throw new Error('DEPLOYMENT_WEBHOOK_AUTH_TOKEN is required but not set');
+  }
+
   return {
     eventBusName,
     executionsTableName,
     deploymentDelayMs: Number(process.env.DEPLOYMENT_DELAY_MS || '0'),
     deploymentWebhookUrl: process.env.DEPLOYMENT_WEBHOOK_URL,
-    deploymentWebhookAuthToken: process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN,
+    deploymentWebhookAuthToken,
     deploymentWebhookTimeoutMs: Number(process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS || '10000'),
     deploymentWebhookRetries: Number(process.env.DEPLOYMENT_WEBHOOK_RETRIES || '2'),
     rollbackWebhookUrl: process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL,
@@ -220,11 +225,8 @@ async function postJson(
 ): Promise<void> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${config.deploymentWebhookAuthToken}`,
   };
-
-  if (config.deploymentWebhookAuthToken) {
-    headers.Authorization = `Bearer ${config.deploymentWebhookAuthToken}`;
-  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.deploymentWebhookTimeoutMs);
