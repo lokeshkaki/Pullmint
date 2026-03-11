@@ -48,6 +48,13 @@ describe('getGitHubInstallationClient', () => {
     }));
   });
 
+  it('throws when GITHUB_APP_PRIVATE_KEY_ARN is missing', () => {
+    delete process.env.GITHUB_APP_PRIVATE_KEY_ARN;
+    expect(() => loadModule()).toThrow(
+      'GITHUB_APP_PRIVATE_KEY_ARN environment variable is required'
+    );
+  });
+
   it('throws when GITHUB_APP_ID is missing', async () => {
     delete process.env.GITHUB_APP_ID;
     const { getGitHubInstallationClient } = loadModule();

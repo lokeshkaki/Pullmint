@@ -10,13 +10,18 @@ describe('Dashboard API Handler', () => {
   beforeEach(() => {
     ddbMock.reset();
     process.env.EXECUTIONS_TABLE_NAME = 'test-executions-table';
+    process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
+  });
+
+  afterEach(() => {
+    delete process.env.DASHBOARD_AUTH_TOKEN;
   });
 
   const createMockEvent = (
     path: string,
     method: string = 'GET',
     queryParams: Record<string, string> | null = null,
-    headers: Record<string, string> = {}
+    headers: Record<string, string> = { Authorization: 'Bearer test-token' }
   ): APIGatewayProxyEvent => ({
     path,
     httpMethod: method,
@@ -60,12 +65,26 @@ describe('Dashboard API Handler', () => {
 
     it('should reject requests without a token when auth is enabled', async () => {
       process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
-      const event = createMockEvent('/dashboard/executions');
+      // Explicitly pass no auth header
+      const event = createMockEvent('/dashboard/executions', 'GET', null, {});
 
       const result = await handler(event);
 
       expect(result.statusCode).toBe(401);
       expect(JSON.parse(result.body)).toHaveProperty('error', 'Unauthorized');
+    });
+
+    it('should return 503 when DASHBOARD_AUTH_TOKEN is not configured', async () => {
+      delete process.env.DASHBOARD_AUTH_TOKEN;
+      const event = createMockEvent('/dashboard/executions', 'GET', null, {});
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(503);
+      expect(JSON.parse(result.body)).toHaveProperty(
+        'error',
+        'Service unavailable: authentication not configured'
+      );
     });
 
     it('should allow requests with a valid bearer token', async () => {
