@@ -81,7 +81,10 @@ describe('Dashboard API Handler', () => {
       const result = await handler(event);
 
       expect(result.statusCode).toBe(503);
-      expect(JSON.parse(result.body)).toHaveProperty('error', 'Service unavailable: authentication not configured');
+      expect(JSON.parse(result.body)).toHaveProperty(
+        'error',
+        'Service unavailable: authentication not configured'
+      );
     });
 
     it('should allow requests with a valid bearer token', async () => {
