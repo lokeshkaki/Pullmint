@@ -1,7 +1,10 @@
 import { App } from 'octokit';
 import { getSecret } from './secrets';
 
-const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN!;
+const GITHUB_APP_PRIVATE_KEY_ARN = process.env.GITHUB_APP_PRIVATE_KEY_ARN;
+if (!GITHUB_APP_PRIVATE_KEY_ARN) {
+  throw new Error('GITHUB_APP_PRIVATE_KEY_ARN environment variable is required');
+}
 const GITHUB_APP_ID = process.env.GITHUB_APP_ID;
 const GITHUB_APP_INSTALLATION_ID = process.env.GITHUB_APP_INSTALLATION_ID;
 
