@@ -60,7 +60,9 @@ function getExecutionsTableName(): string {
 function isAuthorized(event: APIGatewayProxyEvent): boolean {
   const authToken = process.env.DASHBOARD_AUTH_TOKEN;
   if (!authToken) {
-    return true;
+    // Deny all requests when token is not configured — safe-by-default
+    console.error('DASHBOARD_AUTH_TOKEN not configured — denying all requests');
+    return false;
   }
 
   const headerValue = event.headers?.Authorization || event.headers?.authorization;
@@ -106,6 +108,14 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
         statusCode: 405,
         headers: corsHeaders,
         body: JSON.stringify({ error: 'Method not allowed' }),
+      };
+    }
+
+    if (!process.env.DASHBOARD_AUTH_TOKEN) {
+      return {
+        statusCode: 503,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Service unavailable: authentication not configured' }),
       };
     }
 

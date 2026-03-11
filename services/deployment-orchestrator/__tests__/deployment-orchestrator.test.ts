@@ -38,7 +38,7 @@ describe('Deployment Orchestrator', () => {
     process.env.DEPLOYMENT_WEBHOOK_URL = 'https://deploy.example.com';
     process.env.DEPLOYMENT_WEBHOOK_RETRIES = '0';
     process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS = '1000';
-    process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN = '';
+    process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN = 'test-auth-token';
     delete process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL;
 
     (globalThis as { fetch?: unknown }).fetch = jest.fn().mockResolvedValue({
@@ -476,5 +476,35 @@ describe('Deployment Orchestrator', () => {
         mockCallback
       )
     ).rejects.toThrow('EXECUTIONS_TABLE_NAME is required');
+  });
+
+  it('throws when DEPLOYMENT_WEBHOOK_AUTH_TOKEN is missing', async () => {
+    delete process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN;
+
+    await expect(
+      handler(
+        {
+          'detail-type': 'deployment_approved',
+          detail: baseDetail,
+        } as any,
+        mockContext,
+        mockCallback
+      )
+    ).rejects.toThrow('DEPLOYMENT_WEBHOOK_AUTH_TOKEN is required but not set');
+  });
+
+  it('throws when DEPLOYMENT_WEBHOOK_AUTH_TOKEN is empty string', async () => {
+    process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN = '';
+
+    await expect(
+      handler(
+        {
+          'detail-type': 'deployment_approved',
+          detail: baseDetail,
+        } as any,
+        mockContext,
+        mockCallback
+      )
+    ).rejects.toThrow('DEPLOYMENT_WEBHOOK_AUTH_TOKEN is required but not set');
   });
 });
