@@ -123,6 +123,7 @@ async function performDeployment(
     return {
       status: 'failed',
       message: 'Deployment webhook URL is not configured',
+      rollbackStatus: 'not-configured',
     };
   }
 
