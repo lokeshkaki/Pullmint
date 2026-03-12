@@ -168,6 +168,15 @@ async function maybeTriggerDeployment(
     console.log(
       `Deployment blocked: risk score ${detail.riskScore} >= ${config.deploymentRiskThreshold}`
     );
+    await updateItem(
+      config.executionsTableName,
+      { executionId: detail.executionId },
+      {
+        status: 'deployment-blocked',
+        deploymentMessage: `Risk score ${detail.riskScore} exceeds threshold ${config.deploymentRiskThreshold}`,
+        updatedAt: Date.now(),
+      }
+    );
     return;
   }
 
@@ -175,6 +184,11 @@ async function maybeTriggerDeployment(
   const octokit = await getOctokitClient(detail.repoFullName);
 
   if (config.deploymentRequireTests && detail.testsPassed !== true) {
+    // testsPassed must be explicitly true — missing/undefined/false all block deployment
+    console.log(
+      `Deployment gate: testsPassed=${detail.testsPassed === undefined ? 'undefined (missing from analysis result)' : String(detail.testsPassed)}`
+    );
+
     const checksPassed = await retryWithBackoff(
       async () => {
         return await areRequiredChecksPassing(
@@ -190,6 +204,15 @@ async function maybeTriggerDeployment(
 
     if (!checksPassed) {
       console.log('Deployment blocked: tests required but not marked as passed.');
+      await updateItem(
+        config.executionsTableName,
+        { executionId: detail.executionId },
+        {
+          status: 'deployment-blocked',
+          deploymentMessage: 'Tests required but not passing',
+          updatedAt: Date.now(),
+        }
+      );
       return;
     }
   }
