@@ -4,6 +4,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
@@ -137,6 +138,26 @@ export class WebhookStack extends cdk.Stack {
     });
 
     // ===========================
+    // S3
+    // ===========================
+
+    // Analysis results bucket — stores full LLM outputs for audit trail and to avoid
+    // EventBridge's 256KB event size limit when findings arrays are large
+    const analysisResultsBucket = new s3.Bucket(this, 'AnalysisResultsBucket', {
+      bucketName: `pullmint-analysis-results-${this.account}`,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      lifecycleRules: [
+        {
+          expiration: cdk.Duration.days(90),
+          id: 'expire-after-90-days',
+        },
+      ],
+    });
+
+    // ===========================
     // EventBridge
     // ===========================
     this.eventBus = new events.EventBus(this, 'PullmintEventBus', {
@@ -208,6 +229,7 @@ export class WebhookStack extends cdk.Stack {
         CACHE_TABLE_NAME: cacheTable.tableName,
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         EVENT_BUS_NAME: this.eventBus.eventBusName,
+        ANALYSIS_RESULTS_BUCKET: analysisResultsBucket.bucketName,
       },
       bundling: {
         minify: true,
@@ -229,6 +251,7 @@ export class WebhookStack extends cdk.Stack {
         ...(githubInstallationId ? { GITHUB_APP_INSTALLATION_ID: githubInstallationId } : {}),
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         EVENT_BUS_NAME: this.eventBus.eventBusName,
+        ANALYSIS_RESULTS_BUCKET: analysisResultsBucket.bucketName,
         DEPLOYMENT_CONFIG: JSON.stringify({
           deploymentStrategy: process.env.DEPLOYMENT_STRATEGY || 'eventbridge',
           deploymentRiskThreshold: Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30'),
@@ -318,11 +341,13 @@ export class WebhookStack extends cdk.Stack {
     cacheTable.grantReadWriteData(architectureAgent);
     executionsTable.grantReadWriteData(architectureAgent);
     this.eventBus.grantPutEventsTo(architectureAgent);
+    analysisResultsBucket.grantPut(architectureAgent);
 
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
     executionsTable.grantReadWriteData(githubIntegration);
     this.eventBus.grantPutEventsTo(githubIntegration);
+    analysisResultsBucket.grantRead(githubIntegration);
 
     // Deployment orchestrator permissions
     executionsTable.grantReadWriteData(deploymentOrchestrator);

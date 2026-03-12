@@ -1,14 +1,18 @@
 import { EventBridgeHandler } from 'aws-lambda';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getGitHubInstallationClient } from '../shared/github-app';
 import { publishEvent } from '../shared/eventbridge';
 import { updateItem, updateItemConditional } from '../shared/dynamodb';
 import { createStructuredError, retryWithBackoff } from '../shared/error-handling';
 import {
   PREvent,
+  Finding,
   AnalysisResult,
   DeploymentApprovedEvent,
   DeploymentStatusEvent,
 } from '../shared/types';
+
+const s3Client = new S3Client({});
 
 let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
 let octokitRepoFullName: string | undefined;
@@ -56,15 +60,39 @@ export const handler: EventBridgeHandler<
   }
 };
 
+async function fetchFindingsFromS3(s3Key: string): Promise<Finding[]> {
+  const analysisBucket = process.env.ANALYSIS_RESULTS_BUCKET;
+  if (!analysisBucket) {
+    console.warn('ANALYSIS_RESULTS_BUCKET not configured — cannot fetch findings from S3');
+    return [];
+  }
+  const response = await s3Client.send(
+    new GetObjectCommand({ Bucket: analysisBucket, Key: s3Key })
+  );
+  const body = await response.Body?.transformToString();
+  if (!body) {
+    throw new Error(`Empty S3 response for key: ${s3Key}`);
+  }
+  const parsed = JSON.parse(body) as { findings: Finding[] };
+  return parsed.findings;
+}
+
 async function handleAnalysisComplete(detail: AnalysisCompleteEvent): Promise<void> {
   const config = getDeploymentConfig();
   console.log(`Posting results for PR #${detail.prNumber} in ${detail.repoFullName}`);
+
+  // Fetch findings from S3 if s3Key is present (lightweight event); fall back to event findings.
+  // Backward-compatible: old events carry findings inline; new events use s3Key.
+  const findings: Finding[] = detail.s3Key
+    ? await fetchFindingsFromS3(detail.s3Key)
+    : ((detail.findings as Finding[] | undefined) ?? []);
+  const resolvedDetail: AnalysisCompleteEvent = { ...detail, findings };
 
   // 1. Initialize GitHub client
   const octokit = await getOctokitClient(detail.repoFullName);
 
   // 2. Build comment body
-  const commentBody = buildCommentBody(detail);
+  const commentBody = buildCommentBody(resolvedDetail);
 
   // 3. Post comment to PR with retry logic
   const [owner, repo] = detail.repoFullName.split('/');
