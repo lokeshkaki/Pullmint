@@ -448,6 +448,62 @@ describe('Deployment Orchestrator', () => {
     jest.useRealTimers();
   });
 
+  it('writes failed status in finally block when terminal updateItem throws after deploying', async () => {
+    let updateCallCount = 0;
+    (updateItem as jest.Mock).mockImplementation(() => {
+      updateCallCount++;
+      if (updateCallCount === 2) {
+        return Promise.reject(new Error('DynamoDB terminal update failed'));
+      }
+      return Promise.resolve();
+    });
+
+    await expect(
+      handler(
+        { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+        mockContext,
+        mockCallback
+      )
+    ).rejects.toThrow('DynamoDB terminal update failed');
+
+    // 1st call: deploying, 2nd call throws, 3rd call: finally block writes failed
+    expect(updateItem).toHaveBeenCalledTimes(3);
+    const thirdCallArgs = (updateItem as jest.Mock).mock.calls[2];
+    expect(thirdCallArgs[2]).toMatchObject({
+      status: 'failed',
+      deploymentStatus: 'failed',
+      deploymentMessage: expect.stringContaining('finally block'),
+    });
+  });
+
+  it('logs critical error when finally-block updateItem also fails', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    let updateCallCount = 0;
+    (updateItem as jest.Mock).mockImplementation(() => {
+      updateCallCount++;
+      // Both the terminal update and the finally-block fallback update throw
+      if (updateCallCount >= 2) {
+        return Promise.reject(new Error('DynamoDB unavailable'));
+      }
+      return Promise.resolve();
+    });
+
+    await expect(
+      handler(
+        { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+        mockContext,
+        mockCallback
+      )
+    ).rejects.toThrow('DynamoDB unavailable');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'CRITICAL: Failed to write terminal status in finally block',
+      expect.any(Error)
+    );
+    consoleSpy.mockRestore();
+  });
+
   it('throws when event bus name is missing', async () => {
     delete process.env.EVENT_BUS_NAME;
 

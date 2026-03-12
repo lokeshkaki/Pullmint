@@ -25,10 +25,11 @@ export const handler: EventBridgeHandler<
   DeploymentApprovedEvent,
   void
 > = async (event): Promise<void> => {
-  try {
-    const detail = event.detail;
-    const config = getDeploymentConfig();
+  const detail = event.detail;
+  const config = getDeploymentConfig();
+  let deployingStatusSet = false;
 
+  try {
     await updateItem(
       config.executionsTableName,
       { executionId: detail.executionId },
@@ -41,6 +42,7 @@ export const handler: EventBridgeHandler<
         updatedAt: Date.now(),
       }
     );
+    deployingStatusSet = true;
 
     const outcome = await performDeployment(detail, config);
 
@@ -57,6 +59,7 @@ export const handler: EventBridgeHandler<
         updatedAt: Date.now(),
       }
     );
+    deployingStatusSet = false;
 
     const statusEvent: DeploymentStatusEvent = {
       ...detail,
@@ -83,6 +86,26 @@ export const handler: EventBridgeHandler<
 
     console.error('Deployment orchestration error:', JSON.stringify(structuredError));
     throw error;
+  } finally {
+    if (deployingStatusSet) {
+      // Unhandled exception occurred after 'deploying' was set — force a terminal status
+      try {
+        await updateItem(
+          config.executionsTableName,
+          { executionId: detail.executionId },
+          {
+            status: 'failed',
+            deploymentStatus: 'failed',
+            deploymentMessage:
+              'Unhandled error during deployment — status recovered by finally block',
+            deploymentCompletedAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+        );
+      } catch (finallyError) {
+        console.error('CRITICAL: Failed to write terminal status in finally block', finallyError);
+      }
+    }
   }
 };
 

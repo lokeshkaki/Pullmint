@@ -126,12 +126,23 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
         entityType: 'execution',
       };
 
-      await docClient.send(
-        new PutCommand({
-          TableName: EXECUTIONS_TABLE_NAME,
-          Item: execution,
-        })
-      );
+      try {
+        await docClient.send(
+          new PutCommand({
+            TableName: EXECUTIONS_TABLE_NAME,
+            Item: execution,
+            ConditionExpression: 'attribute_not_exists(executionId)',
+          })
+        );
+      } catch (err) {
+        if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+          console.warn(
+            `Execution record already exists for ${executionId} — skipping duplicate write`
+          );
+          return { statusCode: 200, body: JSON.stringify({ message: 'Already processing' }) };
+        }
+        throw err;
+      }
 
       // 7. Publish to EventBridge
       await publishEvent(EVENT_BUS_NAME, 'pullmint.github', `pr.${prPayload.action}`, {
