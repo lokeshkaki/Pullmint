@@ -162,5 +162,35 @@ describe('EventBridge Client', () => {
         'Failed to publish 1 event(s)'
       );
     });
+
+    it('should throw when event detail exceeds 256KB', async () => {
+      const eventBusName = 'test-bus';
+      const source = 'test.source';
+      const detailType = 'test.event';
+      // Create a payload that exceeds 256KB
+      const detail = { data: 'x'.repeat(256 * 1024 + 1) };
+
+      await expect(publishEvent(eventBusName, source, detailType, detail)).rejects.toThrow(
+        'EventBridge event detail exceeds 256KB limit'
+      );
+      // EventBridge should NOT be called — guard fires before SDK call
+      expect(eventBridgeMock.calls()).toHaveLength(0);
+    });
+
+    it('should pass through payloads at or below 256KB', async () => {
+      const eventBusName = 'test-bus';
+      const source = 'test.source';
+      const detailType = 'test.event';
+      // Payload well within limit
+      const detail = { data: 'x'.repeat(1000) };
+
+      eventBridgeMock.on(PutEventsCommand).resolves({
+        FailedEntryCount: 0,
+        Entries: [{ EventId: 'event-ok' }],
+      });
+
+      await expect(publishEvent(eventBusName, source, detailType, detail)).resolves.toBeUndefined();
+      expect(eventBridgeMock.calls()).toHaveLength(1);
+    });
   });
 });

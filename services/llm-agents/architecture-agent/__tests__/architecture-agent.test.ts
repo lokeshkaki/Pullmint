@@ -26,6 +26,13 @@ jest.mock('@anthropic-ai/sdk', () => ({
   default: jest.fn(),
 }));
 
+jest.mock('@aws-sdk/client-s3', () => ({
+  S3Client: jest.fn().mockImplementation(() => ({
+    send: jest.fn().mockResolvedValue({}),
+  })),
+  PutObjectCommand: jest.fn().mockImplementation((input: unknown) => input),
+}));
+
 type AnthropicMock = {
   messages: { create: jest.Mock };
 };
@@ -54,9 +61,16 @@ const loadHandler = async () => {
   process.env.CACHE_TABLE_NAME = 'cache-table';
   process.env.EXECUTIONS_TABLE_NAME = 'executions-table';
   process.env.EVENT_BUS_NAME = 'event-bus';
+  process.env.ANALYSIS_RESULTS_BUCKET = 'analysis-bucket';
 
   const module = await import('../index');
   return module.handler as HandlerFn;
+};
+
+const getS3Send = () => {
+  const { S3Client } = jest.requireMock('@aws-sdk/client-s3') as { S3Client: jest.Mock };
+  // mock.results[0].value is the object returned by `new S3Client({})` (the implementation's return value)
+  return (S3Client.mock.results[0].value as { send: jest.Mock }).send;
 };
 
 const buildRecord = (body: string): SQSRecord => ({
@@ -556,5 +570,124 @@ describe('architecture-agent handler', () => {
     };
 
     await expect(handler(event)).rejects.toThrow('Invalid PR event payload');
+  });
+
+  it('writes analysis to S3 with correct key before publishing event', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ findings: [], riskScore: 20, summary: 'ok' }),
+        },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-s3');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const s3Send = getS3Send();
+    expect(s3Send).toHaveBeenCalledTimes(1);
+    const { PutObjectCommand } = jest.requireMock('@aws-sdk/client-s3') as {
+      PutObjectCommand: jest.Mock;
+    };
+    expect(PutObjectCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Bucket: 'analysis-bucket',
+        Key: 'executions/exec-123/analysis.json',
+        ContentType: 'application/json',
+      })
+    );
+  });
+
+  it('publishes lightweight EventBridge event without full findings array', async () => {
+    const handler = await loadHandler();
+
+    const findings = [
+      {
+        type: 'security',
+        severity: 'high',
+        title: 'Issue',
+        description: 'Desc',
+        suggestion: 'Fix',
+      },
+    ];
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ findings, riskScore: 55, summary: 'ok' }),
+        },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-lightweight');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const publishedEvent = publishEvent.mock.calls[0][3] as Record<string, unknown>;
+    // Lightweight event: must have s3Key and findingsCount
+    expect(publishedEvent).toHaveProperty('s3Key', 'executions/exec-123/analysis.json');
+    expect(publishedEvent).toHaveProperty('findingsCount', 1);
+    // Full findings array must NOT be in the event
+    expect(publishedEvent).not.toHaveProperty('findings');
   });
 });
