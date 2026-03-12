@@ -449,7 +449,9 @@ export class WebhookStack extends cdk.Stack {
 
     // Enable CORS for dashboard endpoints
     const dashboardCors = {
-      allowOrigins: ['*'],
+      allowOrigins: process.env.DASHBOARD_ALLOWED_ORIGINS
+        ? process.env.DASHBOARD_ALLOWED_ORIGINS.split(',')
+        : ['https://YOUR_DOMAIN_HERE'],
       allowMethods: ['GET', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization'],
     };
@@ -498,6 +500,34 @@ export class WebhookStack extends cdk.Stack {
         statistic: 'Sum',
       }),
       threshold: 5,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Webhook DLQ depth alarm — any message means a PR event was permanently dropped
+    new cloudwatch.Alarm(this, 'WebhookDLQDepth', {
+      alarmName: 'pullmint-webhook-dlq-depth',
+      alarmDescription: 'Messages in webhook DLQ indicate permanently dropped PR events',
+      metric: webhookDLQ.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(1),
+        statistic: 'Maximum',
+      }),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+
+    // Deployment DLQ depth alarm — any message means a deployment event was permanently dropped
+    new cloudwatch.Alarm(this, 'DeploymentDLQDepth', {
+      alarmName: 'pullmint-deployment-dlq-depth',
+      alarmDescription: 'Messages in deployment DLQ indicate permanently dropped deployment events',
+      metric: deploymentDLQ.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(1),
+        statistic: 'Maximum',
+      }),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
