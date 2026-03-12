@@ -53,14 +53,6 @@ jobs:
       - name: Run tests with coverage
         run: cd ${{ matrix.service }} && npm run test:coverage
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ${{ matrix.service }}/coverage/lcov.info
-          flags: ${{ matrix.service }}
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        continue-on-error: true
 
   typecheck:
     name: Type Check

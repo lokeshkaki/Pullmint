@@ -39,6 +39,7 @@ export interface PRExecution {
   deploymentApprovedAt?: number;
   deploymentStartedAt?: number;
   deploymentCompletedAt?: number;
+  rollbackStatus?: 'triggered' | 'failed' | 'not-configured';
 }
 
 export interface Finding {
