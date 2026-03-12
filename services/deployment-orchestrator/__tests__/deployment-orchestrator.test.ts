@@ -31,7 +31,7 @@ describe('Deployment Orchestrator', () => {
   const mockCallback = (() => {}) as Callback<void>;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     process.env.EVENT_BUS_NAME = 'test-bus';
     process.env.EXECUTIONS_TABLE_NAME = 'test-table';
     process.env.DEPLOYMENT_DELAY_MS = '0';
@@ -562,5 +562,112 @@ describe('Deployment Orchestrator', () => {
         mockCallback
       )
     ).rejects.toThrow('DEPLOYMENT_WEBHOOK_AUTH_TOKEN is required but not set');
+  });
+
+  it('truncates long webhook response body to 200 chars in error messages', async () => {
+    const longBody = 'a'.repeat(300);
+    ((globalThis as { fetch?: unknown }).fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve(longBody),
+    });
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    const [[, , , event]] = (publishEvent as jest.Mock).mock.calls;
+    // The full 300-char body must NOT appear; the 200-char truncation must appear
+    expect(event.message).not.toContain('a'.repeat(201));
+    expect(event.message).toContain('a'.repeat(200));
+  });
+
+  it('redacts Bearer tokens in webhook response body', async () => {
+    ((globalThis as { fetch?: unknown }).fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve('Invalid token: Bearer supersecrettoken123'),
+    });
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    const [[, , , event]] = (publishEvent as jest.Mock).mock.calls;
+    expect(event.message).not.toContain('supersecrettoken123');
+    expect(event.message).toContain('[REDACTED]');
+  });
+
+  it('records rollbackStatus as triggered in DynamoDB when rollback webhook succeeds', async () => {
+    process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL = 'https://rollback.example.com';
+
+    (globalThis as { fetch?: unknown }).fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('deploy failed'),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve('rollback ok'),
+      });
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    const terminalUpdate = (updateItem as jest.Mock).mock.calls[1];
+    expect(terminalUpdate[2]).toMatchObject({ rollbackStatus: 'triggered' });
+  });
+
+  it('records rollbackStatus as failed in DynamoDB when rollback webhook fails', async () => {
+    process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL = 'https://rollback.example.com';
+
+    (globalThis as { fetch?: unknown }).fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('deploy failed'),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('rollback failed'),
+      });
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    const terminalUpdate = (updateItem as jest.Mock).mock.calls[1];
+    expect(terminalUpdate[2]).toMatchObject({ rollbackStatus: 'failed' });
+  });
+
+  it('records rollbackStatus as not-configured in DynamoDB when no rollback URL is set', async () => {
+    ((globalThis as { fetch?: unknown }).fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve('failed'),
+    });
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    const terminalUpdate = (updateItem as jest.Mock).mock.calls[1];
+    expect(terminalUpdate[2]).toMatchObject({ rollbackStatus: 'not-configured' });
   });
 });

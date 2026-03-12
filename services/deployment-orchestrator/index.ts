@@ -7,6 +7,7 @@ import { DeploymentApprovedEvent, DeploymentStatusEvent } from '../shared/types'
 type DeploymentOutcome = {
   status: 'deployed' | 'failed';
   message: string;
+  rollbackStatus: 'triggered' | 'failed' | 'not-configured';
 };
 
 type FetchResponse = {
@@ -55,6 +56,7 @@ export const handler: EventBridgeHandler<
         deploymentEnvironment: detail.deploymentEnvironment,
         deploymentStrategy: detail.deploymentStrategy,
         deploymentMessage: outcome.message,
+        rollbackStatus: outcome.rollbackStatus,
         deploymentCompletedAt: Date.now(),
         updatedAt: Date.now(),
       }
@@ -121,6 +123,7 @@ async function performDeployment(
     return {
       status: 'failed',
       message: 'Deployment webhook URL is not configured',
+      rollbackStatus: 'not-configured',
     };
   }
 
@@ -141,9 +144,11 @@ async function performDeployment(
     return {
       status: 'deployed',
       message: `Deployment succeeded for ${detail.repoFullName}`,
+      rollbackStatus: 'not-configured',
     };
   } catch (error) {
     const failureMessage = String(error);
+    let rollbackStatus: 'triggered' | 'failed' | 'not-configured' = 'not-configured';
     let rollbackMessage = '';
 
     if (config.rollbackWebhookUrl) {
@@ -161,8 +166,10 @@ async function performDeployment(
           orgId: detail.orgId,
           reason: failureMessage,
         });
+        rollbackStatus = 'triggered';
         rollbackMessage = ' Rollback triggered.';
       } catch (rollbackError) {
+        rollbackStatus = 'failed';
         const rollbackFailure = String(rollbackError);
         rollbackMessage = ` Rollback failed: ${rollbackFailure}.`;
       }
@@ -171,6 +178,7 @@ async function performDeployment(
     return {
       status: 'failed',
       message: `Deployment failed: ${failureMessage}.${rollbackMessage}`,
+      rollbackStatus,
     };
   }
 }
@@ -233,7 +241,9 @@ async function postWithRetry(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < config.deploymentWebhookRetries) {
-        await delay(500 * (attempt + 1));
+        const backoffMs = Math.min(500 * Math.pow(2, attempt), 5000);
+        const jitteredMs = Math.floor(backoffMs * (0.5 + Math.random() * 0.5));
+        await delay(jitteredMs);
       }
     }
   }
@@ -269,7 +279,8 @@ async function postJson(
 
     if (!response.ok) {
       const responseText = await response.text();
-      throw new Error(`Deployment webhook failed with ${response.status}: ${responseText}`);
+      const sanitizedBody = responseText.substring(0, 200).replace(/bearer\s+\S+/gi, '[REDACTED]');
+      throw new Error(`Deployment webhook failed with ${response.status}: ${sanitizedBody}`);
     }
   } finally {
     clearTimeout(timeout);
