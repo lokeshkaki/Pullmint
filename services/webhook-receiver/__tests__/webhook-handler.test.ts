@@ -220,6 +220,32 @@ describe('Webhook Handler', () => {
       });
     });
 
+    it('should return 200 when execution record already exists for same executionId', async () => {
+      const payload = createPRPayload();
+      const event = createMockEvent(payload, 'pull_request', 'retry-delivery-456');
+
+      ddbMock.reset();
+      secretsManagerMock.reset();
+      secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: WEBHOOK_SECRET });
+
+      // 1st PutCommand (dedup) succeeds; 2nd (execution record) throws duplicate error
+      let putCallCount = 0;
+      ddbMock.on(PutCommand).callsFake(() => {
+        putCallCount++;
+        if (putCallCount === 2) {
+          const error: any = new Error('Item already exists');
+          error.name = 'ConditionalCheckFailedException';
+          throw error;
+        }
+        return {};
+      });
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Already processing' });
+    });
+
     it('should throw error on non-ConditionalCheckFailedException during dedup', async () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload, 'pull_request', 'error-delivery');

@@ -18,7 +18,14 @@ export interface PRExecution {
   repoPrKey?: string;
   prNumber: number;
   headSha: string;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'deploying' | 'deployed';
+  status:
+    | 'pending'
+    | 'analyzing'
+    | 'completed'
+    | 'failed'
+    | 'deploying'
+    | 'deployed'
+    | 'deployment-blocked';
   timestamp?: number;
   entityType?: 'execution';
   findings?: Finding[];

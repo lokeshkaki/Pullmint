@@ -335,6 +335,89 @@ describe('GitHub Integration', () => {
     expect(updateItemConditional).not.toHaveBeenCalled();
   });
 
+  it('updates execution to deployment-blocked when risk score exceeds threshold', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_RISK_THRESHOLD = '5';
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, riskScore: 99 },
+    } as any);
+
+    expect(updateItem).toHaveBeenCalledWith(
+      'exec-table',
+      { executionId: baseDetail.executionId },
+      expect.objectContaining({
+        status: 'deployment-blocked',
+        deploymentMessage: expect.stringContaining('99'),
+      })
+    );
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
+
+  it('updates execution to deployment-blocked when required checks are not passing', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: { state: 'failure', statuses: [] },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(updateItem).toHaveBeenCalledWith(
+      'exec-table',
+      { executionId: baseDetail.executionId },
+      expect.objectContaining({
+        status: 'deployment-blocked',
+        deploymentMessage: 'Tests required but not passing',
+      })
+    );
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
+
+  it('testsPassed===undefined blocks deployment and logs missing field', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: { state: 'failure', statuses: [] },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, testsPassed: undefined },
+    } as any);
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('undefined (missing from analysis result)')
+    );
+    expect(publishEvent).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('testsPassed===false blocks deployment and logs false value', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
+    process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    getCombinedStatusForRef.mockResolvedValueOnce({
+      data: { state: 'failure', statuses: [] },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, testsPassed: false },
+    } as any);
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('testsPassed=false'));
+    expect(publishEvent).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
   it('blocks deployment when combined status is not success', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'eventbridge';
     process.env.DEPLOYMENT_REQUIRE_TESTS = 'true';
