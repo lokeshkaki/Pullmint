@@ -58,6 +58,8 @@ export interface AnalysisResult {
   findings: Finding[];
   riskScore: number;
   testsPassed?: boolean;
+  s3Key?: string;
+  findingsCount?: number;
   metadata: {
     processingTime: number;
     tokensUsed: number;

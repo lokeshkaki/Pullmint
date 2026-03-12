@@ -12,6 +12,19 @@ jest.mock('../../shared/dynamodb', () => ({
   updateItemConditional: jest.fn(),
 }));
 
+jest.mock('@aws-sdk/client-s3', () => {
+  // Capture the send mock inside the factory to avoid jest.mock hoisting issues
+  const s3SendFn = jest.fn().mockResolvedValue({});
+  return {
+    S3Client: jest.fn().mockImplementation(() => ({ send: s3SendFn })),
+    GetObjectCommand: jest.fn().mockImplementation((input: unknown) => input),
+    __s3SendFn: s3SendFn,
+  };
+});
+
+const getS3SendMock = () =>
+  (jest.requireMock('@aws-sdk/client-s3') as { __s3SendFn: jest.Mock }).__s3SendFn;
+
 const createComment = jest.fn();
 const createReview = jest.fn();
 const addLabels = jest.fn();
@@ -69,9 +82,11 @@ describe('GitHub Integration', () => {
     });
 
     (updateItemConditional as jest.Mock).mockResolvedValue(undefined);
+    getS3SendMock().mockResolvedValue({});
 
     process.env.EXECUTIONS_TABLE_NAME = 'exec-table';
     process.env.EVENT_BUS_NAME = 'test-bus';
+    process.env.ANALYSIS_RESULTS_BUCKET = 'analysis-bucket';
     process.env.DEPLOYMENT_RISK_THRESHOLD = '30';
     process.env.AUTO_APPROVE_RISK_THRESHOLD = '30';
     process.env.DEPLOYMENT_ENVIRONMENT = 'staging';
@@ -545,6 +560,113 @@ describe('GitHub Integration', () => {
         detail: baseDetail,
       } as any)
     ).rejects.toThrow('EXECUTIONS_TABLE_NAME is required');
+  });
+
+  it('fetches findings from S3 when s3Key is present in event', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+    const s3Findings = [
+      {
+        type: 'security',
+        severity: 'high',
+        title: 'S3 Finding',
+        description: 'From S3',
+        suggestion: 'Fix',
+      },
+    ];
+    getS3SendMock().mockResolvedValueOnce({
+      Body: {
+        transformToString: () =>
+          Promise.resolve(
+            JSON.stringify({ executionId: 'exec-123', riskScore: 10, findings: s3Findings })
+          ),
+      },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, s3Key: 'executions/exec-123/analysis.json', findings: undefined },
+    } as any);
+
+    const s3Send = getS3SendMock();
+    expect(s3Send).toHaveBeenCalledTimes(1);
+    const { GetObjectCommand } = jest.requireMock('@aws-sdk/client-s3') as {
+      GetObjectCommand: jest.Mock;
+    };
+    expect(GetObjectCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Bucket: 'analysis-bucket',
+        Key: 'executions/exec-123/analysis.json',
+      })
+    );
+    // PR comment should include the finding fetched from S3
+    const commentBody = (createComment.mock.calls[0][0] as { body: string }).body;
+    expect(commentBody).toContain('S3 Finding');
+  });
+
+  it('uses inline findings when s3Key is absent (backward compat)', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+    const inlineFinding = {
+      type: 'architecture' as const,
+      severity: 'low' as const,
+      title: 'Inline Finding',
+      description: 'From event',
+    };
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, findings: [inlineFinding] },
+    } as any);
+
+    expect(getS3SendMock()).not.toHaveBeenCalled();
+    const commentBody = (createComment.mock.calls[0][0] as { body: string }).body;
+    expect(commentBody).toContain('Inline Finding');
+  });
+
+  it('returns empty findings when ANALYSIS_RESULTS_BUCKET is not configured', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+    delete process.env.ANALYSIS_RESULTS_BUCKET;
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, s3Key: 'executions/exec-123/analysis.json', findings: undefined },
+    } as any);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ANALYSIS_RESULTS_BUCKET not configured')
+    );
+    expect(getS3SendMock()).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    process.env.ANALYSIS_RESULTS_BUCKET = 'analysis-bucket';
+  });
+
+  it('handles missing findings and missing s3Key gracefully', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, findings: undefined, s3Key: undefined },
+    } as any);
+
+    expect(getS3SendMock()).not.toHaveBeenCalled();
+    expect(createComment).toHaveBeenCalledTimes(1);
+    const commentBody = (createComment.mock.calls[0][0] as { body: string }).body;
+    expect(commentBody).toContain('No Issues Found');
+  });
+
+  it('throws when S3 returns empty body for analysis results', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+    getS3SendMock().mockResolvedValueOnce({
+      Body: { transformToString: () => Promise.resolve('') },
+    });
+
+    await expect(
+      invokeHandler({
+        'detail-type': 'analysis.complete',
+        detail: { ...baseDetail, s3Key: 'executions/exec-123/analysis.json', findings: undefined },
+      } as any)
+    ).rejects.toThrow('Empty S3 response for key: executions/exec-123/analysis.json');
   });
 });
 
