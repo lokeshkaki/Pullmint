@@ -2,6 +2,7 @@ import { EventBridgeHandler } from 'aws-lambda';
 import { publishEvent } from '../shared/eventbridge';
 import { updateItem } from '../shared/dynamodb';
 import { createStructuredError } from '../shared/error-handling';
+import { addTraceAnnotations } from '../shared/tracer';
 import { DeploymentApprovedEvent, DeploymentStatusEvent } from '../shared/types';
 
 type DeploymentOutcome = {
@@ -27,6 +28,7 @@ export const handler: EventBridgeHandler<
   void
 > = async (event): Promise<void> => {
   const detail = event.detail;
+  addTraceAnnotations({ executionId: detail.executionId, prNumber: detail.prNumber });
   const config = getDeploymentConfig();
   let deployingStatusSet = false;
 

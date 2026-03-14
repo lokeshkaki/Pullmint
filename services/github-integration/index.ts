@@ -4,6 +4,7 @@ import { getGitHubInstallationClient } from '../shared/github-app';
 import { publishEvent } from '../shared/eventbridge';
 import { updateItem, updateItemConditional } from '../shared/dynamodb';
 import { createStructuredError, retryWithBackoff } from '../shared/error-handling';
+import { addTraceAnnotations } from '../shared/tracer';
 import {
   PREvent,
   Finding,
@@ -31,6 +32,9 @@ export const handler: EventBridgeHandler<
   try {
     const detailType = event['detail-type'];
     const { detail } = event;
+    if (detail.executionId) {
+      addTraceAnnotations({ executionId: detail.executionId, prNumber: detail.prNumber });
+    }
 
     if (detailType === 'analysis.complete') {
       await handleAnalysisComplete(detail as AnalysisCompleteEvent);

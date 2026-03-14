@@ -7,6 +7,7 @@ import type {
   APIGatewayProxyEventQueryStringParameters,
 } from 'aws-lambda';
 import type { PRExecution } from '../shared/types';
+import { addTraceAnnotations } from '../shared/tracer';
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -84,6 +85,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     method: event.httpMethod,
     queryParams: event.queryStringParameters,
   });
+  addTraceAnnotations({ path: event.path });
 
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
