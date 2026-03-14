@@ -76,6 +76,29 @@ export async function updateItem(
   );
 }
 
+/**
+ * Atomically increment a numeric counter in DynamoDB.
+ * Sets a TTL on first creation using `if_not_exists`.
+ * Returns the new counter value.
+ */
+export async function atomicIncrementCounter(
+  tableName: string,
+  key: Record<string, unknown>,
+  ttlEpochSeconds: number
+): Promise<number> {
+  const result = await docClient.send(
+    new UpdateCommand({
+      TableName: tableName,
+      Key: key,
+      UpdateExpression: 'ADD #count :inc SET #ttl = if_not_exists(#ttl, :ttl)',
+      ExpressionAttributeNames: { '#count': 'count', '#ttl': 'ttl' },
+      ExpressionAttributeValues: { ':inc': 1, ':ttl': ttlEpochSeconds },
+      ReturnValues: 'UPDATED_NEW',
+    })
+  );
+  return (result.Attributes?.count as number) ?? 1;
+}
+
 type ConditionalUpdateOptions = {
   conditionExpression: string;
   conditionAttributeNames?: Record<string, string>;
