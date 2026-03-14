@@ -16,6 +16,7 @@ jest.mock('../../../shared/dynamodb', () => ({
   getItem: jest.fn(),
   putItem: jest.fn(),
   updateItem: jest.fn(),
+  atomicIncrementCounter: jest.fn(),
 }));
 
 jest.mock('../../../shared/utils', () => ({
@@ -52,6 +53,8 @@ const getSharedMocks = () => ({
   putItem: jest.requireMock('../../../shared/dynamodb').putItem as jest.Mock,
   updateItem: jest.requireMock('../../../shared/dynamodb').updateItem as jest.Mock,
   hashContent: jest.requireMock('../../../shared/utils').hashContent as jest.Mock,
+  atomicIncrementCounter: jest.requireMock('../../../shared/dynamodb')
+    .atomicIncrementCounter as jest.Mock,
 });
 
 const loadHandler = async () => {
@@ -553,6 +556,232 @@ describe('architecture-agent handler', () => {
       { executionId: 'exec-123' },
       expect.objectContaining({ status: 'failed' })
     );
+  });
+
+  it('checks per-repo rate limit for uncached LLM calls', async () => {
+    process.env.LLM_RATE_LIMIT_TABLE = 'rate-limit-table';
+    const handler = await loadHandler();
+    delete process.env.LLM_RATE_LIMIT_TABLE;
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 10, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+      atomicIncrementCounter,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-ratelimit-check');
+    getItem.mockResolvedValue(null); // cache miss
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+    atomicIncrementCounter.mockResolvedValue(1); // first call, within limit
+
+    await handler(buildEvent());
+
+    expect(atomicIncrementCounter).toHaveBeenCalledWith(
+      'rate-limit-table',
+      expect.objectContaining({ counterKey: expect.stringContaining('owner/repo:llm:') }),
+      expect.any(Number)
+    );
+  });
+
+  it('returns placeholder result when per-repo rate limit is exceeded', async () => {
+    process.env.LLM_RATE_LIMIT_TABLE = 'rate-limit-table';
+    const handler = await loadHandler();
+    delete process.env.LLM_RATE_LIMIT_TABLE;
+
+    const anthropicCreate = jest.fn();
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      atomicIncrementCounter,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-ratelimit-exceeded');
+    getItem.mockResolvedValue(null); // cache miss
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    atomicIncrementCounter.mockResolvedValue(11); // exceeds default limit of 10
+
+    await handler(buildEvent());
+
+    expect(anthropicCreate).not.toHaveBeenCalled();
+    expect(publishEvent).toHaveBeenCalledWith(
+      'event-bus',
+      'pullmint.agent',
+      'analysis.complete',
+      expect.objectContaining({ riskScore: 50, findingsCount: 0 })
+    );
+  });
+
+  it('selects Haiku model for small diffs (< 500 lines)', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 5, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 3, output_tokens: 3 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const smallDiff = 'diff --git a/file.ts b/file.ts\n+const x = 1;'; // 2 lines
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: smallDiff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-small-diff');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const anthropicArgs = anthropicCreate.mock.calls[0][0];
+    expect(anthropicArgs.model).toContain('haiku');
+  });
+
+  it('selects Sonnet model for large diffs (>= 500 lines)', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 20, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 50, output_tokens: 50 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const largeDiff = 'a\n'.repeat(500); // 501 elements when split → >= 500 lines
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: largeDiff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-large-diff');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const anthropicArgs = anthropicCreate.mock.calls[0][0];
+    expect(anthropicArgs.model).toContain('sonnet');
+  });
+
+  it('uses LLM_MAX_TOKENS env var for max_tokens in Anthropic call', async () => {
+    process.env.LLM_MAX_TOKENS = '1000';
+    const handler = await loadHandler();
+    delete process.env.LLM_MAX_TOKENS;
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 5, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 3, output_tokens: 3 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-max-tokens');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const anthropicArgs = anthropicCreate.mock.calls[0][0];
+    expect(anthropicArgs.max_tokens).toBe(1000);
   });
 
   it('rejects invalid payloads', async () => {

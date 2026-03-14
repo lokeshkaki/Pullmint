@@ -128,6 +128,15 @@ export class WebhookStack extends cdk.Stack {
       });
     }
 
+    // LLM rate limit table — atomic per-repo hourly counters to cap API spend
+    const llmRateLimitTable = new dynamodb.Table(this, 'LLMRateLimitTable', {
+      tableName: 'pullmint-llm-rate-limit',
+      partitionKey: { name: 'counterKey', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     // LLM cache table
     const cacheTable = new dynamodb.Table(this, 'LLMCache', {
       tableName: 'pullmint-llm-cache',
@@ -232,6 +241,12 @@ export class WebhookStack extends cdk.Stack {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         ANALYSIS_RESULTS_BUCKET: analysisResultsBucket.bucketName,
+        LLM_RATE_LIMIT_TABLE: llmRateLimitTable.tableName,
+        LLM_HOURLY_LIMIT_PER_REPO: '10',
+        LLM_SMALL_DIFF_MODEL: 'claude-haiku-4-5-20251001',
+        LLM_LARGE_DIFF_MODEL: 'claude-sonnet-4-6',
+        LLM_SMALL_DIFF_LINE_THRESHOLD: '500',
+        LLM_MAX_TOKENS: '2000',
       },
       bundling: {
         minify: true,
@@ -348,6 +363,7 @@ export class WebhookStack extends cdk.Stack {
     executionsTable.grantReadWriteData(architectureAgent);
     this.eventBus.grantPutEventsTo(architectureAgent);
     analysisResultsBucket.grantPut(architectureAgent);
+    llmRateLimitTable.grantReadWriteData(architectureAgent);
 
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
