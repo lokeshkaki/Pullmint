@@ -201,6 +201,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         WEBHOOK_SECRET_ARN: githubWebhookSecret.secretArn,
@@ -221,6 +222,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         ANTHROPIC_API_KEY_ARN: anthropicApiKey.secretArn,
         GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
@@ -245,6 +247,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
         GITHUB_APP_ID: githubAppId ?? '',
@@ -279,6 +282,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
@@ -303,6 +307,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
       },
@@ -320,6 +325,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(10),
       memorySize: 128,
+      tracing: lambda.Tracing.ACTIVE,
       bundling: {
         minify: true,
         sourceMap: true,

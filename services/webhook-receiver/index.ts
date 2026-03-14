@@ -5,6 +5,7 @@ import { getSecret } from '../shared/secrets';
 import { publishEvent } from '../shared/eventbridge';
 import { verifyGitHubSignature, generateExecutionId, calculateTTL } from '../shared/utils';
 import { createStructuredError } from '../shared/error-handling';
+import { addTraceAnnotations } from '../shared/tracer';
 import {
   GitHubPRPayload,
   GitHubDeploymentStatusPayload,
@@ -114,6 +115,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
         prEvent.prNumber,
         prEvent.headSha
       );
+      addTraceAnnotations({ executionId, prNumber: prEvent.prNumber });
 
       const execution: PRExecution = {
         executionId,
