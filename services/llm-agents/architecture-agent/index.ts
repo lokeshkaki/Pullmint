@@ -7,6 +7,7 @@ import { hashContent } from '../../shared/utils';
 import { getGitHubInstallationClient } from '../../shared/github-app';
 import { createStructuredError, retryWithBackoff } from '../../shared/error-handling';
 import { PREvent, Finding, AnalysisResult } from '../../shared/types';
+import { addTraceAnnotations } from '../../shared/tracer';
 
 type AnthropicMessageInput = {
   model: string;
@@ -70,6 +71,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       const prEvent = eventData.detail;
 
       console.log(`Processing PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
+      addTraceAnnotations({ executionId: prEvent.executionId, prNumber: prEvent.prNumber });
 
       // 1. Initialize clients
       if (!anthropicClient) {
