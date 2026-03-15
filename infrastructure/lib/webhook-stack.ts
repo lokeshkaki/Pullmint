@@ -385,6 +385,25 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    // ===========================
+    // Phase 4: Calibration + Dependency Graph Tables
+    // ===========================
+
+    // Calibration table — permanent, no TTL
+    const calibrationTable = new dynamodb.Table(this, 'CalibrationTable', {
+      partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // Org dependency graph table — 48h TTL, refreshed nightly
+    const dependencyGraphTable = new dynamodb.Table(this, 'DependencyGraphTable', {
+      partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'dependentRepo', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
+    });
+
     // Deployment Monitor Lambda
     const deploymentMonitorFn = new NodejsFunction(this, 'DeploymentMonitorFunction', {
       functionName: 'pullmint-deployment-monitor',
@@ -397,6 +416,44 @@ export class WebhookStack extends cdk.Stack {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         ROLLBACK_RISK_THRESHOLD: '50',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Calibration Service Lambda
+    const calibrationServiceFn = new NodejsFunction(this, 'CalibrationServiceFunction', {
+      functionName: 'pullmint-calibration-service',
+      entry: path.join(__dirname, '../../services/calibration-service/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(30),
+      tracing: lambda.Tracing.ACTIVE,
+      environment: {
+        CALIBRATION_TABLE_NAME: calibrationTable.tableName,
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Dependency Scanner Lambda
+    const dependencyScannerFn = new NodejsFunction(this, 'DependencyScannerFunction', {
+      functionName: 'pullmint-dependency-scanner',
+      entry: path.join(__dirname, '../../services/dependency-scanner/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.minutes(5),
+      tracing: lambda.Tracing.ACTIVE,
+      environment: {
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        DEPENDENCY_GRAPH_TABLE_NAME: dependencyGraphTable.tableName,
+        GITHUB_APP_ID: githubAppId ?? '',
+        GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
       },
       bundling: {
         minify: true,
@@ -443,6 +500,15 @@ export class WebhookStack extends cdk.Stack {
     // Deployment monitor permissions
     executionsTable.grantReadWriteData(deploymentMonitorFn);
     this.eventBus.grantPutEventsTo(deploymentMonitorFn);
+
+    // Calibration service permissions
+    calibrationTable.grantReadWriteData(calibrationServiceFn);
+    executionsTable.grantReadData(calibrationServiceFn);
+
+    // Dependency scanner permissions
+    executionsTable.grantReadData(dependencyScannerFn);
+    dependencyGraphTable.grantReadWriteData(dependencyScannerFn);
+    githubAppPrivateKey.grantRead(dependencyScannerFn);
 
     // ===========================
     // EventBridge Rules
@@ -514,6 +580,32 @@ export class WebhookStack extends cdk.Stack {
           maxEventAge: cdk.Duration.hours(2),
         }),
       ],
+    });
+
+    // Route execution.confirmed → calibration service
+    new events.Rule(this, 'ExecutionConfirmedRule', {
+      eventBus: this.eventBus,
+      eventPattern: {
+        source: ['pullmint.monitor'],
+        detailType: ['execution.confirmed'],
+      },
+      targets: [new targets.LambdaFunction(calibrationServiceFn)],
+    });
+
+    // Route execution.rolled-back → calibration service
+    new events.Rule(this, 'ExecutionRolledBackRule', {
+      eventBus: this.eventBus,
+      eventPattern: {
+        source: ['pullmint.orchestrator'],
+        detailType: ['execution.rolled-back'],
+      },
+      targets: [new targets.LambdaFunction(calibrationServiceFn)],
+    });
+
+    // Nightly schedule for dependency scanner: 02:00 UTC
+    new events.Rule(this, 'DependencyScannerSchedule', {
+      schedule: events.Schedule.cron({ hour: '2', minute: '0' }),
+      targets: [new targets.LambdaFunction(dependencyScannerFn)],
     });
 
     // ===========================
