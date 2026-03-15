@@ -22,6 +22,8 @@ function getSignalDelta(signal: Signal): number {
       return typeof value === 'number' && value > 20 ? 10 : 0;
     case 'time_of_day':
       return typeof value === 'number' && isFridayAfternoon(value) ? 5 : 0;
+    case 'simultaneous_deploy':
+      return value === true ? 8 : 0;
     default:
       return 0;
   }

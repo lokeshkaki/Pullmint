@@ -137,6 +137,20 @@ describe('evaluateRisk', () => {
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(55);
     });
 
+    it('adds +8 when a simultaneous dependent deploy is in progress', () => {
+      const signals: Signal[] = [
+        { signalType: 'simultaneous_deploy', value: true, source: 'pullmint', timestamp: Date.now() },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(38);
+    });
+
+    it('adds 0 for simultaneous_deploy when value is false', () => {
+      const signals: Signal[] = [
+        { signalType: 'simultaneous_deploy', value: false, source: 'pullmint', timestamp: Date.now() },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
+    });
+
     it('ignores unknown signal types', () => {
       const signals = [
         { signalType: 'unknown.signal' as Signal['signalType'], value: 999, source: 'unknown', timestamp: Date.now() },
