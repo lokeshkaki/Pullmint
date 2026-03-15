@@ -41,6 +41,8 @@ jobs:
           - services/llm-agents/architecture-agent
           - services/signal-ingestion
           - services/deployment-monitor
+          - services/calibration-service
+          - services/dependency-scanner
     steps:
       - uses: actions/checkout@v4
 
