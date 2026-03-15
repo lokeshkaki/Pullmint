@@ -25,7 +25,10 @@ export interface PRExecution {
     | 'failed'
     | 'deploying'
     | 'deployed'
-    | 'deployment-blocked';
+    | 'deployment-blocked'
+    | 'monitoring'
+    | 'confirmed'
+    | 'rolled-back';
   timestamp?: number;
   entityType?: 'execution';
   findings?: Finding[];
@@ -80,6 +83,84 @@ export interface DeploymentStatusEvent extends PREvent {
   deploymentStatus: 'deploying' | 'deployed' | 'failed';
   deploymentStrategy: 'eventbridge' | 'label' | 'deployment';
   message?: string;
+}
+
+export type SignalType =
+  | 'production.error_rate'
+  | 'production.latency'
+  | 'deployment.status'
+  | 'ci.coverage'
+  | 'ci.result'
+  | 'time_of_day'
+  | 'author_history'
+  | 'simultaneous_deploy';
+
+export interface Signal {
+  signalType: SignalType;
+  value: number | boolean;
+  source: string;
+  timestamp: number;
+}
+
+export interface RepoContext {
+  isSharedDependency: boolean;
+  downstreamDependentCount: number;
+  blastRadiusMultiplier: number;
+  repoRollbackRate30d: number;
+  simultaneousDeploysInProgress: string[];
+}
+
+export interface CheckpointRecord {
+  type: 'analysis' | 'pre-deploy' | 'post-deploy-5' | 'post-deploy-30';
+  score: number;
+  confidence: number;
+  missingSignals: string[];
+  signals: Signal[];
+  decision: 'approved' | 'held' | 'rollback';
+  reason: string;
+  confirmedWithLowConfidence?: boolean;
+  evaluatedAt: number;
+}
+
+export interface RiskEvaluationInput {
+  llmBaseScore: number;
+  signals: Signal[];
+  calibrationFactor: number;
+  blastRadiusMultiplier: number;
+}
+
+export interface RiskEvaluation {
+  score: number;
+  confidence: number;
+  missingSignals: string[];
+  reason: string;
+}
+
+export interface DeploymentRollbackEvent {
+  executionId: string;
+  repoFullName: string;
+  prNumber: number;
+  reason: string;
+  triggeredAt: number;
+  checkpointType: 'post-deploy-5' | 'post-deploy-30';
+  riskScoreAtTrigger: number;
+}
+
+export interface ExecutionConfirmedEvent {
+  executionId: string;
+  repoFullName: string;
+  prNumber: number;
+  confirmedWithLowConfidence: boolean;
+  finalRiskScore: number;
+  confirmedAt: number;
+}
+
+export interface ExecutionRolledBackEvent {
+  executionId: string;
+  repoFullName: string;
+  prNumber: number;
+  rollbackSource: 'monitor' | 'manual';
+  rolledBackAt: number;
 }
 
 export interface GitHubPRPayload {
