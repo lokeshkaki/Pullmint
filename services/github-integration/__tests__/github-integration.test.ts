@@ -1,6 +1,6 @@
 import { handler, buildCommentBody, getRiskEmoji, getRiskLevel } from '../index';
 import { publishEvent } from '../../shared/eventbridge';
-import { updateItem, updateItemConditional } from '../../shared/dynamodb';
+import { getItem, updateItem, updateItemConditional } from '../../shared/dynamodb';
 import { getGitHubInstallationClient } from '../../shared/github-app';
 
 jest.mock('../../shared/eventbridge', () => ({
@@ -8,6 +8,7 @@ jest.mock('../../shared/eventbridge', () => ({
 }));
 
 jest.mock('../../shared/dynamodb', () => ({
+  getItem: jest.fn(),
   updateItem: jest.fn(),
   updateItemConditional: jest.fn(),
 }));
@@ -59,7 +60,7 @@ describe('GitHub Integration', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
 
     (getGitHubInstallationClient as jest.Mock).mockResolvedValue({
       rest: {
@@ -82,6 +83,7 @@ describe('GitHub Integration', () => {
     });
 
     (updateItemConditional as jest.Mock).mockResolvedValue(undefined);
+    (getItem as jest.Mock).mockResolvedValue(null);
     getS3SendMock().mockResolvedValue({});
 
     process.env.EXECUTIONS_TABLE_NAME = 'exec-table';
@@ -668,6 +670,33 @@ describe('GitHub Integration', () => {
       } as any)
     ).rejects.toThrow('Empty S3 response for key: executions/exec-123/analysis.json');
   });
+
+  it('fetches execution checkpoint and includes confidence in PR comment', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+    (getItem as jest.Mock).mockResolvedValue({
+      checkpoints: [
+        {
+          type: 'analysis',
+          score: 25,
+          confidence: 0.67,
+          missingSignals: [],
+          signals: [],
+          decision: 'approved',
+          reason: 'ok',
+          evaluatedAt: Date.now(),
+        },
+      ],
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: baseDetail,
+    } as any);
+
+    expect(createComment).toHaveBeenCalledTimes(1);
+    const commentBody = (createComment.mock.calls[0][0] as { body: string }).body;
+    expect(commentBody).toContain('**Confidence:** 67%');
+  });
 });
 
 describe('GitHub Integration Helpers', () => {
@@ -775,5 +804,109 @@ describe('GitHub Integration Helpers', () => {
     expect(getRiskEmoji('Low')).toBe('🟢');
     expect(getRiskEmoji('Medium')).toBe('🟡');
     expect(getRiskEmoji('High')).toBe('🔴');
+  });
+
+  it('includes confidence percentage when checkpoint is provided with no missing signals', () => {
+    const result = buildCommentBody(
+      {
+        executionId: 'exec-cp',
+        prNumber: 4,
+        repoFullName: 'owner/repo',
+        headSha: 'abc',
+        baseSha: 'def',
+        author: 'octocat',
+        title: 'Test',
+        orgId: 'org_1',
+        riskScore: 25,
+        findings: [],
+        agentType: 'architecture',
+        metadata: { processingTime: 100, tokensUsed: 10, cached: false },
+      },
+      {
+        checkpoint: {
+          type: 'analysis',
+          score: 25,
+          confidence: 0.5,
+          missingSignals: [],
+          signals: [],
+          decision: 'approved',
+          reason: 'ok',
+          evaluatedAt: 1234,
+        },
+        dashboardUrl: '',
+      }
+    );
+
+    expect(result).toContain('**Confidence:** 50%');
+    expect(result).not.toContain('Missing signals');
+  });
+
+  it('includes missing signals section when checkpoint has missing signals', () => {
+    const result = buildCommentBody(
+      {
+        executionId: 'exec-ms',
+        prNumber: 5,
+        repoFullName: 'owner/repo',
+        headSha: 'abc',
+        baseSha: 'def',
+        author: 'octocat',
+        title: 'Test',
+        orgId: 'org_1',
+        riskScore: 25,
+        findings: [],
+        agentType: 'architecture',
+        metadata: { processingTime: 100, tokensUsed: 10, cached: false },
+      },
+      {
+        checkpoint: {
+          type: 'analysis',
+          score: 25,
+          confidence: 0.33,
+          missingSignals: ['ci.result', 'author_history'],
+          signals: [],
+          decision: 'approved',
+          reason: 'ok',
+          evaluatedAt: 1234,
+        },
+        dashboardUrl: '',
+      }
+    );
+
+    expect(result).toContain('ci.result');
+    expect(result).toContain('author_history');
+  });
+
+  it('uses dashboard URL in footer link when dashboardUrl is provided', () => {
+    const result = buildCommentBody(
+      {
+        executionId: 'exec-url',
+        prNumber: 6,
+        repoFullName: 'owner/repo',
+        headSha: 'abc',
+        baseSha: 'def',
+        author: 'octocat',
+        title: 'Test',
+        orgId: 'org_1',
+        riskScore: 25,
+        findings: [],
+        agentType: 'architecture',
+        metadata: { processingTime: 100, tokensUsed: 10, cached: false },
+      },
+      {
+        checkpoint: {
+          type: 'analysis',
+          score: 25,
+          confidence: 0.5,
+          missingSignals: [],
+          signals: [],
+          decision: 'approved',
+          reason: 'ok',
+          evaluatedAt: 1234,
+        },
+        dashboardUrl: 'https://dash.example.com',
+      }
+    );
+
+    expect(result).toContain('https://dash.example.com/executions/exec-url');
   });
 });

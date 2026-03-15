@@ -56,6 +56,11 @@ type GitHubRestClient = {
         };
       }>;
     };
+    checks: {
+      listForRef: (params: { owner: string; repo: string; ref: string }) => Promise<{
+        data: { check_runs: { conclusion?: string | null }[] };
+      }>;
+    };
   };
 };
 
