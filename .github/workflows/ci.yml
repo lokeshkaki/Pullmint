@@ -39,6 +39,7 @@ jobs:
           - services/dashboard-api
           - services/dashboard-ui
           - services/llm-agents/architecture-agent
+          - services/signal-ingestion
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +53,6 @@ jobs:
 
       - name: Run tests with coverage
         run: cd ${{ matrix.service }} && npm run test:coverage
-
 
   typecheck:
     name: Type Check

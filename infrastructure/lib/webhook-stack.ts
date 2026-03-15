@@ -50,6 +50,15 @@ export class WebhookStack extends cdk.Stack {
       description: 'GitHub App private key for authentication',
     });
 
+    const signalIngestionSecret = new secretsmanager.Secret(this, 'SignalIngestionSecret', {
+      secretName: 'pullmint/signal-ingestion-hmac-secret',
+      description: 'HMAC secret for Pullmint signal ingestion webhook',
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+    });
+
     // ===========================
     // DynamoDB Tables
     // ===========================
@@ -347,6 +356,26 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    // Signal Ingestion Lambda
+    const signalIngestionFn = new NodejsFunction(this, 'SignalIngestionFunction', {
+      functionName: 'pullmint-signal-ingestion',
+      entry: path.join(__dirname, '../../services/signal-ingestion/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      tracing: lambda.Tracing.ACTIVE,
+      environment: {
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        EVENT_BUS_NAME: this.eventBus.eventBusName,
+        SIGNAL_INGESTION_SECRET_ARN: signalIngestionSecret.secretArn,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
     // ===========================
     // Permissions
     // ===========================
@@ -377,6 +406,11 @@ export class WebhookStack extends cdk.Stack {
 
     // Dashboard permissions
     executionsTable.grantReadData(dashboardApi);
+
+    // Signal ingestion permissions
+    executionsTable.grantReadWriteData(signalIngestionFn);
+    this.eventBus.grantPutEventsTo(signalIngestionFn);
+    signalIngestionSecret.grantRead(signalIngestionFn);
 
     // ===========================
     // EventBridge Rules
@@ -460,6 +494,18 @@ export class WebhookStack extends cdk.Stack {
     const webhookResource = api.root.addResource('webhook');
     webhookResource.addMethod('POST', new apigateway.LambdaIntegration(webhookHandler), {
       methodResponses: [{ statusCode: '202' }, { statusCode: '401' }, { statusCode: '500' }],
+    });
+
+    // Signal ingestion route: POST /signals/{executionId}
+    const signalsResource = api.root.addResource('signals');
+    const signalsByIdResource = signalsResource.addResource('{executionId}');
+    signalsByIdResource.addMethod('POST', new apigateway.LambdaIntegration(signalIngestionFn), {
+      methodResponses: [
+        { statusCode: '200' },
+        { statusCode: '400' },
+        { statusCode: '401' },
+        { statusCode: '404' },
+      ],
     });
 
     // ===========================
