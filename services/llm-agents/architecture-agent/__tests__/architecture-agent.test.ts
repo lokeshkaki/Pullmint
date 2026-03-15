@@ -39,7 +39,10 @@ type AnthropicMock = {
 };
 
 type OctokitMock = {
-  rest: { pulls: { get: jest.Mock } };
+  rest: {
+    pulls: { get: jest.Mock };
+    checks: { listForRef: jest.Mock };
+  };
 };
 
 type HandlerFn = (event: SQSEvent) => Promise<void>;
@@ -127,7 +130,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -212,7 +218,10 @@ describe('architecture-agent handler', () => {
 
     const longDiff = 'a'.repeat(9000);
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: longDiff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: longDiff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -280,7 +289,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -375,7 +387,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -436,7 +451,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -498,7 +516,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -540,7 +561,10 @@ describe('architecture-agent handler', () => {
     );
 
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: { unexpected: 'object' } }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: { unexpected: 'object' } }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const { getSecret, getGitHubInstallationClient, updateItem } = getSharedMocks();
@@ -576,7 +600,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -621,7 +648,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -669,7 +699,10 @@ describe('architecture-agent handler', () => {
 
     const smallDiff = 'diff --git a/file.ts b/file.ts\n+const x = 1;'; // 2 lines
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: smallDiff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: smallDiff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -712,7 +745,10 @@ describe('architecture-agent handler', () => {
 
     const largeDiff = 'a\n'.repeat(500); // 501 elements when split → >= 500 lines
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: largeDiff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: largeDiff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -757,7 +793,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -822,7 +861,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -889,7 +931,10 @@ describe('architecture-agent handler', () => {
 
     const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
     const octokitMock: OctokitMock = {
-      rest: { pulls: { get: jest.fn().mockResolvedValue({ data: diff }) } },
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
     };
 
     const {
@@ -918,5 +963,227 @@ describe('architecture-agent handler', () => {
     expect(publishedEvent).toHaveProperty('findingsCount', 1);
     // Full findings array must NOT be in the event
     expect(publishedEvent).not.toHaveProperty('findings');
+  });
+
+  it('writes Checkpoint 1 with CI signal to execution record', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 30, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: {
+          listForRef: jest.fn().mockResolvedValue({
+            data: { check_runs: [{ conclusion: 'success' }] },
+          }),
+        },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-checkpoint1');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const terminalCall = updateItem.mock.calls.find(
+      (call: unknown[]) => (call[2] as Record<string, unknown>).status === 'completed'
+    ) as unknown[] | undefined;
+    expect(terminalCall).toBeDefined();
+    const updatePayload = terminalCall![2] as Record<string, unknown>;
+    const checkpoints = updatePayload.checkpoints as Array<Record<string, unknown>>;
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0].type).toBe('analysis');
+    expect(checkpoints[0].decision).toBeDefined();
+    const signals = checkpoints[0].signals as Array<Record<string, unknown>>;
+    const ciSignal = signals.find((s) => s.signalType === 'ci.result');
+    expect(ciSignal).toBeDefined();
+    expect(ciSignal!.value).toBe(true);
+  });
+
+  it('writes calibrationApplied with fetched calibration factor', async () => {
+    process.env.CALIBRATION_TABLE_NAME = 'calibration-table';
+    const handler = await loadHandler();
+    delete process.env.CALIBRATION_TABLE_NAME;
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 20, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-calibration');
+    getItem
+      .mockResolvedValueOnce(null) // cache miss
+      .mockResolvedValueOnce({ calibrationFactor: 1.2 }); // calibration record
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const terminalCall = updateItem.mock.calls.find(
+      (call: unknown[]) => (call[2] as Record<string, unknown>).status === 'completed'
+    ) as unknown[] | undefined;
+    expect(terminalCall).toBeDefined();
+    const updatePayload = terminalCall![2] as Record<string, unknown>;
+    expect(updatePayload.calibrationApplied).toBe(1.2);
+  });
+
+  it('calibrationFactor defaults to 1.0 when calibration record not found', async () => {
+    process.env.CALIBRATION_TABLE_NAME = 'calibration-table';
+    const handler = await loadHandler();
+    delete process.env.CALIBRATION_TABLE_NAME;
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 20, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-cal-default');
+    getItem.mockResolvedValue(null); // both cache miss and no calibration record
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    const terminalCall = updateItem.mock.calls.find(
+      (call: unknown[]) => (call[2] as Record<string, unknown>).status === 'completed'
+    ) as unknown[] | undefined;
+    expect(terminalCall).toBeDefined();
+    const updatePayload = terminalCall![2] as Record<string, unknown>;
+    expect(updatePayload.calibrationApplied).toBe(1.0);
+  });
+
+  it('continues without CI signal when Checks API fails', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 20, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockRejectedValue(new Error('Checks API unavailable')) },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-ci-fail');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    // Handler must complete without throwing even when Checks API fails
+    await expect(handler(buildEvent())).resolves.toBeUndefined();
+
+    const terminalCall = updateItem.mock.calls.find(
+      (call: unknown[]) => (call[2] as Record<string, unknown>).status === 'completed'
+    ) as unknown[] | undefined;
+    expect(terminalCall).toBeDefined();
+    const checkpoints = (terminalCall![2] as Record<string, unknown>).checkpoints as Array<
+      Record<string, unknown>
+    >;
+    const signals = checkpoints[0].signals as Array<Record<string, unknown>>;
+    // CI signal must be absent when Checks API fails
+    expect(signals.find((s) => s.signalType === 'ci.result')).toBeUndefined();
   });
 });
