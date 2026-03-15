@@ -49,16 +49,28 @@ function buildReason(
   return parts.join(', ');
 }
 
+function deduplicateSignals(signals: Signal[]): Signal[] {
+  const latest = new Map<string, Signal>();
+  for (const s of signals) {
+    const existing = latest.get(s.signalType);
+    if (!existing || s.timestamp > existing.timestamp) {
+      latest.set(s.signalType, s);
+    }
+  }
+  return Array.from(latest.values());
+}
+
 export function evaluateRisk(input: RiskEvaluationInput): RiskEvaluation {
   const { llmBaseScore, signals, calibrationFactor, blastRadiusMultiplier } = input;
 
-  const signalDelta = signals.reduce((sum, s) => sum + getSignalDelta(s), 0);
+  const dedupedSignals = deduplicateSignals(signals);
+  const signalDelta = dedupedSignals.reduce((sum, s) => sum + getSignalDelta(s), 0);
   const rawScore = llmBaseScore + signalDelta;
   const blastAdjusted = rawScore * blastRadiusMultiplier;
   const calibrationAdjusted = blastAdjusted * calibrationFactor;
   const score = Math.min(100, Math.round(calibrationAdjusted));
 
-  const receivedTypes = new Set(signals.map((s) => s.signalType));
+  const receivedTypes = new Set(dedupedSignals.map((s) => s.signalType));
   const missingSignals = EXPECTED_SIGNAL_TYPES.filter((t) => !receivedTypes.has(t));
   const confidence = parseFloat(
     ((EXPECTED_SIGNAL_TYPES.length - missingSignals.length) / EXPECTED_SIGNAL_TYPES.length).toFixed(
@@ -71,7 +83,7 @@ export function evaluateRisk(input: RiskEvaluationInput): RiskEvaluation {
     signalDelta,
     blastRadiusMultiplier,
     calibrationFactor,
-    signals
+    dedupedSignals
   );
 
   return { score, confidence, missingSignals, reason };

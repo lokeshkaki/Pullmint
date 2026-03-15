@@ -148,6 +148,24 @@ describe('evaluateRisk', () => {
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
 
+    it('uses only the latest signal when duplicate types are supplied', () => {
+      // Two ci.result: false — should still be +15, not +30
+      const signals: Signal[] = [
+        { signalType: 'ci.result', value: false, source: 'github', timestamp: 1000 },
+        { signalType: 'ci.result', value: false, source: 'github', timestamp: 2000 },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(45);
+    });
+
+    it('uses the latest signal value when duplicate types conflict', () => {
+      // Earlier: false (+15), Later: true (+0) — latest wins, score stays at 30
+      const signals: Signal[] = [
+        { signalType: 'ci.result', value: false, source: 'github', timestamp: 1000 },
+        { signalType: 'ci.result', value: true, source: 'github', timestamp: 2000 },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
+    });
+
     it('combines multiple signal deltas additively before multipliers', () => {
       const signals: Signal[] = [
         { signalType: 'ci.result', value: false, source: 'github', timestamp: Date.now() }, // +15
