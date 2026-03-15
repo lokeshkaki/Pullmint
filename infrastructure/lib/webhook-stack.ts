@@ -288,6 +288,7 @@ export class WebhookStack extends cdk.Stack {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         ANALYSIS_RESULTS_BUCKET: analysisResultsBucket.bucketName,
+        DASHBOARD_URL: process.env.DASHBOARD_URL || '',
         DEPLOYMENT_CONFIG: JSON.stringify({
           deploymentStrategy: process.env.DEPLOYMENT_STRATEGY || 'eventbridge',
           deploymentRiskThreshold: Number(process.env.DEPLOYMENT_RISK_THRESHOLD || '30'),
@@ -478,6 +479,8 @@ export class WebhookStack extends cdk.Stack {
     this.eventBus.grantPutEventsTo(architectureAgent);
     analysisResultsBucket.grantPut(architectureAgent);
     llmRateLimitTable.grantReadWriteData(architectureAgent);
+    calibrationTable.grantReadData(architectureAgent);
+    architectureAgent.addEnvironment('CALIBRATION_TABLE_NAME', calibrationTable.tableName);
 
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
@@ -488,6 +491,8 @@ export class WebhookStack extends cdk.Stack {
     // Deployment orchestrator permissions
     executionsTable.grantReadWriteData(deploymentOrchestrator);
     this.eventBus.grantPutEventsTo(deploymentOrchestrator);
+    calibrationTable.grantReadData(deploymentOrchestrator);
+    deploymentOrchestrator.addEnvironment('CALIBRATION_TABLE_NAME', calibrationTable.tableName);
 
     // Dashboard permissions
     executionsTable.grantReadData(dashboardApi);
