@@ -2,7 +2,7 @@ import { EventBridgeHandler } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getGitHubInstallationClient } from '../shared/github-app';
 import { publishEvent } from '../shared/eventbridge';
-import { updateItem, updateItemConditional } from '../shared/dynamodb';
+import { getItem, updateItem, updateItemConditional } from '../shared/dynamodb';
 import { createStructuredError, retryWithBackoff } from '../shared/error-handling';
 import { addTraceAnnotations } from '../shared/tracer';
 import {
@@ -11,7 +11,13 @@ import {
   AnalysisResult,
   DeploymentApprovedEvent,
   DeploymentStatusEvent,
+  CheckpointRecord,
 } from '../shared/types';
+
+type CommentOpts = {
+  checkpoint?: CheckpointRecord;
+  dashboardUrl?: string;
+};
 
 const s3Client = new S3Client({});
 
@@ -85,6 +91,14 @@ async function handleAnalysisComplete(detail: AnalysisCompleteEvent): Promise<vo
   const config = getDeploymentConfig();
   console.log(`Posting results for PR #${detail.prNumber} in ${detail.repoFullName}`);
 
+  // Fetch execution record to surface checkpoint1 data in the PR comment
+  const execution = await getItem<{ checkpoints?: CheckpointRecord[] }>(
+    config.executionsTableName,
+    { executionId: detail.executionId }
+  );
+  const checkpoint1 = execution?.checkpoints?.[0];
+  const dashboardUrl = process.env.DASHBOARD_URL || '';
+
   // Fetch findings from S3 if s3Key is present (lightweight event); fall back to event findings.
   // Backward-compatible: old events carry findings inline; new events use s3Key.
   const findings: Finding[] = detail.s3Key
@@ -95,8 +109,8 @@ async function handleAnalysisComplete(detail: AnalysisCompleteEvent): Promise<vo
   // 1. Initialize GitHub client
   const octokit = await getOctokitClient(detail.repoFullName);
 
-  // 2. Build comment body
-  const commentBody = buildCommentBody(resolvedDetail);
+  // 2. Build comment body with checkpoint data
+  const commentBody = buildCommentBody(resolvedDetail, { checkpoint: checkpoint1, dashboardUrl });
 
   // 3. Post comment to PR with retry logic
   const [owner, repo] = detail.repoFullName.split('/');
@@ -397,7 +411,7 @@ async function getOctokitClient(repoFullName: string) {
 /**
  * Build the PR comment body from analysis results
  */
-export function buildCommentBody(analysis: AnalysisCompleteEvent): string {
+export function buildCommentBody(analysis: AnalysisCompleteEvent, opts?: CommentOpts): string {
   const { findings, riskScore, metadata } = analysis;
 
   // Header
@@ -407,6 +421,15 @@ export function buildCommentBody(analysis: AnalysisCompleteEvent): string {
   const riskLevel = getRiskLevel(riskScore);
   const riskEmoji = getRiskEmoji(riskLevel);
   body += `**Risk Score:** ${riskScore}/100 ${riskEmoji} (${riskLevel})\n\n`;
+
+  // Checkpoint confidence and missing signals
+  if (opts?.checkpoint) {
+    const pct = Math.round(opts.checkpoint.confidence * 100);
+    body += `**Confidence:** ${pct}%\n\n`;
+    if (opts.checkpoint.missingSignals.length > 0) {
+      body += `_Missing signals:_ ${opts.checkpoint.missingSignals.join(', ')}\n\n`;
+    }
+  }
 
   // Metadata
   if (metadata.cached) {
@@ -456,7 +479,10 @@ export function buildCommentBody(analysis: AnalysisCompleteEvent): string {
 
   // Footer
   body += `\n---\n`;
-  body += `<sub>Powered by Pullmint | [View Execution Details](#)</sub>`;
+  const execUrl = opts?.dashboardUrl
+    ? `${opts.dashboardUrl}/executions/${analysis.executionId}`
+    : '#';
+  body += `<sub>Powered by Pullmint | [View Execution Details](${execUrl})</sub>`;
 
   return body;
 }

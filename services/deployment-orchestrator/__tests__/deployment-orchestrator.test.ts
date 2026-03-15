@@ -1,6 +1,6 @@
 import { handler } from '../index';
 import { publishEvent } from '../../shared/eventbridge';
-import { updateItem } from '../../shared/dynamodb';
+import { getItem, updateItem } from '../../shared/dynamodb';
 import { DeploymentApprovedEvent } from '../../shared/types';
 import { Context, Callback } from 'aws-lambda';
 
@@ -9,6 +9,7 @@ jest.mock('../../shared/eventbridge', () => ({
 }));
 
 jest.mock('../../shared/dynamodb', () => ({
+  getItem: jest.fn(),
   updateItem: jest.fn(),
 }));
 
@@ -35,11 +36,14 @@ describe('Deployment Orchestrator', () => {
     process.env.EVENT_BUS_NAME = 'test-bus';
     process.env.EXECUTIONS_TABLE_NAME = 'test-table';
     process.env.DEPLOYMENT_DELAY_MS = '0';
+    process.env.CHECKPOINT_2_WAIT_MS = '0';
     process.env.DEPLOYMENT_WEBHOOK_URL = 'https://deploy.example.com';
     process.env.DEPLOYMENT_WEBHOOK_RETRIES = '0';
     process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS = '1000';
     process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN = 'test-auth-token';
     delete process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL;
+    delete process.env.CALIBRATION_TABLE_NAME;
+    (getItem as jest.Mock).mockResolvedValue(null);
 
     (globalThis as { fetch?: unknown }).fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -669,5 +673,115 @@ describe('Deployment Orchestrator', () => {
 
     const terminalUpdate = (updateItem as jest.Mock).mock.calls[1];
     expect(terminalUpdate[2]).toMatchObject({ rollbackStatus: 'not-configured' });
+  });
+
+  it('allows deployment to proceed when Checkpoint 2 score is below threshold', async () => {
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    expect((globalThis as { fetch?: jest.Mock }).fetch).toHaveBeenCalledTimes(1);
+    expect(updateItem).toHaveBeenCalledTimes(2);
+    expect(publishEvent).toHaveBeenCalledWith(
+      'test-bus',
+      'pullmint.orchestrator',
+      'deployment.status',
+      expect.objectContaining({ deploymentStatus: 'deployed' })
+    );
+  });
+
+  it('blocks deployment and writes deployment-blocked status when Checkpoint 2 score is ≥ 40', async () => {
+    const highRiskDetail = { ...baseDetail, riskScore: 40 };
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: highRiskDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    // Deployment webhook must NOT be called when blocked
+    expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
+    expect(updateItem).toHaveBeenCalledTimes(2);
+    const secondCall = (updateItem as jest.Mock).mock.calls[1];
+    expect(secondCall[2]).toMatchObject({
+      status: 'deployment-blocked',
+      checkpoints: [expect.objectContaining({ type: 'pre-deploy', decision: 'held' })],
+    });
+  });
+
+  it('includes checkpoint2 in terminal updateItem when deployment succeeds', async () => {
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    const terminalCall = (updateItem as jest.Mock).mock.calls[1];
+    expect(terminalCall[2]).toMatchObject({
+      status: 'monitoring',
+      checkpoints: [expect.objectContaining({ type: 'pre-deploy' })],
+    });
+  });
+
+  it('respects Checkpoint 2 wait delay before evaluating risk', async () => {
+    jest.useFakeTimers();
+    process.env.CHECKPOINT_2_WAIT_MS = '10';
+
+    const handlerPromise = handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    jest.advanceTimersByTime(10);
+    await jest.runAllTimersAsync();
+    await handlerPromise;
+
+    expect(publishEvent).toHaveBeenCalledWith(
+      'test-bus',
+      'pullmint.orchestrator',
+      'deployment.status',
+      expect.objectContaining({ deploymentStatus: 'deployed' })
+    );
+    jest.useRealTimers();
+  });
+
+  it('defaults calibration factor to 1.0 when calibration record is absent', async () => {
+    process.env.CALIBRATION_TABLE_NAME = 'cal-table';
+    // getItem returns null → calibrationFactor defaults to 1.0, score stays low
+    (getItem as jest.Mock).mockResolvedValue(null);
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    expect(publishEvent).toHaveBeenCalledWith(
+      'test-bus',
+      'pullmint.orchestrator',
+      'deployment.status',
+      expect.objectContaining({ deploymentStatus: 'deployed' })
+    );
+  });
+
+  it('uses calibration factor from DynamoDB to block deployment when CALIBRATION_TABLE_NAME is set', async () => {
+    process.env.CALIBRATION_TABLE_NAME = 'cal-table';
+    // calibrationFactor=2.0, riskScore=25 → score = 25 * 2.0 = 50 ≥ 40 → blocked
+    (getItem as jest.Mock).mockResolvedValue({ calibrationFactor: 2.0 });
+    const moderateRiskDetail = { ...baseDetail, riskScore: 25 };
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: moderateRiskDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
+    const secondCall = (updateItem as jest.Mock).mock.calls[1];
+    expect(secondCall[2]).toMatchObject({ status: 'deployment-blocked' });
+    expect(getItem).toHaveBeenCalledWith('cal-table', { repoFullName: 'owner/repo' });
   });
 });

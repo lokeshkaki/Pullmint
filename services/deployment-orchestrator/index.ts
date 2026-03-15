@@ -1,9 +1,17 @@
 import { EventBridgeHandler } from 'aws-lambda';
 import { publishEvent } from '../shared/eventbridge';
-import { updateItem } from '../shared/dynamodb';
+import { getItem, updateItem } from '../shared/dynamodb';
 import { createStructuredError } from '../shared/error-handling';
 import { addTraceAnnotations } from '../shared/tracer';
-import { DeploymentApprovedEvent, DeploymentStatusEvent } from '../shared/types';
+import { evaluateRisk } from '../shared/risk-evaluator';
+import {
+  DeploymentApprovedEvent,
+  DeploymentStatusEvent,
+  Signal,
+  CheckpointRecord,
+} from '../shared/types';
+
+const DEPLOYMENT_THRESHOLD = 40;
 
 type DeploymentOutcome = {
   status: 'deployed' | 'failed';
@@ -47,6 +55,27 @@ export const handler: EventBridgeHandler<
     );
     deployingStatusSet = true;
 
+    // Checkpoint 2: wait for late signals then re-evaluate risk before deploying
+    const { score: checkpoint2Score, checkpoint: checkpoint2 } = await runCheckpoint2(
+      detail,
+      config
+    );
+
+    if (checkpoint2Score >= DEPLOYMENT_THRESHOLD) {
+      await updateItem(
+        config.executionsTableName,
+        { executionId: detail.executionId },
+        {
+          status: 'deployment-blocked',
+          checkpoints: [checkpoint2],
+          deploymentBlockedAt: Date.now(),
+          updatedAt: Date.now(),
+        }
+      );
+      deployingStatusSet = false;
+      return;
+    }
+
     const outcome = await performDeployment(detail, config);
 
     await updateItem(
@@ -59,6 +88,7 @@ export const handler: EventBridgeHandler<
         deploymentStrategy: detail.deploymentStrategy,
         deploymentMessage: outcome.message,
         rollbackStatus: outcome.rollbackStatus,
+        checkpoints: [checkpoint2],
         deploymentCompletedAt: Date.now(),
         updatedAt: Date.now(),
       }
@@ -198,6 +228,8 @@ type DeploymentConfig = {
   deploymentWebhookTimeoutMs: number;
   deploymentWebhookRetries: number;
   rollbackWebhookUrl?: string;
+  calibrationTableName: string;
+  checkpoint2WaitMs: number;
 };
 
 function getDeploymentConfig(): DeploymentConfig {
@@ -226,7 +258,54 @@ function getDeploymentConfig(): DeploymentConfig {
     deploymentWebhookTimeoutMs: Number(process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS || '10000'),
     deploymentWebhookRetries: Number(process.env.DEPLOYMENT_WEBHOOK_RETRIES || '2'),
     rollbackWebhookUrl: process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL,
+    calibrationTableName: process.env.CALIBRATION_TABLE_NAME || '',
+    checkpoint2WaitMs: Number(process.env.CHECKPOINT_2_WAIT_MS || '30000'),
   };
+}
+
+async function runCheckpoint2(
+  detail: DeploymentApprovedEvent,
+  config: DeploymentConfig
+): Promise<{ score: number; checkpoint: CheckpointRecord }> {
+  if (config.checkpoint2WaitMs > 0) {
+    await delay(config.checkpoint2WaitMs);
+  }
+
+  const signals: Signal[] = [];
+  signals.push({
+    signalType: 'time_of_day',
+    value: Date.now(),
+    source: 'system',
+    timestamp: Date.now(),
+  });
+
+  let calibrationFactor = 1.0;
+  if (config.calibrationTableName) {
+    const calRecord = await getItem<{ calibrationFactor: number }>(config.calibrationTableName, {
+      repoFullName: detail.repoFullName,
+    });
+    calibrationFactor = calRecord?.calibrationFactor ?? 1.0;
+  }
+
+  const evaluation = evaluateRisk({
+    llmBaseScore: detail.riskScore,
+    signals,
+    calibrationFactor,
+    blastRadiusMultiplier: 1.0,
+  });
+
+  const checkpoint: CheckpointRecord = {
+    type: 'pre-deploy',
+    score: evaluation.score,
+    confidence: evaluation.confidence,
+    missingSignals: evaluation.missingSignals,
+    signals,
+    decision: evaluation.score >= DEPLOYMENT_THRESHOLD ? 'held' : 'approved',
+    reason: evaluation.reason,
+    evaluatedAt: Date.now(),
+  };
+
+  return { score: evaluation.score, checkpoint };
 }
 
 async function postWithRetry(
