@@ -344,6 +344,7 @@ export class WebhookStack extends cdk.Stack {
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        DEDUP_TABLE_NAME: dedupTable.tableName,
       },
       bundling: {
         minify: true,
@@ -496,6 +497,10 @@ export class WebhookStack extends cdk.Stack {
 
     // Dashboard permissions
     executionsTable.grantReadData(dashboardApi);
+    executionsTable.grantWriteData(dashboardApi); // needed for re-evaluate overrideHistory update
+    calibrationTable.grantReadData(dashboardApi);
+    dedupTable.grantReadWriteData(dashboardApi);
+    dashboardApi.addEnvironment('CALIBRATION_TABLE_NAME', calibrationTable.tableName);
 
     // Signal ingestion permissions
     executionsTable.grantReadWriteData(signalIngestionFn);

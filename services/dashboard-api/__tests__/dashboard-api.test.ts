@@ -1,5 +1,12 @@
 import { handler } from '../index';
-import { DynamoDBDocumentClient, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  QueryCommand,
+  ScanCommand,
+  PutCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import type { PRExecution } from '../../shared/types';
@@ -11,17 +18,22 @@ describe('Dashboard API Handler', () => {
     ddbMock.reset();
     process.env.EXECUTIONS_TABLE_NAME = 'test-executions-table';
     process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
+    process.env.CALIBRATION_TABLE_NAME = 'test-calibration-table';
+    process.env.DEDUP_TABLE_NAME = 'test-dedup-table';
   });
 
   afterEach(() => {
     delete process.env.DASHBOARD_AUTH_TOKEN;
+    delete process.env.CALIBRATION_TABLE_NAME;
+    delete process.env.DEDUP_TABLE_NAME;
   });
 
   const createMockEvent = (
     path: string,
     method: string = 'GET',
     queryParams: Record<string, string> | null = null,
-    headers: Record<string, string> = { Authorization: 'Bearer test-token' }
+    headers: Record<string, string> = { Authorization: 'Bearer test-token' },
+    body: string | null = null
   ): APIGatewayProxyEvent => ({
     path,
     httpMethod: method,
@@ -33,7 +45,7 @@ describe('Dashboard API Handler', () => {
     stageVariables: null,
     requestContext: {} as any,
     resource: '',
-    body: null,
+    body,
     isBase64Encoded: false,
   });
 
@@ -44,7 +56,7 @@ describe('Dashboard API Handler', () => {
 
       expect(result.statusCode).toBe(200);
       expect(result.headers).toHaveProperty('Access-Control-Allow-Origin', '*');
-      expect(result.headers).toHaveProperty('Access-Control-Allow-Methods', 'GET,OPTIONS');
+      expect(result.headers).toHaveProperty('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     });
   });
 
@@ -526,6 +538,245 @@ describe('Dashboard API Handler', () => {
       expect(result.statusCode).toBe(200);
       const body = JSON.parse(result.body);
       expect(body.executions).toHaveLength(2);
+    });
+  });
+
+  describe('GET /dashboard/board', () => {
+    it('should return executions grouped by status', async () => {
+      ddbMock.on(QueryCommand).resolves({ Items: [] });
+
+      const event = createMockEvent('/dashboard/board');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body).toHaveProperty('board');
+      expect(body.board).toHaveProperty('analyzing');
+      expect(body.board).toHaveProperty('monitoring');
+      expect(body.board).toHaveProperty('confirmed');
+    });
+
+    it('should include execution fields in board cards', async () => {
+      const now = Date.now();
+      ddbMock
+        .on(QueryCommand)
+        .resolves({ Items: [] })
+        .on(QueryCommand, {
+          ExpressionAttributeValues: { ':s': 'monitoring' },
+        })
+        .resolves({
+          Items: [
+            {
+              executionId: 'exec-mon-1',
+              repoFullName: 'owner/repo',
+              prNumber: 10,
+              title: 'Fix bug',
+              author: 'dev',
+              riskScore: 35,
+              confidenceScore: 0.7,
+              deploymentStartedAt: now - 5000,
+              checkpoints: [{ type: 'pre-deploy' }],
+            },
+          ],
+        });
+
+      const event = createMockEvent('/dashboard/board');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+    });
+
+    it('should require auth', async () => {
+      const event = createMockEvent('/dashboard/board', 'GET', null, {});
+      const result = await handler(event);
+      expect(result.statusCode).toBe(401);
+    });
+  });
+
+  describe('GET /dashboard/executions/:id/checkpoints', () => {
+    it('should return checkpoint data for an execution', async () => {
+      const mockItem = {
+        executionId: 'exec-123',
+        checkpoints: [{ type: 'analysis', score: 28, decision: 'approved' }],
+        signalsReceived: { 'ci.result:1700000000000': { value: true, source: 'github' } },
+        repoContext: { isSharedDependency: false, blastRadiusMultiplier: 1.0 },
+        calibrationApplied: 1.0,
+      };
+      ddbMock.on(GetCommand).resolves({ Item: mockItem });
+
+      const event = createMockEvent('/dashboard/executions/exec-123/checkpoints');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.executionId).toBe('exec-123');
+      expect(body.checkpoints).toHaveLength(1);
+      expect(body.checkpoints[0]).toMatchObject({ type: 'analysis' });
+      expect(body.signalsReceived['ci.result:1700000000000']).toBeDefined();
+      expect(body.calibrationApplied).toBe(1.0);
+    });
+
+    it('should return 404 when execution not found', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+      const event = createMockEvent('/dashboard/executions/missing-exec/checkpoints');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(404);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Execution not found');
+    });
+
+    it('should default missing fields to empty values', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: { executionId: 'exec-123' } });
+
+      const event = createMockEvent('/dashboard/executions/exec-123/checkpoints');
+      const result = await handler(event);
+
+      const body = JSON.parse(result.body);
+      expect(body.checkpoints).toEqual([]);
+      expect(body.signalsReceived).toEqual({});
+      expect(body.repoContext).toBeNull();
+      expect(body.calibrationApplied).toBeNull();
+    });
+
+    it('should require auth', async () => {
+      const event = createMockEvent('/dashboard/executions/exec-123/checkpoints', 'GET', null, {});
+      const result = await handler(event);
+      expect(result.statusCode).toBe(401);
+    });
+  });
+
+  describe('GET /dashboard/calibration', () => {
+    it('should return all repos sorted by calibrationFactor descending', async () => {
+      ddbMock.on(ScanCommand).resolves({
+        Items: [
+          { repoFullName: 'owner/repo-a', calibrationFactor: 1.1, observationsCount: 15 },
+          { repoFullName: 'owner/repo-b', calibrationFactor: 1.3, observationsCount: 20 },
+          { repoFullName: 'owner/repo-c', calibrationFactor: 0.9, observationsCount: 12 },
+        ],
+      });
+
+      const event = createMockEvent('/dashboard/calibration');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.repos).toHaveLength(3);
+      expect(body.repos[0].repoFullName).toBe('owner/repo-b'); // highest factor first
+      expect(body.repos[2].repoFullName).toBe('owner/repo-c'); // lowest factor last
+    });
+
+    it('should return empty array when no calibration data', async () => {
+      ddbMock.on(ScanCommand).resolves({ Items: [] });
+
+      const event = createMockEvent('/dashboard/calibration');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body).repos).toEqual([]);
+    });
+
+    it('should require auth', async () => {
+      const event = createMockEvent('/dashboard/calibration', 'GET', null, {});
+      const result = await handler(event);
+      expect(result.statusCode).toBe(401);
+    });
+  });
+
+  describe('GET /dashboard/calibration/:owner/:repo', () => {
+    it('should return calibration record for a specific repo', async () => {
+      const mockRecord = {
+        repoFullName: 'owner/repo',
+        calibrationFactor: 1.15,
+        observationsCount: 22,
+        successCount: 18,
+        rollbackCount: 4,
+        falsePositiveCount: 1,
+        falseNegativeCount: 3,
+      };
+      ddbMock.on(GetCommand).resolves({ Item: mockRecord });
+
+      const event = createMockEvent('/dashboard/calibration/owner/repo');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.repoFullName).toBe('owner/repo');
+      expect(body.calibrationFactor).toBe(1.15);
+    });
+
+    it('should return 404 when repo not found', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+      const event = createMockEvent('/dashboard/calibration/owner/unknown-repo');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(404);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Calibration record not found');
+    });
+
+    it('should require auth', async () => {
+      const event = createMockEvent('/dashboard/calibration/owner/repo', 'GET', null, {});
+      const result = await handler(event);
+      expect(result.statusCode).toBe(401);
+    });
+  });
+
+  describe('POST /dashboard/executions/:id/re-evaluate', () => {
+    it('should return 202 and log override on success', async () => {
+      // First GetCommand (rate-limit check) returns no item; second (update) is a write
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+      ddbMock.on(PutCommand).resolves({});
+      ddbMock.on(UpdateCommand).resolves({});
+
+      const event = createMockEvent(
+        '/dashboard/executions/exec-123/re-evaluate',
+        'POST',
+        null,
+        { Authorization: 'Bearer test-token' },
+        JSON.stringify({ justification: 'Manual check needed' })
+      );
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      expect(JSON.parse(result.body)).toHaveProperty('message', 'Re-evaluation logged');
+    });
+
+    it('should return 429 when called within 2 minutes of a previous call', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: { deliveryId: 'reeval:exec-123', ttl: 9999 } });
+
+      const event = createMockEvent('/dashboard/executions/exec-123/re-evaluate', 'POST', null, {
+        Authorization: 'Bearer test-token',
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(429);
+      expect(JSON.parse(result.body)).toHaveProperty('error');
+    });
+
+    it('should work without a justification body', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+      ddbMock.on(PutCommand).resolves({});
+      ddbMock.on(UpdateCommand).resolves({});
+
+      const event = createMockEvent('/dashboard/executions/exec-123/re-evaluate', 'POST', null, {
+        Authorization: 'Bearer test-token',
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+    });
+
+    it('should require auth', async () => {
+      const event = createMockEvent('/dashboard/executions/exec-123/re-evaluate', 'POST', null, {});
+      const result = await handler(event);
+      expect(result.statusCode).toBe(401);
+    });
+
+    it('should reject non-re-evaluate POST requests with 405', async () => {
+      const event = createMockEvent('/dashboard/executions', 'POST');
+      const result = await handler(event);
+      expect(result.statusCode).toBe(405);
     });
   });
 });
