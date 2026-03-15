@@ -137,6 +137,15 @@ export class WebhookStack extends cdk.Stack {
       });
     }
 
+    if (shouldAddGsi('StatusDeployedAtIndex')) {
+      executionsTable.addGlobalSecondaryIndex({
+        indexName: 'StatusDeployedAtIndex',
+        partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+        sortKey: { name: 'deploymentStartedAt', type: dynamodb.AttributeType.NUMBER },
+        projectionType: dynamodb.ProjectionType.ALL,
+      });
+    }
+
     // LLM rate limit table — atomic per-repo hourly counters to cap API spend
     const llmRateLimitTable = new dynamodb.Table(this, 'LLMRateLimitTable', {
       tableName: 'pullmint-llm-rate-limit',
@@ -376,6 +385,25 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    // Deployment Monitor Lambda
+    const deploymentMonitorFn = new NodejsFunction(this, 'DeploymentMonitorFunction', {
+      functionName: 'pullmint-deployment-monitor',
+      entry: path.join(__dirname, '../../services/deployment-monitor/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(60),
+      tracing: lambda.Tracing.ACTIVE,
+      environment: {
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        EVENT_BUS_NAME: this.eventBus.eventBusName,
+        ROLLBACK_RISK_THRESHOLD: '50',
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
     // ===========================
     // Permissions
     // ===========================
@@ -411,6 +439,10 @@ export class WebhookStack extends cdk.Stack {
     executionsTable.grantReadWriteData(signalIngestionFn);
     this.eventBus.grantPutEventsTo(signalIngestionFn);
     signalIngestionSecret.grantRead(signalIngestionFn);
+
+    // Deployment monitor permissions
+    executionsTable.grantReadWriteData(deploymentMonitorFn);
+    this.eventBus.grantPutEventsTo(deploymentMonitorFn);
 
     // ===========================
     // EventBridge Rules
@@ -460,6 +492,28 @@ export class WebhookStack extends cdk.Stack {
         detailType: ['deployment.status'],
       },
       targets: [new targets.LambdaFunction(githubIntegration)],
+    });
+
+    // Scheduled trigger: deployment monitor runs every 5 minutes
+    new events.Rule(this, 'DeploymentMonitorSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+      targets: [new targets.LambdaFunction(deploymentMonitorFn)],
+    });
+
+    // Route deployment.rollback events from monitor to orchestrator
+    new events.Rule(this, 'DeploymentRollbackRule', {
+      eventBus: this.eventBus,
+      eventPattern: {
+        source: ['pullmint.monitor'],
+        detailType: ['deployment.rollback'],
+      },
+      targets: [
+        new targets.LambdaFunction(deploymentOrchestrator, {
+          deadLetterQueue: deploymentDLQ,
+          retryAttempts: 2,
+          maxEventAge: cdk.Duration.hours(2),
+        }),
+      ],
     });
 
     // ===========================

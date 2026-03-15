@@ -53,7 +53,7 @@ export const handler: EventBridgeHandler<
       config.executionsTableName,
       { executionId: detail.executionId },
       {
-        status: outcome.status === 'deployed' ? 'deployed' : 'failed',
+        status: outcome.status === 'deployed' ? 'monitoring' : 'failed',
         deploymentStatus: outcome.status,
         deploymentEnvironment: detail.deploymentEnvironment,
         deploymentStrategy: detail.deploymentStrategy,
