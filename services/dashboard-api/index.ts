@@ -506,15 +506,17 @@ async function getExecutionCheckpoints(
     };
   }
 
+  const item = result.Item as PRExecution;
+
   return {
     statusCode: 200,
     headers,
     body: JSON.stringify({
       executionId,
-      checkpoints: result.Item.checkpoints ?? [],
-      signalsReceived: result.Item.signalsReceived ?? {},
-      repoContext: result.Item.repoContext ?? null,
-      calibrationApplied: result.Item.calibrationApplied ?? null,
+      checkpoints: item.checkpoints ?? [],
+      signalsReceived: item.signalsReceived ?? {},
+      repoContext: item.repoContext ?? null,
+      calibrationApplied: item.calibrationApplied ?? null,
     }),
   };
 }
