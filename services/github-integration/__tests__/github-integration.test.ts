@@ -60,7 +60,7 @@ describe('GitHub Integration', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
 
     (getGitHubInstallationClient as jest.Mock).mockResolvedValue({
       rest: {

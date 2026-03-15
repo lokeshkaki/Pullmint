@@ -56,10 +56,11 @@ export const handler: EventBridgeHandler<
     deployingStatusSet = true;
 
     // Checkpoint 2: wait for late signals then re-evaluate risk before deploying
-    const { score: checkpoint2Score, checkpoint: checkpoint2 } = await runCheckpoint2(
-      detail,
-      config
-    );
+    const {
+      score: checkpoint2Score,
+      checkpoint: checkpoint2,
+      priorCheckpoints,
+    } = await runCheckpoint2(detail, config);
 
     if (checkpoint2Score >= DEPLOYMENT_THRESHOLD) {
       await updateItem(
@@ -67,7 +68,7 @@ export const handler: EventBridgeHandler<
         { executionId: detail.executionId },
         {
           status: 'deployment-blocked',
-          checkpoints: [checkpoint2],
+          checkpoints: [...priorCheckpoints, checkpoint2],
           deploymentBlockedAt: Date.now(),
           updatedAt: Date.now(),
         }
@@ -88,7 +89,7 @@ export const handler: EventBridgeHandler<
         deploymentStrategy: detail.deploymentStrategy,
         deploymentMessage: outcome.message,
         rollbackStatus: outcome.rollbackStatus,
-        checkpoints: [checkpoint2],
+        checkpoints: [...priorCheckpoints, checkpoint2],
         deploymentCompletedAt: Date.now(),
         updatedAt: Date.now(),
       }
@@ -266,10 +267,17 @@ function getDeploymentConfig(): DeploymentConfig {
 async function runCheckpoint2(
   detail: DeploymentApprovedEvent,
   config: DeploymentConfig
-): Promise<{ score: number; checkpoint: CheckpointRecord }> {
+): Promise<{ score: number; checkpoint: CheckpointRecord; priorCheckpoints: CheckpointRecord[] }> {
   if (config.checkpoint2WaitMs > 0) {
     await delay(config.checkpoint2WaitMs);
   }
+
+  // Fetch existing checkpoints so checkpoint2 can be appended rather than overwriting checkpoint1
+  const execution = await getItem<{ checkpoints?: CheckpointRecord[] }>(
+    config.executionsTableName,
+    { executionId: detail.executionId }
+  );
+  const priorCheckpoints = execution?.checkpoints ?? [];
 
   const signals: Signal[] = [];
   signals.push({
@@ -305,7 +313,7 @@ async function runCheckpoint2(
     evaluatedAt: Date.now(),
   };
 
-  return { score: evaluation.score, checkpoint };
+  return { score: evaluation.score, checkpoint, priorCheckpoints };
 }
 
 async function postWithRetry(

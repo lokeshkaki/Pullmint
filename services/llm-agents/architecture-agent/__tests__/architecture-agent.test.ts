@@ -105,6 +105,7 @@ const buildEvent = (detailOverrides?: Record<string, unknown>): SQSEvent => ({
           prNumber: 42,
           repoFullName: 'owner/repo',
           title: 'Improve architecture',
+          headSha: 'abc123',
           ...detailOverrides,
         },
       })
@@ -114,7 +115,7 @@ const buildEvent = (detailOverrides?: Record<string, unknown>): SQSEvent => ({
 
 describe('architecture-agent handler', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
   });
 
   it('uses cached analysis when available', async () => {

@@ -784,4 +784,31 @@ describe('Deployment Orchestrator', () => {
     expect(secondCall[2]).toMatchObject({ status: 'deployment-blocked' });
     expect(getItem).toHaveBeenCalledWith('cal-table', { repoFullName: 'owner/repo' });
   });
+
+  it('merges prior checkpoint1 with checkpoint2 in the terminal updateItem call', async () => {
+    const priorCheckpoint = {
+      type: 'analysis',
+      score: 20,
+      confidence: 0.5,
+      missingSignals: [],
+      signals: [],
+      decision: 'approved',
+      reason: 'ok',
+      evaluatedAt: 0,
+    };
+    // First getItem call (execution record) returns checkpoint1; no calibration table set
+    (getItem as jest.Mock).mockResolvedValueOnce({ checkpoints: [priorCheckpoint] });
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    const terminalCall = (updateItem as jest.Mock).mock.calls[1];
+    const checkpoints = terminalCall[2].checkpoints as unknown[];
+    expect(checkpoints).toHaveLength(2);
+    expect(checkpoints[0]).toMatchObject({ type: 'analysis' });
+    expect(checkpoints[1]).toMatchObject({ type: 'pre-deploy' });
+  });
 });
