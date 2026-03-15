@@ -5,6 +5,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import crypto from 'crypto';
 import { handler } from '../index';
+import { clearSecretsCache } from '../../shared/secrets';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const ebMock = mockClient(EventBridgeClient);
@@ -54,6 +55,7 @@ describe('signal-ingestion handler', () => {
     ddbMock.reset();
     ebMock.reset();
     secretsMock.reset();
+    clearSecretsCache();
     secretsMock.on(GetSecretValueCommand).resolves({ SecretString: HMAC_SECRET });
   });
 
@@ -210,6 +212,23 @@ describe('signal-ingestion handler', () => {
       ddbMock.reset();
       ebMock.reset();
     }
+  });
+
+  it('returns 400 for an unknown signalType', async () => {
+    const body = { ...validSignal, signalType: 'unknown.type' };
+    const result = await handler(makeEvent('exec-1', body), {} as never, {} as never);
+    expect(result?.statusCode).toBe(400);
+    expect(JSON.parse(result?.body ?? '{}')).toMatchObject({
+      message: expect.stringContaining('Invalid signalType'),
+    });
+  });
+
+  it('returns 500 when an unexpected error occurs', async () => {
+    ddbMock.on(GetCommand).rejects(new Error('DynamoDB unavailable'));
+
+    const result = await handler(makeEvent('exec-1', validSignal), {} as never, {} as never);
+
+    expect(result?.statusCode).toBe(500);
   });
 
   it('uses nested SET when signalsReceived map already exists', async () => {

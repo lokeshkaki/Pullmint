@@ -2,6 +2,7 @@
   "name": "@pullmint/signal-ingestion",
   "version": "1.0.0",
   "private": true,
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "test": "jest",
