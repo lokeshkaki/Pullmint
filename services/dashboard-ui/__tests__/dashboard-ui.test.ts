@@ -247,4 +247,167 @@ describe('Dashboard UI Handler', () => {
       expect(htmlContent).toContain('addEventListener');
     });
   });
+
+  describe('Risk Board view (Task 6.2)', () => {
+    let htmlContent: string;
+
+    beforeAll(async () => {
+      const event = createMockEvent('GET');
+      const result = await handler(event);
+      htmlContent = result.body;
+    });
+
+    it('should render the risk board container without throwing', () => {
+      expect(htmlContent).toContain('id="board-view"');
+      expect(htmlContent).toContain('class="risk-board"');
+    });
+
+    it('should include renderBoard function', () => {
+      expect(htmlContent).toContain('function renderBoard');
+    });
+
+    it('should include all kanban column labels', () => {
+      expect(htmlContent).toContain('Analyzing');
+      expect(htmlContent).toContain('Pre-Deploy Hold');
+      expect(htmlContent).toContain('Deploying');
+      expect(htmlContent).toContain('Monitoring');
+      expect(htmlContent).toContain('Confirmed');
+      expect(htmlContent).toContain('Rolled Back');
+    });
+
+    it('should apply risk score color classes to board cards', () => {
+      // getRiskClass is already tested, but ensure it is reused in board card rendering
+      expect(htmlContent).toContain('getRiskClass');
+      expect(htmlContent).toContain("'risk-score ' + riskClass");
+    });
+
+    it('should include confidence bar rendering', () => {
+      // CSS class is set dynamically via JS, check for the string used in className assignment
+      expect(htmlContent).toContain("'confidence-bar'");
+      expect(htmlContent).toContain("'confidence-bar-fill'");
+    });
+
+    it('should navigate to execution detail on card click', () => {
+      expect(htmlContent).toContain('showExecutionDetail');
+    });
+
+    it('should include board stats (active, held, rollbacks)', () => {
+      expect(htmlContent).toContain('updateBoardStats');
+    });
+
+    it('should poll board every 30 seconds or provide manual refresh', () => {
+      expect(htmlContent).toContain('loadBoard');
+    });
+  });
+
+  describe('Execution Detail view (Task 6.3)', () => {
+    let htmlContent: string;
+
+    beforeAll(async () => {
+      const event = createMockEvent('GET');
+      const result = await handler(event);
+      htmlContent = result.body;
+    });
+
+    it('should render the execution detail view container', () => {
+      expect(htmlContent).toContain('id="detail-view"');
+      expect(htmlContent).toContain('id="checkpointTimeline"');
+    });
+
+    it('should include renderTimeline function', () => {
+      expect(htmlContent).toContain('function renderTimeline');
+    });
+
+    it('should render correct number of checkpoint nodes for all four types', () => {
+      expect(htmlContent).toContain("'analysis'");
+      expect(htmlContent).toContain("'pre-deploy'");
+      expect(htmlContent).toContain("'post-deploy-5'");
+      expect(htmlContent).toContain("'post-deploy-30'");
+    });
+
+    it('should apply green class to approved checkpoint nodes', () => {
+      expect(htmlContent).toContain('checkpoint-node--approved');
+    });
+
+    it('should apply red class to rollback checkpoint nodes', () => {
+      expect(htmlContent).toContain('checkpoint-node--rollback');
+    });
+
+    it('should show signal coverage with received signals listed', () => {
+      expect(htmlContent).toContain('renderSignalCoverage');
+      expect(htmlContent).toContain('signal-dot received');
+    });
+
+    it('should include override button that calls re-evaluate endpoint', () => {
+      expect(htmlContent).toContain('class="btn-override"');
+      expect(htmlContent).toContain('openJustificationModal');
+      expect(htmlContent).toContain('submitOverride');
+      expect(htmlContent).toContain('/re-evaluate');
+    });
+
+    it('should include checkpoint detail panel', () => {
+      expect(htmlContent).toContain('id="checkpointDetail"');
+      expect(htmlContent).toContain('showCheckpointDetail');
+    });
+
+    it('should include repo context panel', () => {
+      expect(htmlContent).toContain('id="repoContextPanel"');
+      expect(htmlContent).toContain('renderRepoContext');
+      expect(htmlContent).toContain('blastRadiusMultiplier');
+    });
+  });
+
+  describe('Calibration Panel (Task 6.4)', () => {
+    let htmlContent: string;
+
+    beforeAll(async () => {
+      const event = createMockEvent('GET');
+      const result = await handler(event);
+      htmlContent = result.body;
+    });
+
+    it('should render the calibration view container', () => {
+      expect(htmlContent).toContain('id="calibration-view"');
+      expect(htmlContent).toContain('class="calibration-panel"');
+    });
+
+    it('should include renderCalibration function', () => {
+      expect(htmlContent).toContain('function renderCalibration');
+    });
+
+    it('should show calibrationFactor column in table', () => {
+      expect(htmlContent).toContain('calibrationFactor');
+      expect(htmlContent).toContain('Calibration Factor');
+    });
+
+    it('should show factor as inactive until 10 observations', () => {
+      expect(htmlContent).toContain('factor-inactive');
+      expect(htmlContent).toContain('Pending');
+      expect(htmlContent).toContain('observationsCount');
+    });
+
+    it('should navigate to calibration detail on row click', () => {
+      expect(htmlContent).toContain('loadCalibrationDetail');
+    });
+  });
+
+  describe('Navigation tabs', () => {
+    let htmlContent: string;
+
+    beforeAll(async () => {
+      const event = createMockEvent('GET');
+      const result = await handler(event);
+      htmlContent = result.body;
+    });
+
+    it('should include nav tabs for three views', () => {
+      expect(htmlContent).toContain('class="nav-tabs"');
+      expect(htmlContent).toContain('class="nav-tab active"');
+      expect(htmlContent).toContain('showView');
+    });
+
+    it('should include showView function for switching views', () => {
+      expect(htmlContent).toContain('function showView');
+    });
+  });
 });

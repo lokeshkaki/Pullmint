@@ -43,6 +43,11 @@ export interface PRExecution {
   deploymentStartedAt?: number;
   deploymentCompletedAt?: number;
   rollbackStatus?: 'triggered' | 'failed' | 'not-configured';
+  checkpoints?: CheckpointRecord[];
+  signalsReceived?: Record<string, unknown>;
+  repoContext?: RepoContext;
+  calibrationApplied?: number;
+  overrideHistory?: Array<{ justification?: string; overriddenAt: number; executionId: string }>;
 }
 
 export interface Finding {
