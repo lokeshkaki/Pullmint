@@ -61,10 +61,18 @@ export function evaluateRisk(input: RiskEvaluationInput): RiskEvaluation {
   const receivedTypes = new Set(signals.map((s) => s.signalType));
   const missingSignals = EXPECTED_SIGNAL_TYPES.filter((t) => !receivedTypes.has(t));
   const confidence = parseFloat(
-    ((EXPECTED_SIGNAL_TYPES.length - missingSignals.length) / EXPECTED_SIGNAL_TYPES.length).toFixed(2)
+    ((EXPECTED_SIGNAL_TYPES.length - missingSignals.length) / EXPECTED_SIGNAL_TYPES.length).toFixed(
+      2
+    )
   );
 
-  const reason = buildReason(llmBaseScore, signalDelta, blastRadiusMultiplier, calibrationFactor, signals);
+  const reason = buildReason(
+    llmBaseScore,
+    signalDelta,
+    blastRadiusMultiplier,
+    calibrationFactor,
+    signals
+  );
 
   return { score, confidence, missingSignals, reason };
 }

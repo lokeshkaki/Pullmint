@@ -76,14 +76,24 @@ describe('evaluateRisk', () => {
 
     it('adds +20 when production error rate spikes above 10%', () => {
       const signals: Signal[] = [
-        { signalType: 'production.error_rate', value: 15, source: 'datadog', timestamp: Date.now() },
+        {
+          signalType: 'production.error_rate',
+          value: 15,
+          source: 'datadog',
+          timestamp: Date.now(),
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(50);
     });
 
     it('adds 0 when production error rate is exactly 10%', () => {
       const signals: Signal[] = [
-        { signalType: 'production.error_rate', value: 10, source: 'datadog', timestamp: Date.now() },
+        {
+          signalType: 'production.error_rate',
+          value: 10,
+          source: 'datadog',
+          timestamp: Date.now(),
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
@@ -106,7 +116,12 @@ describe('evaluateRisk', () => {
       // 2026-03-13 is a Friday; 15:00 UTC = 3pm
       const fridayAfternoon = new Date('2026-03-13T15:00:00Z').getTime();
       const signals: Signal[] = [
-        { signalType: 'time_of_day', value: fridayAfternoon, source: 'system', timestamp: fridayAfternoon },
+        {
+          signalType: 'time_of_day',
+          value: fridayAfternoon,
+          source: 'system',
+          timestamp: fridayAfternoon,
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(35);
     });
@@ -123,7 +138,12 @@ describe('evaluateRisk', () => {
     it('adds 0 for a Friday morning deploy (before 3pm)', () => {
       const fridayMorning = new Date('2026-03-13T10:00:00Z').getTime();
       const signals: Signal[] = [
-        { signalType: 'time_of_day', value: fridayMorning, source: 'system', timestamp: fridayMorning },
+        {
+          signalType: 'time_of_day',
+          value: fridayMorning,
+          source: 'system',
+          timestamp: fridayMorning,
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
@@ -139,21 +159,36 @@ describe('evaluateRisk', () => {
 
     it('adds +8 when a simultaneous dependent deploy is in progress', () => {
       const signals: Signal[] = [
-        { signalType: 'simultaneous_deploy', value: true, source: 'pullmint', timestamp: Date.now() },
+        {
+          signalType: 'simultaneous_deploy',
+          value: true,
+          source: 'pullmint',
+          timestamp: Date.now(),
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(38);
     });
 
     it('adds 0 for simultaneous_deploy when value is false', () => {
       const signals: Signal[] = [
-        { signalType: 'simultaneous_deploy', value: false, source: 'pullmint', timestamp: Date.now() },
+        {
+          signalType: 'simultaneous_deploy',
+          value: false,
+          source: 'pullmint',
+          timestamp: Date.now(),
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
 
     it('ignores unknown signal types', () => {
       const signals = [
-        { signalType: 'unknown.signal' as Signal['signalType'], value: 999, source: 'unknown', timestamp: Date.now() },
+        {
+          signalType: 'unknown.signal' as Signal['signalType'],
+          value: 999,
+          source: 'unknown',
+          timestamp: Date.now(),
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
@@ -175,12 +210,16 @@ describe('evaluateRisk', () => {
 
     it('applies both multipliers in correct order: blast then calibration', () => {
       // 30 * 2.0 * 1.5 = 90
-      expect(evaluateRisk({ ...baseInput, blastRadiusMultiplier: 2.0, calibrationFactor: 1.5 }).score).toBe(90);
+      expect(
+        evaluateRisk({ ...baseInput, blastRadiusMultiplier: 2.0, calibrationFactor: 1.5 }).score
+      ).toBe(90);
     });
 
     it('caps final score at 100', () => {
       // 30 * 3.0 * 2.0 = 180 → capped at 100
-      expect(evaluateRisk({ ...baseInput, blastRadiusMultiplier: 3.0, calibrationFactor: 2.0 }).score).toBe(100);
+      expect(
+        evaluateRisk({ ...baseInput, blastRadiusMultiplier: 3.0, calibrationFactor: 2.0 }).score
+      ).toBe(100);
     });
 
     it('calibrationFactor 0.5 halves the score', () => {
@@ -193,7 +232,14 @@ describe('evaluateRisk', () => {
     });
 
     it('score of 0 stays 0 regardless of multipliers', () => {
-      expect(evaluateRisk({ ...baseInput, llmBaseScore: 0, blastRadiusMultiplier: 3.0, calibrationFactor: 2.0 }).score).toBe(0);
+      expect(
+        evaluateRisk({
+          ...baseInput,
+          llmBaseScore: 0,
+          blastRadiusMultiplier: 3.0,
+          calibrationFactor: 2.0,
+        }).score
+      ).toBe(0);
     });
   });
 
