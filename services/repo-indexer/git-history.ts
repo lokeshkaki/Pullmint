@@ -85,6 +85,8 @@ export async function fetchFileCommitHistory(
 
 /**
  * Aggregate per-file commit histories into author-level profiles.
+ * Accepts a Pick of FileCommitHistory — only filePath, authors, and churnRate30d are read.
+ * This keeps callers flexible: any superset of these fields (including full FileCommitHistory) is accepted.
  */
 export function aggregateAuthorProfiles(
   repoFullName: string,
