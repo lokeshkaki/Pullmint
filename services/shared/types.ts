@@ -68,6 +68,7 @@ export interface AnalysisResult {
   testsPassed?: boolean;
   s3Key?: string;
   findingsCount?: number;
+  contextQuality?: 'full' | 'partial' | 'none';
   metadata: {
     processingTime: number;
     tokensUsed: number;
@@ -174,6 +175,8 @@ export interface GitHubPRPayload {
   pull_request: {
     number: number;
     title: string;
+    merged?: boolean;
+    merge_commit_sha?: string;
     user: {
       login: string;
     };
@@ -191,6 +194,61 @@ export interface GitHubPRPayload {
       login: string;
     };
   };
+}
+
+// --- Persistent Knowledge Base ---
+
+export interface FileMetrics {
+  repoFullName: string;
+  filePath: string;
+  churnRate30d: number;
+  churnRate90d: number;
+  bugFixCommitCount30d: number;
+  ownerLogins: string[];
+  lastModifiedSha: string;
+}
+
+export interface AuthorProfile {
+  repoFullName: string;
+  authorLogin: string;
+  rollbackRate: number;
+  mergeCount30d: number;
+  avgRiskScore: number;
+  frequentFiles: string[];
+}
+
+export interface ModuleNarrative {
+  repoFullName: string;
+  modulePath: string;
+  narrativeText: string;
+  generatedAtSha: string;
+  version: number;
+}
+
+export interface RepoRegistryRecord {
+  repoFullName: string;
+  indexingStatus: 'pending' | 'indexing' | 'indexed';
+  contextVersion: number;
+  pendingBatches: number;
+  queuedExecutionIds: string[];
+}
+
+export interface PRMergedEvent {
+  repoFullName: string;
+  prNumber: number;
+  headSha: string;
+  author: string;
+  mergedAt: number;
+  executionId?: string;
+}
+
+export interface ContextPackage {
+  fileMetrics: FileMetrics[];
+  authorProfile: AuthorProfile | null;
+  moduleNarratives: ModuleNarrative[];
+  staticFindings: string[];
+  prDescription: string;
+  contextQuality: 'full' | 'partial' | 'none';
 }
 
 export interface GitHubDeploymentStatusPayload {

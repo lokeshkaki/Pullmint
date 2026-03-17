@@ -99,6 +99,52 @@ export async function atomicIncrementCounter(
   return (result.Attributes?.count as number) ?? 1;
 }
 
+/**
+ * Append a single scalar value to a DynamoDB list attribute.
+ * Creates the list if it does not exist.
+ * Do NOT pass an array — it will be stored as a nested list.
+ */
+export async function appendToList(
+  tableName: string,
+  key: Record<string, unknown>,
+  attributeName: string,
+  value: string | number | boolean | Record<string, unknown>
+): Promise<void> {
+  await docClient.send(
+    new UpdateCommand({
+      TableName: tableName,
+      Key: key,
+      UpdateExpression: 'SET #attr = list_append(if_not_exists(#attr, :emptyList), :newVal)',
+      ExpressionAttributeNames: { '#attr': attributeName },
+      ExpressionAttributeValues: { ':newVal': [value], ':emptyList': [] },
+    })
+  );
+}
+
+/**
+ * Atomically decrement a numeric counter in DynamoDB using ADD.
+ * Returns the new counter value after decrement.
+ * Returns -1 if the item does not exist (Attributes is undefined).
+ * Callers should treat -1 as an unexpected state and not as a valid counter value.
+ */
+export async function atomicDecrement(
+  tableName: string,
+  key: Record<string, unknown>,
+  attributeName: string
+): Promise<number> {
+  const result = await docClient.send(
+    new UpdateCommand({
+      TableName: tableName,
+      Key: key,
+      UpdateExpression: 'ADD #attr :dec',
+      ExpressionAttributeNames: { '#attr': attributeName },
+      ExpressionAttributeValues: { ':dec': -1 },
+      ReturnValues: 'UPDATED_NEW',
+    })
+  );
+  return (result.Attributes?.[attributeName] as number) ?? -1;
+}
+
 type ConditionalUpdateOptions = {
   conditionExpression: string;
   conditionAttributeNames?: Record<string, string>;
