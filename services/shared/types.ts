@@ -196,6 +196,8 @@ export interface GitHubPRPayload {
   };
 }
 
+// --- Persistent Knowledge Base ---
+
 export interface FileMetrics {
   repoFullName: string;
   filePath: string;

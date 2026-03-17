@@ -100,14 +100,15 @@ export async function atomicIncrementCounter(
 }
 
 /**
- * Append a single value to a DynamoDB list attribute.
+ * Append a single scalar value to a DynamoDB list attribute.
  * Creates the list if it does not exist.
+ * Do NOT pass an array — it will be stored as a nested list.
  */
 export async function appendToList(
   tableName: string,
   key: Record<string, unknown>,
   attributeName: string,
-  value: unknown
+  value: string | number | boolean | Record<string, unknown>
 ): Promise<void> {
   await docClient.send(
     new UpdateCommand({
@@ -122,7 +123,9 @@ export async function appendToList(
 
 /**
  * Atomically decrement a numeric counter in DynamoDB using ADD.
- * Returns the new counter value.
+ * Returns the new counter value after decrement.
+ * Returns -1 if the item does not exist (Attributes is undefined).
+ * Callers should treat -1 as an unexpected state and not as a valid counter value.
  */
 export async function atomicDecrement(
   tableName: string,

@@ -310,13 +310,22 @@ describe('DynamoDB Client', () => {
   });
 
   describe('appendToList', () => {
-    it('appends a value to an existing list attribute', async () => {
+    it('appends a value to a list attribute, creating the list if it does not exist', async () => {
       ddbMock.on(UpdateCommand).resolves({});
       await appendToList('my-table', { pk: 'key' }, 'myList', 'new-value');
       expect(ddbMock.calls()).toHaveLength(1);
       const call = ddbMock.calls()[0].args[0].input as UpdateCommandInput;
       expect(call.UpdateExpression).toContain('list_append');
+      expect(call.UpdateExpression).toContain('if_not_exists');
       expect(call.ExpressionAttributeValues![':newVal']).toEqual(['new-value']);
+      expect(call.ExpressionAttributeValues![':emptyList']).toEqual([]);
+    });
+
+    it('propagates DynamoDB errors', async () => {
+      ddbMock.on(UpdateCommand).rejects(new Error('ValidationException'));
+      await expect(appendToList('my-table', { pk: 'key' }, 'myList', 'value')).rejects.toThrow(
+        'ValidationException'
+      );
     });
   });
 
