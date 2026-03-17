@@ -44,12 +44,41 @@ describe('fetchFileCommitHistory', () => {
       ],
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await fetchFileCommitHistory(mockOctokit as any, 'owner', 'repo', 'src/auth.ts', 90);
+    const result = await fetchFileCommitHistory(
+      mockOctokit as any,
+      'owner',
+      'repo',
+      'src/auth.ts',
+      90
+    );
     expect(result.churnRate30d).toBe(3); // only the 3 recent commits
     expect(result.churnRate90d).toBe(4); // all 4 commits returned by the API
     expect(result.bugFixCommitCount30d).toBe(2);
     expect(result.authors).toContain('alice');
     expect(result.authors).toContain('carol'); // older commit author still captured
+  });
+});
+
+describe('fetchFileCommitHistory with missing author fields', () => {
+  it('handles commits with no author object (uses unknown fallback and treats date as 0)', async () => {
+    mockOctokit.rest.repos.listCommits.mockResolvedValue({
+      data: [
+        // no author property — exercises the `?? 'unknown'` and `?: 0` branches
+        { commit: { message: 'fix: something', author: undefined }, sha: 'abc' },
+      ],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await fetchFileCommitHistory(
+      mockOctokit as any,
+      'owner',
+      'repo',
+      'src/a.ts',
+      90
+    );
+    // authorDate = 0, which is < thirtyDaysAgo, so churnRate30d stays 0
+    expect(result.churnRate30d).toBe(0);
+    expect(result.authors).toContain('unknown');
+    expect(result.lastCommitSha).toBe('abc');
   });
 });
 
