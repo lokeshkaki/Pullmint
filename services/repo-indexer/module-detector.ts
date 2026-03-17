@@ -39,7 +39,9 @@ export function detectModules(filePaths: string[]): ModuleBoundary[] {
 
   for (const [dir, files] of dirMap.entries()) {
     const sourceFiles = files.filter((f) => {
-      const ext = nodePath.extname(f); // safely returns '' for extensionless files and dotfiles
+      const filename = f.split('/').pop()!;
+      if (filename.startsWith('.')) return false; // exclude dotfiles regardless of extension
+      const ext = nodePath.extname(f);
       return SOURCE_EXTENSIONS.has(ext);
     });
 

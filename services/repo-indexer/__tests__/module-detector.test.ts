@@ -40,6 +40,18 @@ describe('detectModules', () => {
     expect(modules[0].files).toHaveLength(3); // only the 3 .ts files
   });
 
+  it('excludes dotfiles that have a source extension (e.g. .eslintrc.ts)', () => {
+    const files = [
+      'src/auth/index.ts',
+      'src/auth/middleware.ts',
+      'src/auth/jwt.ts',
+      'src/auth/.eslintrc.ts', // dotfile with .ts extension — must not count
+    ];
+    const modules = detectModules(files);
+    expect(modules).toHaveLength(1);
+    expect(modules[0].files).toHaveLength(3); // only the 3 real .ts files
+  });
+
   it('skips top-level files with no parent directory', () => {
     // 'README.md' has only one path segment — no directory to group into
     const files = ['README.md', 'src/auth/index.ts', 'src/auth/middleware.ts', 'src/auth/jwt.ts'];
