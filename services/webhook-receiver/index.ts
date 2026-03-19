@@ -1,8 +1,9 @@
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getSecret } from '../shared/secrets';
 import { publishEvent } from '../shared/eventbridge';
+import { getItem, appendToList } from '../shared/dynamodb';
 import { verifyGitHubSignature, generateExecutionId, calculateTTL } from '../shared/utils';
 import { createStructuredError } from '../shared/error-handling';
 import { addTraceAnnotations } from '../shared/tracer';
@@ -13,6 +14,7 @@ import {
   PRExecution,
   DeploymentStatusEvent,
 } from '../shared/types';
+import type { RepoRegistryRecord, PRMergedEvent } from '../shared/types';
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -46,7 +48,13 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
     const payload: unknown = JSON.parse(event.body || '{}');
 
     // 3. Filter relevant events
-    if (eventType !== 'pull_request' && eventType !== 'deployment_status') {
+    const ACCEPTED_EVENT_TYPES = new Set([
+      'pull_request',
+      'deployment_status',
+      'installation',
+      'installation_repositories',
+    ]);
+    if (!ACCEPTED_EVENT_TYPES.has(eventType ?? '')) {
       console.log(`Ignoring event type: ${eventType}`);
       return {
         statusCode: 200,
@@ -87,15 +95,78 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       throw error;
     }
 
+    // Handle installation events (GitHub App install / repo added)
+    if (eventType === 'installation' || eventType === 'installation_repositories') {
+      const instPayload = payload as {
+        action: string;
+        installation: { id: number };
+        repositories?: Array<{ full_name: string }>;
+        repositories_added?: Array<{ full_name: string }>;
+      };
+      const repos =
+        eventType === 'installation'
+          ? (instPayload.repositories ?? [])
+          : (instPayload.repositories_added ?? []);
+
+      for (const r of repos) {
+        await publishEvent(EVENT_BUS_NAME, 'pullmint.github', 'repo.onboarding.requested', {
+          repoFullName: r.full_name,
+          installationId: instPayload.installation.id,
+        });
+      }
+      return { statusCode: 202, body: JSON.stringify({ message: 'Onboarding triggered' }) };
+    }
+
     if (eventType === 'pull_request') {
       const prPayload = payload as GitHubPRPayload;
 
-      if (!['opened', 'synchronize', 'reopened'].includes(prPayload.action)) {
+      if (!['opened', 'synchronize', 'reopened', 'closed'].includes(prPayload.action)) {
         console.log(`Ignoring PR action: ${prPayload.action}`);
         return {
           statusCode: 200,
           body: JSON.stringify({ message: 'PR action ignored' }),
         };
+      }
+
+      // Handle merged PR
+      if (prPayload.action === 'closed') {
+        if (!prPayload.pull_request.merged) {
+          return { statusCode: 200, body: JSON.stringify({ message: 'PR closed without merge' }) };
+        }
+        // Best-effort executionId lookup via GSI
+        let executionId: string | undefined;
+        try {
+          const gsiResult = await docClient.send(
+            new QueryCommand({
+              TableName: EXECUTIONS_TABLE_NAME,
+              IndexName: 'ByRepoPr',
+              KeyConditionExpression: 'repoPrKey = :key',
+              ExpressionAttributeValues: {
+                ':key': `${prPayload.repository.full_name}#${prPayload.pull_request.number}`,
+              },
+              Limit: 1,
+            })
+          );
+          executionId = (gsiResult.Items?.[0] as { executionId?: string })?.executionId;
+        } catch {
+          /* best effort */
+        }
+
+        const mergedEvent: PRMergedEvent = {
+          repoFullName: prPayload.repository.full_name,
+          prNumber: prPayload.pull_request.number,
+          headSha: prPayload.pull_request.merge_commit_sha ?? prPayload.pull_request.head.sha,
+          author: prPayload.pull_request.user.login,
+          mergedAt: Date.now(),
+          executionId,
+        };
+        await publishEvent(
+          EVENT_BUS_NAME,
+          'pullmint.github',
+          'pr.merged',
+          mergedEvent as unknown as Record<string, unknown>
+        );
+        return { statusCode: 202, body: JSON.stringify({ message: 'Merge event published' }) };
       }
 
       // 5. Create PR event
@@ -108,6 +179,61 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
         title: prPayload.pull_request.title,
         orgId: `org_${prPayload.repository.owner.id}`,
       };
+
+      // Check if repo is indexed; queue execution if not
+      const repoRegistryTable = process.env.REPO_REGISTRY_TABLE_NAME ?? '';
+      if (repoRegistryTable) {
+        const registry = await getItem<RepoRegistryRecord>(repoRegistryTable, {
+          repoFullName: prEvent.repoFullName,
+        });
+        if (registry && registry.indexingStatus !== 'indexed') {
+          const queuedExecutionId = generateExecutionId(
+            prEvent.repoFullName,
+            prEvent.prNumber,
+            prEvent.headSha
+          );
+          const queuedExecution: PRExecution = {
+            executionId: queuedExecutionId,
+            repoFullName: prEvent.repoFullName,
+            repoPrKey: `${prEvent.repoFullName}#${prEvent.prNumber}`,
+            prNumber: prEvent.prNumber,
+            headSha: prEvent.headSha,
+            status: 'pending',
+            timestamp: Date.now(),
+            entityType: 'execution',
+          };
+          try {
+            await docClient.send(
+              new PutCommand({
+                TableName: EXECUTIONS_TABLE_NAME,
+                Item: queuedExecution,
+                ConditionExpression: 'attribute_not_exists(executionId)',
+              })
+            );
+          } catch (err) {
+            if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+              return {
+                statusCode: 200,
+                body: JSON.stringify({ message: 'Already processing' }),
+              };
+            }
+            throw err;
+          }
+          await appendToList(
+            repoRegistryTable,
+            { repoFullName: prEvent.repoFullName },
+            'queuedExecutionIds',
+            queuedExecutionId
+          );
+          return {
+            statusCode: 202,
+            body: JSON.stringify({
+              message: 'Queued — repo indexing in progress',
+              executionId: queuedExecutionId,
+            }),
+          };
+        }
+      }
 
       // 6. Create execution record
       const executionId = generateExecutionId(

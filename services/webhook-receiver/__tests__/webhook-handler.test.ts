@@ -1,6 +1,12 @@
 import { APIGatewayProxyEvent } from 'aws-lambda';
 import { mockClient } from 'aws-sdk-client-mock';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  GetCommand,
+  UpdateCommand,
+  QueryCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import * as crypto from 'crypto';
@@ -433,15 +439,21 @@ describe('Webhook Handler', () => {
       expect(result.statusCode).toBe(202);
     });
 
-    it('should ignore closed PRs', async () => {
-      const payload = createPRPayload('closed');
+    it('should handle closed PRs without merge as ignored', async () => {
+      const payload = {
+        ...createPRPayload('closed'),
+        pull_request: {
+          ...createPRPayload('closed').pull_request,
+          merged: false,
+        },
+      };
       const event = createMockEvent(payload);
 
       const result = await handler(event);
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual({
-        message: 'PR action ignored',
+        message: 'PR closed without merge',
       });
     });
 
@@ -615,6 +627,147 @@ describe('Webhook Handler', () => {
       // Verify event published
       const eventCalls = eventBridgeMock.calls();
       expect(eventCalls.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('Installation Events', () => {
+    it('should publish repo.onboarding.requested for each repo in installation', async () => {
+      const payload = {
+        action: 'created',
+        installation: { id: 42 },
+        repositories: [{ full_name: 'org/repo1' }, { full_name: 'org/repo2' }],
+      };
+      const event = createMockEvent(payload, 'installation');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Onboarding triggered' });
+      // EventBridge called twice (once per repo)
+      expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(2);
+    });
+
+    it('should handle installation_repositories event with repositories_added', async () => {
+      const payload = {
+        action: 'added',
+        installation: { id: 42 },
+        repositories_added: [{ full_name: 'org/new-repo' }],
+        repositories_removed: [],
+      };
+      const event = createMockEvent(payload, 'installation_repositories');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(1);
+    });
+  });
+
+  describe('Pull Request Merged', () => {
+    it('should publish pr.merged event when merged is true', async () => {
+      const payload = {
+        action: 'closed',
+        pull_request: {
+          number: 10,
+          title: 'Fix bug',
+          merged: true,
+          merge_commit_sha: 'merge123',
+          user: { login: 'alice' },
+          head: { sha: 'abc123' },
+          base: { sha: 'def456' },
+        },
+        repository: { full_name: 'org/repo', owner: { id: 1, login: 'org' } },
+      };
+      const event = createMockEvent(payload, 'pull_request');
+
+      // Mock QueryCommand for best-effort executionId lookup
+      ddbMock.on(QueryCommand).resolves({ Items: [] });
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Merge event published' });
+
+      // Verify EventBridge called with pr.merged detail type
+      const ebCalls = eventBridgeMock.commandCalls(PutEventsCommand);
+      expect(ebCalls.length).toBeGreaterThan(0);
+      const entry = (ebCalls[0].args[0].input as any).Entries[0];
+      expect(entry.DetailType).toBe('pr.merged');
+      const detail = JSON.parse(entry.Detail);
+      expect(detail.prNumber).toBe(10);
+      expect(detail.author).toBe('alice');
+    });
+
+    it('should include executionId from GSI lookup when available', async () => {
+      const payload = {
+        action: 'closed',
+        pull_request: {
+          number: 10,
+          title: 'Fix bug',
+          merged: true,
+          merge_commit_sha: 'merge123',
+          user: { login: 'alice' },
+          head: { sha: 'abc123' },
+          base: { sha: 'def456' },
+        },
+        repository: { full_name: 'org/repo', owner: { id: 1, login: 'org' } },
+      };
+      const event = createMockEvent(payload, 'pull_request');
+
+      ddbMock.on(QueryCommand).resolves({
+        Items: [{ executionId: 'exec-found-123' }],
+      });
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      const ebCalls = eventBridgeMock.commandCalls(PutEventsCommand);
+      const detail = JSON.parse((ebCalls[0].args[0].input as any).Entries[0].Detail);
+      expect(detail.executionId).toBe('exec-found-123');
+    });
+  });
+
+  describe('PR Queuing During Onboarding', () => {
+    it('should queue execution when repo is still indexing', async () => {
+      process.env.REPO_REGISTRY_TABLE_NAME = 'registry-table';
+
+      const payload = createPRPayload('opened');
+      const event = createMockEvent(payload);
+
+      // Mock GetCommand for repo-registry lookup (via shared getItem)
+      ddbMock.on(GetCommand).resolves({
+        Item: { repoFullName: 'owner/repo', indexingStatus: 'indexing' },
+      });
+      ddbMock.on(UpdateCommand).resolves({});
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      expect(JSON.parse(result.body).message).toBe('Queued — repo indexing in progress');
+      // Should NOT have published to EventBridge
+      expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(0);
+      // UpdateCommand called for appendToList
+      expect(ddbMock.commandCalls(UpdateCommand).length).toBeGreaterThan(0);
+    });
+
+    it('should proceed normally when repo is indexed', async () => {
+      process.env.REPO_REGISTRY_TABLE_NAME = 'registry-table';
+
+      const payload = createPRPayload('opened');
+      const event = createMockEvent(payload);
+
+      ddbMock.on(GetCommand).resolves({
+        Item: { repoFullName: 'owner/repo', indexingStatus: 'indexed' },
+      });
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      expect(JSON.parse(result.body).message).toBe('Event accepted');
+    });
+
+    afterEach(() => {
+      delete process.env.REPO_REGISTRY_TABLE_NAME;
     });
   });
 });
