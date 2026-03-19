@@ -66,6 +66,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
 
 async function handleFullIndex(msg: FullIndexMessage): Promise<void> {
   const { repoFullName } = msg;
+  console.info('[repo-indexer] full-index start', { repoFullName });
   const [owner, repo] = repoFullName.split('/');
 
   // Mark as indexing
@@ -136,6 +137,13 @@ async function handleFullIndex(msg: FullIndexMessage): Promise<void> {
     );
   }
 
+  console.info('[repo-indexer] full-index complete', {
+    repoFullName,
+    filesIndexed: fileHistories.length,
+    modulesDetected: modules.length,
+    batchesPublished: batches.length,
+  });
+
   // If no modules, mark indexed immediately
   if (batches.length === 0) {
     await updateItem(
@@ -149,6 +157,7 @@ async function handleFullIndex(msg: FullIndexMessage): Promise<void> {
 
 async function handleBatch(msg: BatchMessage): Promise<void> {
   const { repoFullName, modules, headSha } = msg;
+  console.info('[repo-indexer] batch start', { repoFullName, moduleCount: modules.length });
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const anthropicModule = require('@anthropic-ai/sdk') as {
@@ -204,6 +213,8 @@ async function handleBatch(msg: BatchMessage): Promise<void> {
     }
   }
 
+  console.info('[repo-indexer] batch complete', { repoFullName, modulesProcessed: modules.length });
+
   // Decrement pendingBatches; if 0, mark indexed
   const remaining = await atomicDecrement(
     REPO_REGISTRY_TABLE_NAME,
@@ -222,6 +233,7 @@ async function handleBatch(msg: BatchMessage): Promise<void> {
 
 async function handleIncremental(msg: IncrementalMessage): Promise<void> {
   const { repoFullName, changedFiles, author } = msg;
+  console.info('[repo-indexer] incremental start', { repoFullName, changedFiles, author });
   const [owner, repo] = repoFullName.split('/');
   const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as Octokit;
 
