@@ -647,6 +647,21 @@ describe('Webhook Handler', () => {
       expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(2);
     });
 
+    it('should ignore installation deleted action', async () => {
+      const payload = {
+        action: 'deleted',
+        installation: { id: 42 },
+        repositories: [{ full_name: 'org/repo1' }],
+      };
+      const event = createMockEvent(payload, 'installation');
+
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Installation action ignored' });
+      expect(eventBridgeMock.commandCalls(PutEventsCommand)).toHaveLength(0);
+    });
+
     it('should handle installation_repositories event with repositories_added', async () => {
       const payload = {
         action: 'added',

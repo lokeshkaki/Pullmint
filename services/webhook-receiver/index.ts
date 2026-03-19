@@ -103,17 +103,33 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
         repositories?: Array<{ full_name: string }>;
         repositories_added?: Array<{ full_name: string }>;
       };
+
+      // Only process creation/addition — ignore deleted, suspend, etc.
+      const isRelevantAction =
+        (eventType === 'installation' && instPayload.action === 'created') ||
+        (eventType === 'installation_repositories' && instPayload.action === 'added');
+
+      if (!isRelevantAction) {
+        console.log(`Ignoring installation action: ${instPayload.action}`);
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ message: 'Installation action ignored' }),
+        };
+      }
+
       const repos =
         eventType === 'installation'
           ? (instPayload.repositories ?? [])
           : (instPayload.repositories_added ?? []);
 
-      for (const r of repos) {
-        await publishEvent(EVENT_BUS_NAME, 'pullmint.github', 'repo.onboarding.requested', {
-          repoFullName: r.full_name,
-          installationId: instPayload.installation.id,
-        });
-      }
+      await Promise.all(
+        repos.map((r) =>
+          publishEvent(EVENT_BUS_NAME, 'pullmint.github', 'repo.onboarding.requested', {
+            repoFullName: r.full_name,
+            installationId: instPayload.installation.id,
+          })
+        )
+      );
       return { statusCode: 202, body: JSON.stringify({ message: 'Onboarding triggered' }) };
     }
 
