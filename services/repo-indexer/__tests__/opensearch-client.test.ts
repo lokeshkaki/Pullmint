@@ -24,6 +24,23 @@ describe('upsertNarrative', () => {
       expect.objectContaining({ method: 'PUT' })
     );
   });
+
+  it('throws on non-OK upsert response', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500 });
+    await expect(
+      upsertNarrative(
+        'https://os.example.com',
+        {
+          repoFullName: 'org/repo',
+          modulePath: 'x',
+          narrativeText: '',
+          generatedAtSha: '',
+          version: 1,
+        },
+        []
+      )
+    ).rejects.toThrow('OpenSearch upsert failed: 500');
+  });
 });
 
 describe('queryNarratives', () => {
@@ -50,5 +67,12 @@ describe('queryNarratives', () => {
     const results = await queryNarratives('https://os.example.com', 'org/repo', [0.1, 0.2], 5);
     expect(results).toHaveLength(1);
     expect(results[0].modulePath).toBe('src/auth');
+  });
+
+  it('throws on non-OK query response', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 503 });
+    await expect(queryNarratives('https://os.example.com', 'org/repo', [0.1], 5)).rejects.toThrow(
+      'OpenSearch query failed: 503'
+    );
   });
 });

@@ -18,4 +18,9 @@ describe('generateEmbedding', () => {
     expect(result).toHaveLength(1536);
     expect(result[0]).toBeCloseTo(0.1);
   });
+
+  it('propagates Bedrock errors', async () => {
+    bedrockMock.on(InvokeModelCommand).rejects(new Error('Bedrock unavailable'));
+    await expect(generateEmbedding('test')).rejects.toThrow('Bedrock unavailable');
+  });
 });

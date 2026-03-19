@@ -45,4 +45,39 @@ describe('generateModuleNarrative', () => {
     expect(result).toContain('src/auth');
     expect(result.length).toBeGreaterThan(0);
   });
+
+  it('truncates entry point content exceeding 3000 chars', async () => {
+    const longContent = 'x'.repeat(4000);
+    mockAnthropicClient.messages.create.mockResolvedValue({
+      content: [{ type: 'text', text: 'Summary' }],
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await generateModuleNarrative(mockAnthropicClient as any, {
+      modulePath: 'src/big',
+      entryPoint: 'src/big/index.ts',
+      files: ['src/big/index.ts'],
+      entryPointContent: longContent,
+    });
+
+    const callArg = mockAnthropicClient.messages.create.mock.calls[0][0] as {
+      messages: { content: string }[];
+    };
+    expect(callArg.messages[0].content).toContain('// [truncated]');
+    expect(callArg.messages[0].content).not.toContain('x'.repeat(4000));
+  });
+
+  it('returns fallback on empty LLM response', async () => {
+    mockAnthropicClient.messages.create.mockResolvedValue({ content: [] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await generateModuleNarrative(mockAnthropicClient as any, {
+      modulePath: 'src/empty',
+      entryPoint: 'src/empty/index.ts',
+      files: ['src/empty/index.ts', 'src/empty/util.ts'],
+      entryPointContent: '',
+    });
+
+    expect(result).toBe('Module at src/empty containing 2 files.');
+  });
 });
