@@ -1,12 +1,22 @@
+import { Client } from '@opensearch-project/opensearch';
+import { AwsSigv4Signer } from '@opensearch-project/opensearch/aws';
+import { defaultProvider } from '@aws-sdk/credential-provider-node';
 import type { ModuleNarrative } from '../shared/types';
 
-interface OpenSearchDoc {
-  repoFullName: string;
-  modulePath: string;
-  narrativeText: string;
-  generatedAtSha: string;
-  version: number;
-  embedding: number[];
+let client: Client | undefined;
+
+function getClient(endpoint: string): Client {
+  if (!client) {
+    client = new Client({
+      ...AwsSigv4Signer({
+        region: process.env.AWS_REGION ?? 'us-east-1',
+        service: 'aoss',
+        getCredentials: defaultProvider(),
+      }),
+      node: endpoint,
+    });
+  }
+  return client;
 }
 
 /**
@@ -18,18 +28,19 @@ export async function upsertNarrative(
   narrative: ModuleNarrative,
   embedding: number[]
 ): Promise<void> {
+  const osClient = getClient(endpoint);
   const docId = encodeURIComponent(`${narrative.repoFullName}/${narrative.modulePath}`);
-  const doc: OpenSearchDoc = { ...narrative, embedding };
-  const url = `${endpoint}/module-narrative-index/_doc/${docId}`;
 
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(doc),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenSearch upsert failed: ${response.status}`);
+  try {
+    await osClient.index({
+      index: 'module-narrative-index',
+      id: docId,
+      body: { ...narrative, embedding },
+      refresh: false,
+    });
+  } catch (err) {
+    const statusCode = (err as { statusCode?: number }).statusCode;
+    throw new Error(`OpenSearch upsert failed: ${statusCode ?? 'unknown'}`);
   }
 }
 
@@ -43,33 +54,29 @@ export async function queryNarratives(
   queryEmbedding: number[],
   k: number
 ): Promise<ModuleNarrative[]> {
-  const url = `${endpoint}/module-narrative-index/_search`;
-  // OpenSearch Serverless k-NN: filter goes inside the knn clause, not in bool.must
-  const query = {
-    size: k,
-    query: {
-      knn: {
-        embedding: {
-          vector: queryEmbedding,
-          k,
-          filter: { term: { repoFullName } },
+  const osClient = getClient(endpoint);
+
+  try {
+    const response = await osClient.search({
+      index: 'module-narrative-index',
+      body: {
+        size: k,
+        query: {
+          knn: {
+            embedding: {
+              vector: queryEmbedding,
+              k,
+              filter: { term: { repoFullName } },
+            },
+          },
         },
       },
-    },
-  };
+    });
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(query),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenSearch query failed: ${response.status}`);
+    const hits = response.body?.hits?.hits ?? [];
+    return hits.map((h: { _source: ModuleNarrative }) => h._source);
+  } catch (err) {
+    const statusCode = (err as { statusCode?: number }).statusCode;
+    throw new Error(`OpenSearch query failed: ${statusCode ?? 'unknown'}`);
   }
-
-  const body = (await response.json()) as {
-    hits: { hits: Array<{ _source: ModuleNarrative }> };
-  };
-  return body.hits.hits.map((h) => h._source);
 }
