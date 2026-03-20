@@ -60,6 +60,15 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    const dashboardAuthSecret = new secretsmanager.Secret(this, 'DashboardAuthSecret', {
+      secretName: 'pullmint/dashboard-auth-token',
+      description: 'Bearer token for dashboard API authentication',
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 48,
+      },
+    });
+
     // ===========================
     // DynamoDB Tables
     // ===========================
@@ -403,6 +412,7 @@ export class WebhookStack extends cdk.Stack {
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         DEDUP_TABLE_NAME: dedupTable.tableName,
+        DASHBOARD_AUTH_TOKEN: dashboardAuthSecret.secretValue.unsafeUnwrap(),
       },
       bundling: {
         minify: true,
@@ -631,6 +641,7 @@ export class WebhookStack extends cdk.Stack {
     dashboardApi.addEnvironment('REPO_REGISTRY_TABLE_NAME', repoRegistryTable.tableName);
     repoRegistryTable.grantReadWriteData(dashboardApi);
     this.eventBus.grantPutEventsTo(dashboardApi);
+    dashboardAuthSecret.grantRead(dashboardApi);
 
     // Signal ingestion permissions
     executionsTable.grantReadWriteData(signalIngestionFn);
