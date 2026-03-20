@@ -109,7 +109,7 @@ All Lambda functions live under `services/`. Each is an independent npm workspac
 
 - `types.ts` — All shared TypeScript interfaces (`PRExecution`, `Finding`, `Signal`, `CheckpointRecord`, `RepoContext`, `RiskEvaluation`, `FileMetrics`, `AuthorProfile`, `ModuleNarrative`, `RepoRegistryRecord`, `PRMergedEvent`, `ContextPackage`, etc.)
 - `risk-evaluator.ts` — Pure scoring function: `evaluateRisk(input)` → `{ score, confidence, missingSignals, reason }`. Score = `min(100, round((llmBaseScore + signalDelta) × blastRadiusMultiplier × calibrationFactor))`. Signal deltas: CI fail +15, coverage drop >10% +10, error rate >10% +20, latency >20% +10, Friday-after-3pm +5.
-- `dynamodb.ts` — DynamoDB client helpers; `updateItem` does SET only; use `atomicIncrementCounter` for ADD-based atomic counters (rate limiting).
+- `dynamodb.ts` — DynamoDB client helpers; `updateItem` does SET only; `updateItemConditional` adds a `ConditionExpression` to prevent status regression; use `atomicIncrementCounter` for ADD-based atomic counters (rate limiting).
 - `eventbridge.ts` — EventBridge publish helpers
 - `secrets.ts` — Secrets Manager client
 - `github-app.ts` — GitHub App JWT auth
@@ -120,6 +120,10 @@ All Lambda functions live under `services/`. Each is an independent npm workspac
 ### Context Assembly (`services/llm-agents/architecture-agent/context-assembly.ts`)
 
 `assembleContext()` fetches file metrics, author profiles, module narratives (OpenSearch with DynamoDB fallback), and PR description in parallel via `Promise.allSettled`. Returns `contextQuality: 'full' | 'partial' | 'none'` based on degradation. Uses Bedrock Titan embeddings for semantic narrative search with 3s timeout.
+
+### OpenSearch Client (`services/repo-indexer/opensearch-client.ts`)
+
+Uses `@opensearch-project/opensearch` with `AwsSigv4Signer` for AWS SigV4 request signing (required by OpenSearch Serverless). Singleton client pattern. Exports `upsertNarrative()` and `queryNarratives()` (kNN vector search filtered by repo).
 
 ### Infrastructure (`infrastructure/lib/webhook-stack.ts`)
 
@@ -147,6 +151,7 @@ Single CDK stack (`PullmintWebhookStack`) defines all AWS resources. Uses `esbui
 - `confirmed`: written when post-deploy-30 checkpoint evaluates to approved (stable deployment)
 - `rolled-back`: written when a post-deploy checkpoint triggers rollback, or via manual override
 - `deploying → failed` recovery: `deployment-orchestrator` uses try-finally to guarantee a terminal status write even on unhandled exceptions
+- **Conditional status transitions**: `github-integration` uses `updateItemConditional` to prevent status regression (e.g., won't overwrite `monitoring` back to `deployed`). `deployment-monitor` uses `ConditionExpression: '#status = :monitoring'` when writing `rolled-back` to DynamoDB in `triggerRollback()`. Both catch `ConditionalCheckFailedException` and log a warning instead of throwing.
 - Execution records are idempotent: `ConditionExpression: 'attribute_not_exists(executionId)'` prevents silent overwrites on Lambda retry
 
 ### Dashboard API Routes
@@ -242,7 +247,7 @@ Use `jest.resetAllMocks()` (not `jest.clearAllMocks()`) in `beforeEach` when any
 
 - **Bash `cd` doesn't persist** between tool calls — always use absolute paths: `cd /Users/lokeshkaki/Desktop/Pullmint/services/<name> && npm run test:coverage`
 - **Always run Prettier after edits from repo root**: `cd /Users/lokeshkaki/Desktop/Pullmint && npx prettier --check "services/file.ts"` — running from a subdirectory silently finds no files and reports success; CI format-check will still fail
-- **CI test matrix**: All services under `services/` are in `.github/workflows/ci.yml` matrix — tests run on every PR. **Note:** `services/repo-indexer` is not yet in the CI matrix and should be added when its tests stabilize.
+- **CI test matrix**: All services under `services/` are in `.github/workflows/ci.yml` matrix — tests run on every PR.
 - **DynamoDB `result.Item` type safety**: `result.Item` from `GetCommand` is `Record<string, NativeAttributeValue>` where `NativeAttributeValue` is `any`. Always cast: `const item = result.Item as PRExecution` before accessing properties. Same pattern used throughout `dashboard-api/index.ts`. Never access `result.Item.fieldName` directly — triggers `@typescript-eslint/no-unsafe-assignment`.
 
 ## Public-Facing Content Guidelines
