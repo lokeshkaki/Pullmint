@@ -108,6 +108,53 @@ describe('deployment-monitor handler', () => {
     expect(events.some((e) => e.DetailType === 'deployment.rollback')).toBe(true);
   });
 
+  it('writes rolled-back status to DynamoDB when triggering rollback', async () => {
+    const highRiskExecution = {
+      ...monitoringExecution,
+      deploymentStartedAt: T5_AGO,
+      riskScore: 35,
+      signalsReceived: {
+        'ci.result:1699999990000': { value: true, source: 'github', receivedAt: T5_AGO },
+        'production.error_rate:1699999995000': { value: 50, source: 'datadog', receivedAt: T5_AGO },
+      },
+    };
+    ddbMock.on(QueryCommand).resolves({ Items: [highRiskExecution] });
+    ddbMock.on(UpdateCommand).resolves({});
+    ebMock.on(PutEventsCommand).resolves({ FailedEntryCount: 0, Entries: [] });
+
+    await handler({} as never, {} as never, {} as never);
+
+    // Verify DynamoDB update sets status to rolled-back
+    const updateCalls = ddbMock.commandCalls(UpdateCommand);
+    const rollbackUpdate = updateCalls.find((c) =>
+      JSON.stringify(c.args[0].input.ExpressionAttributeValues).includes('rolled-back')
+    );
+    expect(rollbackUpdate).toBeDefined();
+    expect(rollbackUpdate!.args[0].input.ConditionExpression).toBe('#status = :monitoring');
+  });
+
+  it('does not throw when DynamoDB conditional check fails during rollback write', async () => {
+    const highRiskExecution = {
+      ...monitoringExecution,
+      deploymentStartedAt: T5_AGO,
+      riskScore: 35,
+      signalsReceived: {
+        'ci.result:1699999990000': { value: true, source: 'github', receivedAt: T5_AGO },
+        'production.error_rate:1699999995000': { value: 50, source: 'datadog', receivedAt: T5_AGO },
+      },
+    };
+    ddbMock.on(QueryCommand).resolves({ Items: [highRiskExecution] });
+    ddbMock
+      .on(UpdateCommand)
+      .resolvesOnce({}) // writeCheckpoint succeeds
+      .rejectsOnce(
+        Object.assign(new Error('Condition not met'), { name: 'ConditionalCheckFailedException' })
+      );
+    ebMock.on(PutEventsCommand).resolves({ FailedEntryCount: 0, Entries: [] });
+
+    await expect(handler({} as never, {} as never, {} as never)).resolves.not.toThrow();
+  });
+
   it('defers at T+5 when confidence is below 0.3 (no production signals)', async () => {
     const lowConfidenceExecution = {
       ...monitoringExecution,

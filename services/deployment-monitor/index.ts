@@ -159,6 +159,32 @@ async function triggerRollback(
       ],
     })
   );
+
+  // Write rolled-back status to DynamoDB (don't rely solely on EventBridge delivery)
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: EXECUTIONS_TABLE_NAME,
+        Key: { executionId: execution.executionId as string },
+        UpdateExpression: 'SET #status = :s, updatedAt = :now',
+        ConditionExpression: '#status = :monitoring',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':s': 'rolled-back',
+          ':now': now,
+          ':monitoring': 'monitoring',
+        },
+      })
+    );
+  } catch (err) {
+    if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+      console.warn(
+        `[deployment-monitor] Status already advanced past monitoring for ${execution.executionId as string} — skipping status write`
+      );
+    } else {
+      throw err;
+    }
+  }
 }
 
 async function confirmExecution(
