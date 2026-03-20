@@ -34,6 +34,10 @@ jest.mock('@aws-sdk/client-s3', () => ({
   PutObjectCommand: jest.fn().mockImplementation((input: unknown) => input),
 }));
 
+jest.mock('../context-assembly', () => ({
+  assembleContext: jest.fn(),
+}));
+
 type AnthropicMock = {
   messages: { create: jest.Mock };
 };
@@ -58,6 +62,7 @@ const getSharedMocks = () => ({
   hashContent: jest.requireMock('../../../shared/utils').hashContent as jest.Mock,
   atomicIncrementCounter: jest.requireMock('../../../shared/dynamodb')
     .atomicIncrementCounter as jest.Mock,
+  assembleContext: jest.requireMock('../context-assembly').assembleContext as jest.Mock,
 });
 
 const loadHandler = async () => {
@@ -1186,5 +1191,193 @@ describe('architecture-agent handler', () => {
     const signals = checkpoints[0].signals as Array<Record<string, unknown>>;
     // CI signal must be absent when Checks API fails
     expect(signals.find((s) => s.signalType === 'ci.result')).toBeUndefined();
+  });
+
+  it('uses context assembly when REPO_REGISTRY_TABLE_NAME is set', async () => {
+    process.env.REPO_REGISTRY_TABLE_NAME = 'registry-table';
+    process.env.FILE_KNOWLEDGE_TABLE_NAME = 'file-table';
+    process.env.AUTHOR_PROFILES_TABLE_NAME = 'author-table';
+    process.env.MODULE_NARRATIVES_TABLE_NAME = 'narratives-table';
+    process.env.OPENSEARCH_ENDPOINT = 'https://os.example.com';
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ findings: [], riskScore: 15, summary: 'ok' }),
+        },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff =
+      'diff --git a/src/auth.ts b/src/auth.ts\n--- a/src/auth.ts\n+++ b/src/auth.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+      assembleContext,
+    } = getSharedMocks();
+
+    assembleContext.mockResolvedValue({
+      fileMetrics: [
+        {
+          filePath: 'src/auth.ts',
+          churnRate30d: 5,
+          churnRate90d: 12,
+          bugFixCommitCount30d: 2,
+          ownerLogins: ['alice'],
+          lastModifiedSha: 'abc',
+          repoFullName: 'owner/repo',
+        },
+      ],
+      authorProfile: {
+        authorLogin: 'alice',
+        mergeCount30d: 10,
+        rollbackRate: 0.05,
+        avgRiskScore: 20,
+        frequentFiles: ['src/auth.ts'],
+        repoFullName: 'owner/repo',
+      },
+      moduleNarratives: [
+        {
+          modulePath: 'src/auth',
+          narrativeText: 'Auth module handles authentication.',
+          repoFullName: 'owner/repo',
+          generatedAtSha: 'abc',
+          version: 1,
+        },
+      ],
+      staticFindings: [],
+      prDescription: 'Fixes login bug.',
+      contextQuality: 'full',
+      contextVersion: 3,
+    });
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-ctx');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    // assembleContext was called
+    expect(assembleContext).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ executionId: 'exec-123' }),
+      ['src/auth.ts'],
+      diff,
+      expect.objectContaining({ repoRegistryTable: 'registry-table' })
+    );
+
+    // hashContent includes contextVersion
+    expect(hashContent).toHaveBeenCalledWith(diff + '\n---cv---\n3');
+
+    // Prompt includes repo_knowledge
+    const anthropicArgs = anthropicCreate.mock.calls[0][0];
+    expect(anthropicArgs.messages[0].content).toContain('<repo_knowledge>');
+    expect(anthropicArgs.messages[0].content).toContain('Auth module handles authentication.');
+    expect(anthropicArgs.messages[0].content).toContain('churn: 5 commits/30d');
+    expect(anthropicArgs.messages[0].content).toContain('alice');
+    expect(anthropicArgs.messages[0].content).toContain(
+      '<pr_description>Fixes login bug.</pr_description>'
+    );
+
+    // Cache write includes contextQuality
+    expect(putItem).toHaveBeenCalledWith(
+      'cache-table',
+      expect.objectContaining({ contextQuality: 'full' })
+    );
+
+    delete process.env.REPO_REGISTRY_TABLE_NAME;
+    delete process.env.FILE_KNOWLEDGE_TABLE_NAME;
+    delete process.env.AUTHOR_PROFILES_TABLE_NAME;
+    delete process.env.MODULE_NARRATIVES_TABLE_NAME;
+    delete process.env.OPENSEARCH_ENDPOINT;
+  });
+
+  it('proceeds without context when assembly fails', async () => {
+    process.env.REPO_REGISTRY_TABLE_NAME = 'registry-table';
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ findings: [], riskScore: 10, summary: 'ok' }),
+        },
+      ],
+      usage: { input_tokens: 3, output_tokens: 3 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+      assembleContext,
+    } = getSharedMocks();
+
+    assembleContext.mockRejectedValue(new Error('Assembly failed'));
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-ctx-fail');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    // Handler must succeed despite context assembly failure
+    await expect(handler(buildEvent())).resolves.toBeUndefined();
+
+    // hashContent uses default contextVersion 1
+    expect(hashContent).toHaveBeenCalledWith(diff + '\n---cv---\n1');
+
+    // Prompt should NOT contain repo_knowledge
+    const anthropicArgs = anthropicCreate.mock.calls[0][0];
+    expect(anthropicArgs.messages[0].content).not.toContain('<repo_knowledge>');
+
+    // Cache write uses 'none' contextQuality
+    expect(putItem).toHaveBeenCalledWith(
+      'cache-table',
+      expect.objectContaining({ contextQuality: 'none' })
+    );
+
+    delete process.env.REPO_REGISTRY_TABLE_NAME;
   });
 });
