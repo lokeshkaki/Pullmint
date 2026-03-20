@@ -91,19 +91,19 @@ PR review → architecture-agent → context-assembly
 
 All Lambda functions live under `services/`. Each is an independent npm workspace:
 
-| Service                         | Trigger                                                     | Purpose                                                                                                      |
-| ------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `webhook-receiver`              | API Gateway POST /webhook                                   | Validate HMAC, deduplicate via DynamoDB, publish to EventBridge                                              |
-| `llm-agents/architecture-agent` | SQS                                                         | Fetch PR diff, route to Haiku (<500 lines) or Sonnet (≥500 lines), compute risk score                        |
-| `github-integration`            | EventBridge `analysis.completed`                            | Post PR comment, evaluate deployment gate                                                                    |
-| `deployment-orchestrator`       | EventBridge `deployment.approved`                           | POST to deployment webhook, track status                                                                     |
-| `deployment-monitor`            | EventBridge `deployment.status` (deployed)                  | Schedules post-deploy-5 and post-deploy-30 checkpoint evaluations via SQS delay                              |
-| `signal-ingestion`              | API Gateway POST /signals/{executionId}                     | Accept inbound webhooks from external tools (Datadog, CloudWatch, Sentry); store signals on execution record |
-| `calibration-service`           | EventBridge `execution.confirmed` / `execution.rolled-back` | Update per-repo calibration factor based on outcome history                                                  |
-| `dependency-scanner`            | EventBridge Scheduler (nightly 02:00 UTC)                   | Scan org repos for shared-dependency relationships; populate dependency graph table                          |
+| Service                         | Trigger                                                     | Purpose                                                                                                       |
+| ------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `webhook-receiver`              | API Gateway POST /webhook                                   | Validate HMAC, deduplicate via DynamoDB, publish to EventBridge                                               |
+| `llm-agents/architecture-agent` | SQS                                                         | Fetch PR diff, route to Haiku (<500 lines) or Sonnet (≥500 lines), compute risk score                         |
+| `github-integration`            | EventBridge `analysis.completed`                            | Post PR comment, evaluate deployment gate                                                                     |
+| `deployment-orchestrator`       | EventBridge `deployment.approved`                           | POST to deployment webhook, track status                                                                      |
+| `deployment-monitor`            | EventBridge `deployment.status` (deployed)                  | Schedules post-deploy-5 and post-deploy-30 checkpoint evaluations via SQS delay                               |
+| `signal-ingestion`              | API Gateway POST /signals/{executionId}                     | Accept inbound webhooks from external tools (Datadog, CloudWatch, Sentry); store signals on execution record  |
+| `calibration-service`           | EventBridge `execution.confirmed` / `execution.rolled-back` | Update per-repo calibration factor based on outcome history                                                   |
+| `dependency-scanner`            | EventBridge Scheduler (nightly 02:00 UTC)                   | Scan org repos for shared-dependency relationships; populate dependency graph table                           |
 | `repo-indexer`                  | SQS (onboarding + knowledge-update queues)                  | Bootstrap persistent knowledge base: git history, file churn, author profiles, module narratives + embeddings |
-| `dashboard-api`                 | API Gateway GET /dashboard/\*                               | Query DynamoDB execution history, board, checkpoints, calibration, re-evaluate                               |
-| `dashboard-ui`                  | API Gateway GET /dashboard                                  | Serve SPA dashboard                                                                                          |
+| `dashboard-api`                 | API Gateway GET /dashboard/\*                               | Query DynamoDB execution history, board, checkpoints, calibration, re-evaluate                                |
+| `dashboard-ui`                  | API Gateway GET /dashboard                                  | Serve SPA dashboard                                                                                           |
 
 ### Shared Utilities (`services/shared/`)
 
@@ -153,18 +153,18 @@ Single CDK stack (`PullmintWebhookStack`) defines all AWS resources. Uses `esbui
 
 `dashboard-api` handles all routes under `/dashboard/`. Auth via `Authorization: Bearer <DASHBOARD_AUTH_TOKEN>` header (missing token → 503 deny-all).
 
-| Method | Path                                        | Handler                                                |
-| ------ | ------------------------------------------- | ------------------------------------------------------ |
-| GET    | `/dashboard/executions`                     | List executions (paginated, filterable by repo/status) |
-| GET    | `/dashboard/executions/:id`                 | Get single execution by executionId                    |
-| GET    | `/dashboard/executions/:id/checkpoints`     | Get checkpoints, signals, repoContext for an execution |
-| POST   | `/dashboard/executions/:id/re-evaluate`     | Trigger manual risk re-evaluation with justification   |
-| GET    | `/dashboard/board`                          | Kanban board view — executions grouped by status       |
-| GET    | `/dashboard/repos/:owner/:repo/prs/:number` | Look up execution by repo + PR number                  |
-| GET    | `/dashboard/calibration`                    | List all per-repo calibration records                  |
-| GET    | `/dashboard/calibration/:owner/:repo`       | Get calibration detail for a specific repo             |
-| GET    | `/dashboard/repos/:owner/:repo`              | Get repo registry record (indexing status, context version) |
-| POST   | `/dashboard/repos/:owner/:repo/reindex`      | Trigger repo re-indexing via EventBridge               |
+| Method | Path                                        | Handler                                                     |
+| ------ | ------------------------------------------- | ----------------------------------------------------------- |
+| GET    | `/dashboard/executions`                     | List executions (paginated, filterable by repo/status)      |
+| GET    | `/dashboard/executions/:id`                 | Get single execution by executionId                         |
+| GET    | `/dashboard/executions/:id/checkpoints`     | Get checkpoints, signals, repoContext for an execution      |
+| POST   | `/dashboard/executions/:id/re-evaluate`     | Trigger manual risk re-evaluation with justification        |
+| GET    | `/dashboard/board`                          | Kanban board view — executions grouped by status            |
+| GET    | `/dashboard/repos/:owner/:repo/prs/:number` | Look up execution by repo + PR number                       |
+| GET    | `/dashboard/calibration`                    | List all per-repo calibration records                       |
+| GET    | `/dashboard/calibration/:owner/:repo`       | Get calibration detail for a specific repo                  |
+| GET    | `/dashboard/repos/:owner/:repo`             | Get repo registry record (indexing status, context version) |
+| POST   | `/dashboard/repos/:owner/:repo/reindex`     | Trigger repo re-indexing via EventBridge                    |
 
 ### S3 — Analysis Results
 
