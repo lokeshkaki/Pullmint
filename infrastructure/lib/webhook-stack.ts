@@ -841,6 +841,42 @@ export class WebhookStack extends cdk.Stack {
       methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
     });
 
+    // GET /dashboard/executions/{executionId}/checkpoints
+    const checkpointsResource = executionResource.addResource('checkpoints');
+    checkpointsResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
+    // POST /dashboard/executions/{executionId}/re-evaluate
+    const reEvaluateResource = executionResource.addResource('re-evaluate');
+    reEvaluateResource.addMethod('POST', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [
+        { statusCode: '202' },
+        { statusCode: '404' },
+        { statusCode: '429' },
+        { statusCode: '500' },
+      ],
+    });
+
+    // GET /dashboard/board
+    const boardResource = dashboardResource.addResource('board');
+    boardResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '500' }],
+    });
+
+    // GET /dashboard/calibration
+    const calibrationResource = dashboardResource.addResource('calibration');
+    calibrationResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '500' }],
+    });
+
+    // GET /dashboard/calibration/{owner}/{repo}
+    const calibrationOwnerResource = calibrationResource.addResource('{owner}');
+    const calibrationRepoResource = calibrationOwnerResource.addResource('{repo}');
+    calibrationRepoResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
     // Dashboard repo routes (GET /dashboard/repos/:owner/:repo/prs/:number)
     const reposResource = dashboardResource.addResource('repos');
     const ownerResource = reposResource.addResource('{owner}');
@@ -874,6 +910,11 @@ export class WebhookStack extends cdk.Stack {
     dashboardResource.addCorsPreflight(dashboardCors);
     executionsResource.addCorsPreflight(dashboardCors);
     executionResource.addCorsPreflight(dashboardCors);
+    checkpointsResource.addCorsPreflight(dashboardCors);
+    reEvaluateResource.addCorsPreflight(dashboardCors);
+    boardResource.addCorsPreflight(dashboardCors);
+    calibrationResource.addCorsPreflight(dashboardCors);
+    calibrationRepoResource.addCorsPreflight(dashboardCors);
     repoResource.addCorsPreflight(dashboardCors);
     reindexResource.addCorsPreflight(dashboardCors);
     prNumberResource.addCorsPreflight(dashboardCors);
