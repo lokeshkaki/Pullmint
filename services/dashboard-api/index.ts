@@ -13,7 +13,9 @@ import type {
   APIGatewayProxyResult,
   APIGatewayProxyEventQueryStringParameters,
 } from 'aws-lambda';
-import type { PRExecution } from '../shared/types';
+import type { PRExecution, RepoRegistryRecord } from '../shared/types';
+import { getItem, updateItem } from '../shared/dynamodb';
+import { publishEvent } from '../shared/eventbridge';
 import { addTraceAnnotations } from '../shared/tracer';
 
 const ddbClient = new DynamoDBClient({});
@@ -74,6 +76,14 @@ function getDedupTableName(): string {
   return process.env.DEDUP_TABLE_NAME || '';
 }
 
+function getRepoRegistryTableName(): string {
+  return process.env.REPO_REGISTRY_TABLE_NAME || '';
+}
+
+function getEventBusName(): string {
+  return process.env.EVENT_BUS_NAME || 'pullmint-bus';
+}
+
 function isAuthorized(event: APIGatewayProxyEvent): boolean {
   const authToken = process.env.DASHBOARD_AUTH_TOKEN;
   if (!authToken) {
@@ -121,7 +131,11 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     }
 
     // Only support GET requests, except POST on the re-evaluate path
-    if (event.httpMethod !== 'GET' && !event.path?.endsWith('/re-evaluate')) {
+    if (
+      event.httpMethod !== 'GET' &&
+      !event.path?.endsWith('/re-evaluate') &&
+      !event.path?.endsWith('/reindex')
+    ) {
       return {
         statusCode: 405,
         headers: corsHeaders,
@@ -172,6 +186,61 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     if (path.match(/^\/dashboard\/executions\/[a-zA-Z0-9-]+$/)) {
       const executionId = path.split('/').pop()!;
       return await getExecution(executionId, corsHeaders);
+    }
+
+    // POST /dashboard/repos/:owner/:repo/reindex
+    if (event.httpMethod === 'POST' && path.match(/^\/dashboard\/repos\/[^/]+\/[^/]+\/reindex$/)) {
+      const parts = path.split('/');
+      const owner = parts[3];
+      const repo = parts[4];
+      const repoFullName = `${owner}/${repo}`;
+      const existing = await getItem<RepoRegistryRecord>(getRepoRegistryTableName(), {
+        repoFullName,
+      });
+      if (!existing) {
+        return {
+          statusCode: 404,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Repo not registered' }),
+        };
+      }
+      await updateItem(
+        getRepoRegistryTableName(),
+        { repoFullName },
+        {
+          indexingStatus: 'pending',
+          pendingBatches: 0,
+        }
+      );
+      await publishEvent(getEventBusName(), 'pullmint.github', 'repo.onboarding.requested', {
+        repoFullName,
+      });
+      return {
+        statusCode: 202,
+        headers: corsHeaders,
+        body: JSON.stringify({ message: 'Reindex triggered', repoFullName }),
+      };
+    }
+
+    // GET /dashboard/repos/:owner/:repo (must come after /reindex and before /prs)
+    if (event.httpMethod === 'GET' && path.match(/^\/dashboard\/repos\/[^/]+\/[^/]+$/)) {
+      const parts = path.split('/');
+      const owner = parts[3];
+      const repo = parts[4];
+      const repoFullName = `${owner}/${repo}`;
+      const item = await getItem<RepoRegistryRecord>(getRepoRegistryTableName(), { repoFullName });
+      if (!item) {
+        return {
+          statusCode: 404,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Repo not registered' }),
+        };
+      }
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify(item),
+      };
     }
 
     // GET /dashboard/repos/:owner/:repo/prs/:number

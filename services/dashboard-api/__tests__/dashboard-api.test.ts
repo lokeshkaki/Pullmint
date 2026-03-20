@@ -10,22 +10,33 @@ import {
 import { mockClient } from 'aws-sdk-client-mock';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import type { PRExecution } from '../../shared/types';
+import { publishEvent } from '../../shared/eventbridge';
+
+jest.mock('../../shared/eventbridge', () => ({
+  publishEvent: jest.fn().mockResolvedValue(undefined),
+}));
+
+const mockPublishEvent = publishEvent as jest.MockedFunction<typeof publishEvent>;
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
 describe('Dashboard API Handler', () => {
   beforeEach(() => {
     ddbMock.reset();
+    mockPublishEvent.mockReset();
+    mockPublishEvent.mockResolvedValue(undefined);
     process.env.EXECUTIONS_TABLE_NAME = 'test-executions-table';
     process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
     process.env.CALIBRATION_TABLE_NAME = 'test-calibration-table';
     process.env.DEDUP_TABLE_NAME = 'test-dedup-table';
+    process.env.REPO_REGISTRY_TABLE_NAME = 'test-registry-table';
   });
 
   afterEach(() => {
     delete process.env.DASHBOARD_AUTH_TOKEN;
     delete process.env.CALIBRATION_TABLE_NAME;
     delete process.env.DEDUP_TABLE_NAME;
+    delete process.env.REPO_REGISTRY_TABLE_NAME;
   });
 
   const createMockEvent = (
@@ -777,6 +788,87 @@ describe('Dashboard API Handler', () => {
       const event = createMockEvent('/dashboard/executions', 'POST');
       const result = await handler(event);
       expect(result.statusCode).toBe(405);
+    });
+  });
+
+  describe('GET /dashboard/repos/:owner/:repo', () => {
+    it('returns 200 with registry record when repo is indexed', async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          repoFullName: 'org/repo',
+          indexingStatus: 'indexed',
+          contextVersion: 5,
+          pendingBatches: 0,
+          queuedExecutionIds: [],
+        },
+      });
+
+      const event = createMockEvent('/dashboard/repos/org/repo');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body) as { indexingStatus: string };
+      expect(body.indexingStatus).toBe('indexed');
+    });
+
+    it('returns 404 when repo is not registered', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+      const event = createMockEvent('/dashboard/repos/org/unknown');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(404);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Repo not registered');
+    });
+
+    it('should require auth', async () => {
+      const event = createMockEvent('/dashboard/repos/org/repo', 'GET', null, {});
+      const result = await handler(event);
+      expect(result.statusCode).toBe(401);
+    });
+  });
+
+  describe('POST /dashboard/repos/:owner/:repo/reindex', () => {
+    it('resets registry status and publishes onboarding event', async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: { repoFullName: 'org/repo', indexingStatus: 'indexed' },
+      });
+      ddbMock.on(UpdateCommand).resolves({});
+
+      const event = createMockEvent('/dashboard/repos/org/repo/reindex', 'POST', null, {
+        Authorization: 'Bearer test-token',
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(202);
+      const body = JSON.parse(result.body);
+      expect(body.message).toBe('Reindex triggered');
+      expect(body.repoFullName).toBe('org/repo');
+      expect(mockPublishEvent).toHaveBeenCalledWith(
+        expect.any(String),
+        'pullmint.github',
+        'repo.onboarding.requested',
+        expect.objectContaining({ repoFullName: 'org/repo' })
+      );
+    });
+
+    it('returns 404 when repo is not registered', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+      const event = createMockEvent('/dashboard/repos/org/unknown/reindex', 'POST', null, {
+        Authorization: 'Bearer test-token',
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(404);
+      expect(JSON.parse(result.body)).toHaveProperty('error', 'Repo not registered');
+      expect(mockPublishEvent).not.toHaveBeenCalled();
+    });
+
+    it('should require auth', async () => {
+      const event = createMockEvent('/dashboard/repos/org/repo/reindex', 'POST', null, {});
+      const result = await handler(event);
+      expect(result.statusCode).toBe(401);
     });
   });
 });
