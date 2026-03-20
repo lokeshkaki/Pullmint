@@ -1,35 +1,75 @@
+const mockIndex = jest.fn();
+const mockSearch = jest.fn();
+
+jest.mock('@opensearch-project/opensearch', () => ({
+  Client: jest.fn().mockImplementation(() => ({
+    index: mockIndex,
+    search: mockSearch,
+  })),
+}));
+jest.mock('@opensearch-project/opensearch/aws', () => ({
+  AwsSigv4Signer: jest.fn().mockReturnValue({ node: 'https://mock-endpoint' }),
+}));
+jest.mock('@aws-sdk/credential-provider-node', () => ({
+  defaultProvider: jest
+    .fn()
+    .mockReturnValue(() => Promise.resolve({ accessKeyId: 'test', secretAccessKey: 'test' })),
+}));
+
 import { upsertNarrative, queryNarratives } from '../opensearch-client';
 
-const mockFetch = jest.fn();
-global.fetch = mockFetch;
-
-beforeEach(() => jest.resetAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockIndex.mockResolvedValue({ statusCode: 200, body: { result: 'created' } });
+  mockSearch.mockResolvedValue({
+    statusCode: 200,
+    body: {
+      hits: {
+        hits: [
+          {
+            _source: {
+              repoFullName: 'org/repo',
+              modulePath: 'src/auth',
+              narrativeText: 'Auth module handles login',
+              generatedAtSha: 'abc123',
+              version: 1,
+            },
+          },
+        ],
+      },
+    },
+  });
+});
 
 describe('upsertNarrative', () => {
-  it('sends a PUT request to the OpenSearch endpoint', async () => {
-    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
-    await upsertNarrative(
-      'https://os.example.com',
-      {
-        repoFullName: 'org/repo',
-        modulePath: 'src/auth',
-        narrativeText: 'Auth module',
-        generatedAtSha: 'abc',
-        version: 1,
-      },
-      [0.1, 0.2]
-    );
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('src%2Fauth'),
-      expect.objectContaining({ method: 'PUT' })
+  it('should call index with correct document ID and body', async () => {
+    const narrative = {
+      repoFullName: 'org/repo',
+      modulePath: 'src/auth',
+      narrativeText: 'Auth module handles login',
+      generatedAtSha: 'abc123',
+      version: 1,
+    };
+    const embedding = [0.1, 0.2, 0.3];
+
+    await upsertNarrative('https://mock-endpoint', narrative, embedding);
+
+    expect(mockIndex).toHaveBeenCalledWith(
+      expect.objectContaining({
+        index: 'module-narrative-index',
+        id: encodeURIComponent('org/repo/src/auth'),
+        body: expect.objectContaining({ repoFullName: 'org/repo', embedding }),
+        refresh: false,
+      })
     );
   });
 
-  it('throws on non-OK upsert response', async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 500 });
+  it('throws when OpenSearch rejects the upsert request', async () => {
+    mockIndex.mockRejectedValueOnce({ statusCode: 500, message: 'internal error' });
+
     await expect(
       upsertNarrative(
-        'https://os.example.com',
+        'https://mock-endpoint',
         {
           repoFullName: 'org/repo',
           modulePath: 'x',
@@ -44,34 +84,36 @@ describe('upsertNarrative', () => {
 });
 
 describe('queryNarratives', () => {
-  it('returns top-k narrative results from OpenSearch k-NN query', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          hits: {
-            hits: [
-              {
-                _source: {
-                  modulePath: 'src/auth',
-                  narrativeText: 'Auth module',
-                  repoFullName: 'org/repo',
-                  generatedAtSha: 'abc',
-                  version: 1,
-                },
+  it('should call search with knn query filtered by repo', async () => {
+    const results = await queryNarratives('https://mock-endpoint', 'org/repo', [0.1, 0.2], 5);
+
+    expect(mockSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        index: 'module-narrative-index',
+        body: {
+          size: 5,
+          query: {
+            knn: {
+              embedding: {
+                vector: [0.1, 0.2],
+                k: 5,
+                filter: { term: { repoFullName: 'org/repo' } },
               },
-            ],
+            },
           },
-        }),
-    });
-    const results = await queryNarratives('https://os.example.com', 'org/repo', [0.1, 0.2], 5);
+        },
+      })
+    );
+
     expect(results).toHaveLength(1);
+    expect(results[0].repoFullName).toBe('org/repo');
     expect(results[0].modulePath).toBe('src/auth');
   });
 
-  it('throws on non-OK query response', async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 503 });
-    await expect(queryNarratives('https://os.example.com', 'org/repo', [0.1], 5)).rejects.toThrow(
+  it('throws when OpenSearch rejects the query request', async () => {
+    mockSearch.mockRejectedValueOnce({ statusCode: 503, message: 'service unavailable' });
+
+    await expect(queryNarratives('https://mock-endpoint', 'org/repo', [0.1], 5)).rejects.toThrow(
       'OpenSearch query failed: 503'
     );
   });
