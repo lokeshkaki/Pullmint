@@ -186,9 +186,44 @@ async function handleDeploymentStatus(detail: DeploymentStatusEvent): Promise<vo
     updates.deploymentCompletedAt = Date.now();
   }
 
-  // TODO: Implement optimistic locking for concurrent updates (see Pullmint PR #13 review)
-  // Add version field to PRExecution and use conditional updates to prevent race conditions
-  await updateItem(config.executionsTableName, { executionId: detail.executionId }, updates);
+  // Use conditional updates to prevent status regression — e.g. deployment-monitor
+  // may have already advanced status to 'monitoring' or 'rolled-back', so we must
+  // not blindly overwrite with 'deployed'.
+  const validPriorStatuses: Record<string, string[]> = {
+    deploying: ['completed', 'pending', 'analyzing'],
+    deployed: ['deploying'],
+    failed: ['deploying', 'deployed', 'monitoring'],
+  };
+
+  const allowedPrior = validPriorStatuses[detail.deploymentStatus];
+
+  if (allowedPrior && updates.status) {
+    try {
+      await updateItemConditional(
+        config.executionsTableName,
+        { executionId: detail.executionId },
+        updates,
+        {
+          conditionExpression:
+            '#status IN (' + allowedPrior.map((_, i) => `:prior${i}`).join(', ') + ')',
+          conditionAttributeNames: { '#status': 'status' },
+          conditionAttributeValues: Object.fromEntries(
+            allowedPrior.map((s, i) => [`:prior${i}`, s])
+          ),
+        }
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === 'ConditionalCheckFailedException') {
+        console.warn(
+          `Status already advanced past ${detail.deploymentStatus} for ${detail.executionId} — skipping update`
+        );
+        return;
+      }
+      throw err;
+    }
+  } else {
+    await updateItem(config.executionsTableName, { executionId: detail.executionId }, updates);
+  }
 
   if (detail.deploymentStatus === 'deployed' || detail.deploymentStatus === 'failed') {
     const body = buildDeploymentStatusComment(detail);
