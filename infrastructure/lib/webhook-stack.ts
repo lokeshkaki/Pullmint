@@ -8,6 +8,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
@@ -164,6 +165,35 @@ export class WebhookStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // Knowledge base tables
+    const fileKnowledgeTable = new dynamodb.Table(this, 'FileKnowledgeTable', {
+      tableName: 'pullmint-file-knowledge',
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const authorProfilesTable = new dynamodb.Table(this, 'AuthorProfilesTable', {
+      tableName: 'pullmint-author-profiles',
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const repoRegistryTable = new dynamodb.Table(this, 'RepoRegistryTable', {
+      tableName: 'pullmint-repo-registry',
+      partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const moduleNarrativesTable = new dynamodb.Table(this, 'ModuleNarrativesTable', {
+      tableName: 'pullmint-module-narratives',
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     // ===========================
     // S3
     // ===========================
@@ -214,6 +244,34 @@ export class WebhookStack extends cdk.Stack {
     const deploymentDLQ = new sqs.Queue(this, 'DeploymentDLQ', {
       queueName: 'pullmint-deployment-dlq',
       retentionPeriod: cdk.Duration.days(14),
+    });
+
+    const onboardingDlq = new sqs.Queue(this, 'OnboardingDlq', {
+      queueName: 'pullmint-onboarding-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
+    const onboardingQueue = new sqs.Queue(this, 'OnboardingQueue', {
+      queueName: 'pullmint-onboarding-queue',
+      visibilityTimeout: cdk.Duration.minutes(16),
+      deadLetterQueue: { queue: onboardingDlq, maxReceiveCount: 3 },
+    });
+
+    const knowledgeUpdateDlq = new sqs.Queue(this, 'KnowledgeUpdateDlq', {
+      queueName: 'pullmint-knowledge-update-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
+    const knowledgeUpdateQueue = new sqs.Queue(this, 'KnowledgeUpdateQueue', {
+      queueName: 'pullmint-knowledge-update-queue',
+      visibilityTimeout: cdk.Duration.minutes(16),
+      deadLetterQueue: { queue: knowledgeUpdateDlq, maxReceiveCount: 3 },
+    });
+
+    const openSearchEndpoint = new cdk.CfnParameter(this, 'OpenSearchEndpoint', {
+      type: 'String',
+      description: 'OpenSearch Serverless collection endpoint URL',
+      default: '',
     });
 
     // ===========================
@@ -463,6 +521,55 @@ export class WebhookStack extends cdk.Stack {
       },
     });
 
+    // Repo Indexer Lambda
+    const repoIndexerFn = new NodejsFunction(this, 'RepoIndexerFunction', {
+      functionName: 'pullmint-repo-indexer',
+      entry: path.join(__dirname, '../../services/repo-indexer/index.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(15),
+      environment: {
+        REPO_REGISTRY_TABLE_NAME: repoRegistryTable.tableName,
+        FILE_KNOWLEDGE_TABLE_NAME: fileKnowledgeTable.tableName,
+        AUTHOR_PROFILES_TABLE_NAME: authorProfilesTable.tableName,
+        MODULE_NARRATIVES_TABLE_NAME: moduleNarrativesTable.tableName,
+        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        ANALYSIS_QUEUE_URL: llmQueue.queueUrl,
+        ONBOARDING_QUEUE_URL: onboardingQueue.queueUrl,
+        OPENSEARCH_ENDPOINT: openSearchEndpoint.valueAsString,
+        ANTHROPIC_API_KEY_ARN: anthropicApiKey.secretArn,
+        GITHUB_APP_ID: githubAppId ?? '',
+        GITHUB_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Repo indexer permissions
+    repoRegistryTable.grantReadWriteData(repoIndexerFn);
+    fileKnowledgeTable.grantReadWriteData(repoIndexerFn);
+    authorProfilesTable.grantReadWriteData(repoIndexerFn);
+    moduleNarrativesTable.grantReadWriteData(repoIndexerFn);
+    executionsTable.grantReadData(repoIndexerFn);
+    llmQueue.grantSendMessages(repoIndexerFn);
+    onboardingQueue.grantSendMessages(repoIndexerFn);
+    anthropicApiKey.grantRead(repoIndexerFn);
+    githubAppPrivateKey.grantRead(repoIndexerFn);
+
+    repoIndexerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: ['arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0'],
+      })
+    );
+
+    // SQS triggers for repo indexer
+    repoIndexerFn.addEventSource(new SqsEventSource(onboardingQueue, { batchSize: 1 }));
+    repoIndexerFn.addEventSource(new SqsEventSource(knowledgeUpdateQueue, { batchSize: 1 }));
+
     // ===========================
     // Permissions
     // ===========================
@@ -471,6 +578,8 @@ export class WebhookStack extends cdk.Stack {
     githubWebhookSecret.grantRead(webhookHandler);
     dedupTable.grantReadWriteData(webhookHandler);
     executionsTable.grantReadWriteData(webhookHandler);
+    webhookHandler.addEnvironment('REPO_REGISTRY_TABLE_NAME', repoRegistryTable.tableName);
+    repoRegistryTable.grantReadWriteData(webhookHandler);
 
     // Architecture agent permissions
     anthropicApiKey.grantRead(architectureAgent);
@@ -482,6 +591,24 @@ export class WebhookStack extends cdk.Stack {
     llmRateLimitTable.grantReadWriteData(architectureAgent);
     calibrationTable.grantReadData(architectureAgent);
     architectureAgent.addEnvironment('CALIBRATION_TABLE_NAME', calibrationTable.tableName);
+    architectureAgent.addEnvironment('REPO_REGISTRY_TABLE_NAME', repoRegistryTable.tableName);
+    architectureAgent.addEnvironment('FILE_KNOWLEDGE_TABLE_NAME', fileKnowledgeTable.tableName);
+    architectureAgent.addEnvironment('AUTHOR_PROFILES_TABLE_NAME', authorProfilesTable.tableName);
+    architectureAgent.addEnvironment(
+      'MODULE_NARRATIVES_TABLE_NAME',
+      moduleNarrativesTable.tableName
+    );
+    architectureAgent.addEnvironment('OPENSEARCH_ENDPOINT', openSearchEndpoint.valueAsString);
+    repoRegistryTable.grantReadData(architectureAgent);
+    fileKnowledgeTable.grantReadData(architectureAgent);
+    authorProfilesTable.grantReadData(architectureAgent);
+    moduleNarrativesTable.grantReadData(architectureAgent);
+    architectureAgent.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: ['arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0'],
+      })
+    );
 
     // GitHub integration permissions
     githubAppPrivateKey.grantRead(githubIntegration);
@@ -501,6 +628,9 @@ export class WebhookStack extends cdk.Stack {
     calibrationTable.grantReadData(dashboardApi);
     dedupTable.grantReadWriteData(dashboardApi);
     dashboardApi.addEnvironment('CALIBRATION_TABLE_NAME', calibrationTable.tableName);
+    dashboardApi.addEnvironment('REPO_REGISTRY_TABLE_NAME', repoRegistryTable.tableName);
+    repoRegistryTable.grantReadWriteData(dashboardApi);
+    this.eventBus.grantPutEventsTo(dashboardApi);
 
     // Signal ingestion permissions
     executionsTable.grantReadWriteData(signalIngestionFn);
@@ -612,6 +742,20 @@ export class WebhookStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(calibrationServiceFn)],
     });
 
+    // repo.onboarding.requested → onboarding queue
+    new events.Rule(this, 'OnboardingRule', {
+      eventBus: this.eventBus,
+      eventPattern: { source: ['pullmint.github'], detailType: ['repo.onboarding.requested'] },
+      targets: [new targets.SqsQueue(onboardingQueue)],
+    });
+
+    // pr.merged → knowledge-update queue
+    new events.Rule(this, 'PRMergedRule', {
+      eventBus: this.eventBus,
+      eventPattern: { source: ['pullmint.github'], detailType: ['pr.merged'] },
+      targets: [new targets.SqsQueue(knowledgeUpdateQueue)],
+    });
+
     // Nightly schedule for dependency scanner: 02:00 UTC
     new events.Rule(this, 'DependencyScannerSchedule', {
       schedule: events.Schedule.cron({ hour: '2', minute: '0' }),
@@ -690,6 +834,17 @@ export class WebhookStack extends cdk.Stack {
     const reposResource = dashboardResource.addResource('repos');
     const ownerResource = reposResource.addResource('{owner}');
     const repoResource = ownerResource.addResource('{repo}');
+    // GET /dashboard/repos/:owner/:repo (repo registry lookup)
+    repoResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '200' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
+    // POST /dashboard/repos/:owner/:repo/reindex
+    const reindexResource = repoResource.addResource('reindex');
+    reindexResource.addMethod('POST', new apigateway.LambdaIntegration(dashboardApi), {
+      methodResponses: [{ statusCode: '202' }, { statusCode: '404' }, { statusCode: '500' }],
+    });
+
     const prsResource = repoResource.addResource('prs');
     const prNumberResource = prsResource.addResource('{number}');
     prNumberResource.addMethod('GET', new apigateway.LambdaIntegration(dashboardApi), {
@@ -701,13 +856,15 @@ export class WebhookStack extends cdk.Stack {
       allowOrigins: process.env.DASHBOARD_ALLOWED_ORIGINS
         ? process.env.DASHBOARD_ALLOWED_ORIGINS.split(',')
         : ['https://YOUR_DOMAIN_HERE'],
-      allowMethods: ['GET', 'OPTIONS'],
+      allowMethods: ['GET', 'POST', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization'],
     };
 
     dashboardResource.addCorsPreflight(dashboardCors);
     executionsResource.addCorsPreflight(dashboardCors);
     executionResource.addCorsPreflight(dashboardCors);
+    repoResource.addCorsPreflight(dashboardCors);
+    reindexResource.addCorsPreflight(dashboardCors);
     prNumberResource.addCorsPreflight(dashboardCors);
 
     // ===========================
