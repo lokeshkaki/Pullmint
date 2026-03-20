@@ -17,10 +17,12 @@ const bedrockClient = new BedrockRuntimeClient({});
 const OPENSEARCH_TIMEOUT_MS = 3000;
 const TOP_K_NARRATIVES = 5;
 
-function timeoutReject(ms: number, message: string): Promise<never> {
-  return new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(message)), ms);
+function timeoutRace<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
   });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!));
 }
 
 export interface ContextConfig {
@@ -95,7 +97,12 @@ async function fetchFileMetrics(
   table: string
 ): Promise<FileMetrics[]> {
   if (!changedFiles.length) return [];
-  const keys = changedFiles.map((f) => ({ pk: `${repoFullName}#${f}` }));
+  // DynamoDB BatchGetCommand supports max 100 keys per request
+  const capped = changedFiles.slice(0, 100);
+  if (changedFiles.length > 100) {
+    console.warn(`PR touches ${changedFiles.length} files — file metrics capped at 100`);
+  }
+  const keys = capped.map((f) => ({ pk: `${repoFullName}#${f}` }));
   const result = await docClient.send(
     new BatchGetCommand({
       RequestItems: { [table]: { Keys: keys } },
@@ -141,13 +148,14 @@ async function fetchModuleNarrativesWithFallback(
   // Try OpenSearch semantic query first with timeout
   try {
     const queryText = `${prTitle} ${changedFiles.join(' ')}`;
-    const embedding = await Promise.race([
+    const embedding = await timeoutRace(
       generateEmbeddingLocal(queryText),
-      timeoutReject(OPENSEARCH_TIMEOUT_MS, 'embedding timeout'),
-    ]);
+      OPENSEARCH_TIMEOUT_MS,
+      'embedding timeout'
+    );
 
     const url = `${config.opensearchEndpoint}/module-narrative-index/_search`;
-    const response = await Promise.race([
+    const response = await timeoutRace(
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,8 +172,9 @@ async function fetchModuleNarrativesWithFallback(
           },
         }),
       }),
-      timeoutReject(OPENSEARCH_TIMEOUT_MS, 'opensearch timeout'),
-    ]);
+      OPENSEARCH_TIMEOUT_MS,
+      'opensearch timeout'
+    );
 
     if (!response.ok) throw new Error(`OpenSearch ${response.status}`);
     const body = (await response.json()) as { hits: { hits: Array<{ _source: ModuleNarrative }> } };

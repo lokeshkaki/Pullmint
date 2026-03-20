@@ -204,6 +204,43 @@ describe('assembleContext', () => {
     expect(ddbMock.commandCalls(BatchGetCommand)).toHaveLength(0);
   });
 
+  it('caps file metrics to 100 files and warns when PR touches more', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    ddbMock
+      .on(GetCommand, { TableName: 'registry-table' })
+      .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
+    ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
+    ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+
+    bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
+    mockFetch.mockRejectedValue(new Error('timeout'));
+    mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
+
+    // Generate 105 file paths
+    const manyFiles = Array.from({ length: 105 }, (_, i) => `src/file${i}.ts`);
+
+    await assembleContext(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockOctokit as any,
+      basePrEvent,
+      manyFiles,
+      'mock diff content',
+      baseConfig
+    );
+
+    // Should warn about capping
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('105 files'));
+
+    // BatchGetCommand should only have 100 keys
+    const batchCalls = ddbMock.commandCalls(BatchGetCommand);
+    expect(batchCalls).toHaveLength(1);
+    const keys = batchCalls[0].args[0].input.RequestItems?.['file-table']?.Keys;
+    expect(keys).toHaveLength(100);
+
+    warnSpy.mockRestore();
+  });
+
   it('defaults contextVersion to 1 when registry record has no version', async () => {
     ddbMock
       .on(GetCommand, { TableName: 'registry-table' })

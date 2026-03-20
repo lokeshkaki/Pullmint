@@ -138,8 +138,8 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         try {
           const { assembleContext } = await import('./context-assembly');
           const changedFiles = extractChangedFiles(diff);
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
           const assembled = await assembleContext(
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
             octokitClient as any,
             prEvent,
             changedFiles,
