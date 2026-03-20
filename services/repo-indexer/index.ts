@@ -52,15 +52,75 @@ type IndexerMessage = FullIndexMessage | IncrementalMessage | BatchMessage;
 
 export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
   for (const record of event.Records) {
-    const message = JSON.parse(record.body) as IndexerMessage;
+    const parsed = JSON.parse(record.body) as Record<string, unknown>;
 
-    if (message.mode === 'full-index') {
-      await handleFullIndex(message);
-    } else if (message.mode === 'batch') {
-      await handleBatch(message);
-    } else if (message.mode === 'incremental') {
-      await handleIncremental(message);
+    // Direct indexer message (from onboarding queue)
+    if ('mode' in parsed) {
+      const message = parsed as IndexerMessage;
+      if (message.mode === 'full-index') {
+        await handleFullIndex(message);
+      } else if (message.mode === 'batch') {
+        await handleBatch(message);
+      } else if (message.mode === 'incremental') {
+        await handleIncremental(message);
+      }
+      continue;
     }
+
+    // EventBridge envelope (from knowledge-update queue via pr.merged rule)
+    if (parsed['detail-type'] === 'pr.merged' && parsed.detail) {
+      const detail = parsed.detail as {
+        repoFullName: string;
+        prNumber?: number;
+        changedFiles?: string[];
+        author?: string;
+        executionId?: string;
+      };
+
+      if (!detail.repoFullName) {
+        console.warn('[repo-indexer] pr.merged event missing repoFullName', {
+          body: record.body.substring(0, 200),
+        });
+        continue;
+      }
+
+      // PRMergedEvent does not include changedFiles — fetch from GitHub PR API
+      let changedFiles = detail.changedFiles ?? [];
+      if (changedFiles.length === 0 && detail.prNumber) {
+        try {
+          const [owner, repo] = detail.repoFullName.split('/');
+          const octokit = (await getGitHubInstallationClient(
+            detail.repoFullName
+          )) as unknown as Octokit;
+          const { data: files } = await octokit.rest.pulls.listFiles({
+            owner,
+            repo,
+            pull_number: detail.prNumber,
+            per_page: 100,
+          });
+          changedFiles = files.map((f: { filename: string }) => f.filename);
+        } catch (err) {
+          console.warn('[repo-indexer] Failed to fetch PR changed files', {
+            repoFullName: detail.repoFullName,
+            prNumber: detail.prNumber,
+            error: (err as Error).message,
+          });
+        }
+      }
+
+      await handleIncremental({
+        mode: 'incremental',
+        repoFullName: detail.repoFullName,
+        changedFiles,
+        author: detail.author,
+        executionId: detail.executionId,
+      });
+      continue;
+    }
+
+    console.warn('[repo-indexer] Unrecognized message format', {
+      body: record.body.substring(0, 200),
+    });
   }
 };
 

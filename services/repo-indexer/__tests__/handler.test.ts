@@ -12,9 +12,15 @@ jest.mock('../../shared/secrets', () => ({
   getSecret: jest.fn().mockResolvedValue('test-api-key'),
 }));
 
-const mockOctokitInstance = {
+const mockOctokitInstance: {
+  rest: {
+    repos: { get: jest.fn; getContent: jest.fn };
+    pulls: { listFiles: jest.fn };
+  };
+} = {
   rest: {
     repos: { get: jest.fn(), getContent: jest.fn() },
+    pulls: { listFiles: jest.fn() },
   },
 };
 
@@ -402,6 +408,116 @@ describe('handler — incremental mode', () => {
       'module-narratives-table',
       expect.objectContaining({ modulePath: 'src/auth' })
     );
+  });
+
+  it('handles pr.merged EventBridge envelope, fetches changed files from GitHub, and routes to incremental handler', async () => {
+    const handler = await loadHandler();
+    const mocks = getMocks();
+
+    // Mock GitHub API to return changed files for the PR
+    mockOctokitInstance.rest.pulls = {
+      listFiles: jest.fn().mockResolvedValue({
+        data: [{ filename: 'src/index.ts' }, { filename: 'src/utils.ts' }],
+      }),
+    } as never;
+
+    mocks.fetchFileCommitHistory.mockResolvedValue({
+      filePath: 'src/index.ts',
+      churnRate30d: 2,
+      churnRate90d: 5,
+      bugFixCommitCount30d: 0,
+      authors: ['octocat'],
+      lastCommitSha: 'sha789',
+    });
+    mocks.putItem.mockResolvedValue(undefined);
+    mocks.getItem.mockResolvedValue(null);
+    mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
+    mocks.detectModules.mockReturnValue([]);
+
+    // Actual PRMergedEvent shape — no changedFiles field
+    const sqsEvent = makeEvent({
+      'detail-type': 'pr.merged',
+      detail: {
+        repoFullName: 'org/repo',
+        prNumber: 42,
+        headSha: 'abc123',
+        author: 'octocat',
+        mergedAt: Date.now(),
+        executionId: 'exec-123',
+      },
+    });
+
+    await handler(sqsEvent);
+
+    // Verify GitHub API was called to fetch changed files
+    expect(mockOctokitInstance.rest.pulls.listFiles).toHaveBeenCalledWith(
+      expect.objectContaining({ owner: 'org', repo: 'repo', pull_number: 42 })
+    );
+    // Verify incremental processing was attempted (file metrics update)
+    expect(mocks.putItem).toHaveBeenCalledWith(
+      'file-knowledge-table',
+      expect.objectContaining({ filePath: 'src/index.ts' })
+    );
+    // Author profile updated
+    expect(mocks.putItem).toHaveBeenCalledWith(
+      'author-profiles-table',
+      expect.objectContaining({ authorLogin: 'octocat' })
+    );
+    // contextVersion incremented
+    expect(mocks.docClientSend).toHaveBeenCalled();
+  });
+
+  it('handles pr.merged envelope gracefully when GitHub file fetch fails', async () => {
+    const handler = await loadHandler();
+    const mocks = getMocks();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mockOctokitInstance.rest.pulls = {
+      listFiles: jest.fn().mockRejectedValue(new Error('API rate limited')),
+    } as never;
+
+    mocks.putItem.mockResolvedValue(undefined);
+    mocks.getItem.mockResolvedValue(null);
+    mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
+    mocks.detectModules.mockReturnValue([]);
+
+    const sqsEvent = makeEvent({
+      'detail-type': 'pr.merged',
+      detail: {
+        repoFullName: 'org/repo',
+        prNumber: 42,
+        headSha: 'abc123',
+        author: 'octocat',
+        mergedAt: Date.now(),
+      },
+    });
+
+    await handler(sqsEvent);
+
+    // Should warn about fetch failure
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[repo-indexer] Failed to fetch PR changed files',
+      expect.objectContaining({ repoFullName: 'org/repo', prNumber: 42 })
+    );
+    // Should still process author profile (graceful degradation)
+    expect(mocks.putItem).toHaveBeenCalledWith(
+      'author-profiles-table',
+      expect.objectContaining({ authorLogin: 'octocat' })
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('logs warning for unrecognized message format', async () => {
+    const handler = await loadHandler();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await handler(makeEvent({ unknownField: 'something' }));
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[repo-indexer] Unrecognized message format',
+      expect.any(Object)
+    );
+    warnSpy.mockRestore();
   });
 
   it('skips author update when author is not provided', async () => {
