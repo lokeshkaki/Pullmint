@@ -303,7 +303,7 @@ describe('GitHub Integration', () => {
       },
     } as any);
 
-    expect(updateItem).toHaveBeenCalled();
+    expect(updateItemConditional).toHaveBeenCalled();
     expect(createComment).toHaveBeenCalledTimes(1);
   });
 
@@ -318,8 +318,96 @@ describe('GitHub Integration', () => {
       },
     } as any);
 
-    expect(updateItem).toHaveBeenCalled();
+    expect(updateItemConditional).toHaveBeenCalled();
     expect(createComment).not.toHaveBeenCalled();
+  });
+
+  it('should not overwrite monitoring/confirmed/rolled-back status with deployed', async () => {
+    (updateItemConditional as jest.Mock).mockRejectedValueOnce({
+      name: 'ConditionalCheckFailedException',
+      message: 'Condition not met',
+      $metadata: {},
+    });
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // Should not throw — should log and continue
+    await expect(
+      invokeHandler({
+        'detail-type': 'deployment.status',
+        detail: {
+          ...baseDetail,
+          deploymentEnvironment: 'staging',
+          deploymentStrategy: 'eventbridge',
+          deploymentStatus: 'deployed',
+        },
+      } as any)
+    ).resolves.not.toThrow();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Status already advanced past deployed')
+    );
+    // Should not post a comment when status update was skipped
+    expect(createComment).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('should not overwrite terminal status with deploying', async () => {
+    (updateItemConditional as jest.Mock).mockRejectedValueOnce({
+      name: 'ConditionalCheckFailedException',
+      message: 'Condition not met',
+      $metadata: {},
+    });
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      invokeHandler({
+        'detail-type': 'deployment.status',
+        detail: {
+          ...baseDetail,
+          deploymentEnvironment: 'staging',
+          deploymentStrategy: 'eventbridge',
+          deploymentStatus: 'deploying',
+        },
+      } as any)
+    ).resolves.not.toThrow();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Status already advanced past deploying')
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('re-throws non-conditional errors during deployment status update', async () => {
+    (updateItemConditional as jest.Mock).mockRejectedValueOnce(new Error('ddb network error'));
+
+    await expect(
+      invokeHandler({
+        'detail-type': 'deployment.status',
+        detail: {
+          ...baseDetail,
+          deploymentEnvironment: 'staging',
+          deploymentStrategy: 'eventbridge',
+          deploymentStatus: 'deployed',
+        },
+      } as any)
+    ).rejects.toThrow('ddb network error');
+  });
+
+  it('uses unconditional update for unrecognized deployment statuses', async () => {
+    await invokeHandler({
+      'detail-type': 'deployment.status',
+      detail: {
+        ...baseDetail,
+        deploymentEnvironment: 'staging',
+        deploymentStrategy: 'eventbridge',
+        deploymentStatus: 'pending',
+      },
+    } as any);
+
+    expect(updateItem).toHaveBeenCalled();
+    expect(updateItemConditional).not.toHaveBeenCalled();
   });
 
   it('comments on failed deployments without a message', async () => {
@@ -333,6 +421,7 @@ describe('GitHub Integration', () => {
       },
     } as any);
 
+    expect(updateItemConditional).toHaveBeenCalled();
     expect(createComment).toHaveBeenCalledTimes(1);
   });
 
