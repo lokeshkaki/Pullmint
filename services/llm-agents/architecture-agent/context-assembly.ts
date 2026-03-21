@@ -6,14 +6,21 @@ import {
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { z } from 'zod';
 import type {
   PREvent,
   FileMetrics,
   AuthorProfile,
   ModuleNarrative,
   ContextPackage,
-  RepoRegistryRecord,
 } from '../../shared/types';
+import { getValidatedItem } from '../../shared/dynamodb';
+import {
+  RepoRegistryRecordSchema,
+  FileMetricsSchema,
+  AuthorProfileSchema,
+  ModuleNarrativeSchema,
+} from '../../shared/schemas';
 import type { Octokit } from '@octokit/rest';
 import { rankBySimilarity } from './vector-search';
 
@@ -23,6 +30,15 @@ const bedrockClient = new BedrockRuntimeClient({});
 const NARRATIVE_SEARCH_TIMEOUT_MS = 3000;
 const PREFIX_FALLBACK_TIMEOUT_MS = 5000;
 const TOP_K_NARRATIVES = 5;
+
+const RepoRegistryContextVersionSchema = RepoRegistryRecordSchema.or(
+  z
+    .object({
+      repoFullName: z.string(),
+      contextVersion: z.number().optional(),
+    })
+    .passthrough()
+);
 
 function timeoutRace<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout;
@@ -93,8 +109,12 @@ export async function assembleContext(
 }
 
 async function fetchContextVersion(repoFullName: string, table: string): Promise<number> {
-  const result = await docClient.send(new GetCommand({ TableName: table, Key: { repoFullName } }));
-  return (result.Item as RepoRegistryRecord | undefined)?.contextVersion ?? 1;
+  const registry = await getValidatedItem(
+    table,
+    { repoFullName },
+    RepoRegistryContextVersionSchema
+  );
+  return registry?.contextVersion ?? 1;
 }
 
 async function fetchFileMetrics(
@@ -114,7 +134,11 @@ async function fetchFileMetrics(
       RequestItems: { [table]: { Keys: keys } },
     })
   );
-  return (result.Responses?.[table] ?? []) as FileMetrics[];
+  const items = result.Responses?.[table] ?? [];
+  return items
+    .map((item) => FileMetricsSchema.safeParse(item))
+    .filter((parsed) => parsed.success)
+    .map((parsed) => parsed.data);
 }
 
 async function fetchAuthorProfile(
@@ -122,13 +146,7 @@ async function fetchAuthorProfile(
   author: string,
   table: string
 ): Promise<AuthorProfile | null> {
-  const result = await docClient.send(
-    new GetCommand({
-      TableName: table,
-      Key: { pk: `${repoFullName}#${author}` },
-    })
-  );
-  return (result.Item as AuthorProfile | undefined) ?? null;
+  return getValidatedItem(table, { pk: `${repoFullName}#${author}` }, AuthorProfileSchema);
 }
 
 // Inline Bedrock embedding call to avoid cross-Lambda-bundle imports.
@@ -183,7 +201,11 @@ async function fetchModuleNarratives(
       })
     );
 
-    const narratives = (result.Items ?? []) as ModuleNarrative[];
+    const rawNarratives = result.Items ?? [];
+    const narratives = rawNarratives
+      .map((item) => ModuleNarrativeSchema.safeParse(item))
+      .filter((parsed) => parsed.success)
+      .map((parsed) => parsed.data);
     const rankedNarratives = rankBySimilarity(
       queryEmbedding,
       narratives,
@@ -191,7 +213,7 @@ async function fetchModuleNarratives(
       TOP_K_NARRATIVES
     );
 
-    if (rankedNarratives.length > 0 || narratives.length === 0) {
+    if (rankedNarratives.length > 0 || rawNarratives.length === 0) {
       return { narratives: rankedNarratives, degraded: false };
     }
 
@@ -252,7 +274,10 @@ async function fetchNarrativesByPrefix(
           Key: { pk: `${repoFullName}#${prefix}` },
         })
       );
-      if (result.Item) narratives.push(result.Item as ModuleNarrative);
+      const parsed = ModuleNarrativeSchema.safeParse(result.Item);
+      if (parsed.success) {
+        narratives.push(parsed.data);
+      }
     } catch (ddbError) {
       console.warn('[context-assembly] DynamoDB fallback fetch failed for prefix', {
         prefix,

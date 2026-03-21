@@ -13,8 +13,10 @@ import type {
   APIGatewayProxyResult,
   APIGatewayProxyEventQueryStringParameters,
 } from 'aws-lambda';
-import type { PRExecution, RepoRegistryRecord } from '../shared/types';
-import { getItem, updateItem } from '../shared/dynamodb';
+import { z } from 'zod';
+import type { RepoRegistryRecord } from '../shared/types';
+import { getItem, getValidatedItem, updateItem } from '../shared/dynamodb';
+import { PRExecutionSchema } from '../shared/schemas';
 import { publishEvent } from '../shared/eventbridge';
 import { addTraceAnnotations } from '../shared/tracer';
 
@@ -28,6 +30,53 @@ const BY_REPO_INDEX = 'ByRepo';
 const BY_REPO_PR_INDEX = 'ByRepoPr';
 const BY_TIMESTAMP_INDEX = 'ByTimestamp';
 const STATUS_DEPLOYED_AT_INDEX = 'StatusDeployedAtIndex';
+
+const ExecutionListRecordSchema = z
+  .object({
+    executionId: z.string(),
+    timestamp: z.number().optional(),
+  })
+  .passthrough();
+
+type ExecutionListRecord = z.infer<typeof ExecutionListRecordSchema>;
+
+const ExecutionCheckpointsViewSchema = z
+  .object({
+    executionId: z.string(),
+    checkpoints: z.array(z.unknown()).optional(),
+    signalsReceived: z.record(z.string(), z.unknown()).optional(),
+    repoContext: z.record(z.string(), z.unknown()).optional(),
+    calibrationApplied: z.number().optional(),
+  })
+  .passthrough();
+
+function parseExecutionRecord(item: unknown): ExecutionListRecord | null {
+  const parsed = PRExecutionSchema.safeParse(item);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const fallbackParsed = ExecutionListRecordSchema.safeParse(item);
+  if (fallbackParsed.success) {
+    return fallbackParsed.data;
+  }
+
+  const executionId =
+    item && typeof item === 'object' && 'executionId' in item
+      ? (item as { executionId?: unknown }).executionId
+      : undefined;
+  console.warn('[dashboard-api] Skipping invalid execution record', {
+    executionId,
+    errors: parsed.error.issues,
+  });
+  return null;
+}
+
+function parseExecutionList(items?: unknown[]): ExecutionListRecord[] {
+  return (items ?? [])
+    .map((item) => parseExecutionRecord(item))
+    .filter((execution): execution is ExecutionListRecord => execution !== null);
+}
 
 class BadRequestError extends Error {
   public readonly statusCode = 400;
@@ -317,14 +366,13 @@ async function getExecution(
   executionId: string,
   headers: Record<string, string>
 ): Promise<APIGatewayProxyResult> {
-  const result = await docClient.send(
-    new GetCommand({
-      TableName: getExecutionsTableName(),
-      Key: { executionId },
-    })
+  const execution = await getValidatedItem(
+    getExecutionsTableName(),
+    { executionId },
+    PRExecutionSchema
   );
 
-  if (!result.Item) {
+  if (!execution) {
     return {
       statusCode: 404,
       headers,
@@ -335,7 +383,7 @@ async function getExecution(
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify(result.Item as PRExecution),
+    body: JSON.stringify(execution),
   };
 }
 
@@ -367,10 +415,10 @@ async function getExecutionsByPR(
     })
   );
 
-  const executions = (result.Items || []) as PRExecution[];
+  const executions = parseExecutionList(result.Items);
 
   const response: {
-    executions: PRExecution[];
+    executions: ExecutionListRecord[];
     nextToken?: string;
     count: number;
   } = {
@@ -454,13 +502,13 @@ async function listExecutions(
     result = await docClient.send(queryCommand);
   }
 
-  const executions = (result.Items || []) as PRExecution[];
+  const executions = parseExecutionList(result.Items);
 
   // Sort by timestamp descending (latest first)
   executions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
   const response: {
-    executions: PRExecution[];
+    executions: ExecutionListRecord[];
     nextToken?: string;
     count: number;
   } = {
@@ -568,14 +616,13 @@ async function getExecutionCheckpoints(
   executionId: string,
   headers: Record<string, string>
 ): Promise<APIGatewayProxyResult> {
-  const result = await docClient.send(
-    new GetCommand({
-      TableName: getExecutionsTableName(),
-      Key: { executionId },
-    })
+  const execution = await getValidatedItem(
+    getExecutionsTableName(),
+    { executionId },
+    ExecutionCheckpointsViewSchema
   );
 
-  if (!result.Item) {
+  if (!execution) {
     return {
       statusCode: 404,
       headers,
@@ -583,17 +630,15 @@ async function getExecutionCheckpoints(
     };
   }
 
-  const item = result.Item as PRExecution;
-
   return {
     statusCode: 200,
     headers,
     body: JSON.stringify({
       executionId,
-      checkpoints: item.checkpoints ?? [],
-      signalsReceived: item.signalsReceived ?? {},
-      repoContext: item.repoContext ?? null,
-      calibrationApplied: item.calibrationApplied ?? null,
+      checkpoints: execution.checkpoints ?? [],
+      signalsReceived: execution.signalsReceived ?? {},
+      repoContext: execution.repoContext ?? null,
+      calibrationApplied: execution.calibrationApplied ?? null,
     }),
   };
 }

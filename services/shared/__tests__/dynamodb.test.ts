@@ -9,11 +9,13 @@ import {
 import {
   putItem,
   getItem,
+  getValidatedItem,
   updateItem,
   updateItemConditional,
   appendToList,
   atomicDecrement,
 } from '../dynamodb';
+import { z } from 'zod';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -171,6 +173,53 @@ describe('DynamoDB Client', () => {
 
       expect(result).toEqual(expectedItem);
       expect(result?.count).toBe(5);
+    });
+  });
+
+  describe('getValidatedItem', () => {
+    const TestSchema = z.object({
+      id: z.string(),
+      name: z.string(),
+      count: z.number(),
+    });
+
+    it('should return validated item when schema matches', async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: { id: 'test-1', name: 'Test', count: 5 },
+      });
+
+      const result = await getValidatedItem('test-table', { id: 'test-1' }, TestSchema);
+      expect(result).toEqual({ id: 'test-1', name: 'Test', count: 5 });
+    });
+
+    it('should return null when item not found', async () => {
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+      const result = await getValidatedItem('test-table', { id: 'missing' }, TestSchema);
+      expect(result).toBeNull();
+    });
+
+    it('should throw when item fails validation', async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: { id: 'test-1', name: 'Test', count: 'not-a-number' },
+      });
+
+      await expect(getValidatedItem('test-table', { id: 'test-1' }, TestSchema)).rejects.toThrow();
+    });
+
+    it('should log validation error details', async () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      ddbMock.on(GetCommand).resolves({
+        Item: { id: 'test-1' },
+      });
+
+      await expect(getValidatedItem('test-table', { id: 'test-1' }, TestSchema)).rejects.toThrow();
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[dynamodb] Validation failed'),
+        expect.anything()
+      );
+      consoleSpy.mockRestore();
     });
   });
 
