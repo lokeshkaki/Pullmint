@@ -348,11 +348,15 @@ describe('handler — incremental mode', () => {
       'file-knowledge-table',
       expect.objectContaining({ filePath: 'src/auth/index.ts', churnRate30d: 3 })
     );
-    // Author profile updated via partial UpdateCommand (not putItem)
-    const authorUpdateCalls = mocks.docClientSend.mock.calls.filter(
-      (call: unknown[]) => (call[0] as { TableName?: string }).TableName === 'author-profiles-table'
-    );
-    expect(authorUpdateCalls.length).toBeGreaterThan(0);
+    // Author profile updated via partial UpdateCommand with atomic ADD (not putItem)
+    const authorUpdateCall = mocks.docClientSend.mock.calls.find((call: unknown[]) => {
+      const input = call[0] as { TableName?: string; UpdateExpression?: string };
+      return (
+        input.TableName === 'author-profiles-table' &&
+        input.UpdateExpression?.includes('mergeCount30d')
+      );
+    });
+    expect(authorUpdateCall).toBeDefined();
     // contextVersion incremented via direct docClient.send
     expect(mocks.docClientSend).toHaveBeenCalled();
   });
@@ -458,11 +462,15 @@ describe('handler — incremental mode', () => {
       'file-knowledge-table',
       expect.objectContaining({ filePath: 'src/index.ts' })
     );
-    // Author profile updated via partial UpdateCommand (not putItem)
-    const authorUpdateCalls = mocks.docClientSend.mock.calls.filter(
-      (call: unknown[]) => (call[0] as { TableName?: string }).TableName === 'author-profiles-table'
-    );
-    expect(authorUpdateCalls.length).toBeGreaterThan(0);
+    // Author profile updated via partial UpdateCommand with atomic ADD (not putItem)
+    const authorUpdateCall = mocks.docClientSend.mock.calls.find((call: unknown[]) => {
+      const input = call[0] as { TableName?: string; UpdateExpression?: string };
+      return (
+        input.TableName === 'author-profiles-table' &&
+        input.UpdateExpression?.includes('mergeCount30d')
+      );
+    });
+    expect(authorUpdateCall).toBeDefined();
     // contextVersion incremented
     expect(mocks.docClientSend).toHaveBeenCalled();
   });
@@ -500,10 +508,14 @@ describe('handler — incremental mode', () => {
       expect.objectContaining({ repoFullName: 'org/repo', prNumber: 42 })
     );
     // Should still process author profile via partial UpdateCommand (graceful degradation)
-    const authorUpdateCalls = mocks.docClientSend.mock.calls.filter(
-      (call: unknown[]) => (call[0] as { TableName?: string }).TableName === 'author-profiles-table'
-    );
-    expect(authorUpdateCalls.length).toBeGreaterThan(0);
+    const authorUpdateCall = mocks.docClientSend.mock.calls.find((call: unknown[]) => {
+      const input = call[0] as { TableName?: string; UpdateExpression?: string };
+      return (
+        input.TableName === 'author-profiles-table' &&
+        input.UpdateExpression?.includes('mergeCount30d')
+      );
+    });
+    expect(authorUpdateCall).toBeDefined();
     warnSpy.mockRestore();
   });
 
@@ -533,16 +545,7 @@ describe('handler — incremental mode', () => {
       lastCommitSha: 'def456',
     });
     mocks.putItem.mockResolvedValue(undefined);
-    // Existing author profile with non-zero metrics
-    mocks.getItem.mockResolvedValue({
-      pk: 'org/repo#octocat',
-      repoFullName: 'org/repo',
-      authorLogin: 'octocat',
-      rollbackRate: 0.15,
-      mergeCount30d: 10,
-      avgRiskScore: 32,
-      frequentFiles: ['src/old.ts'],
-    });
+    mocks.getItem.mockResolvedValue(null);
     mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
     mocks.detectModules.mockReturnValue([]);
 
@@ -562,13 +565,28 @@ describe('handler — incremental mode', () => {
     );
     expect(authorPutCalls).toHaveLength(0);
 
-    // Should use UpdateCommand (partial update) via docClient.send instead
-    const docClientCalls = mocks.docClientSend.mock.calls;
-    const authorUpdateCall = docClientCalls.find((call: unknown[]) => {
-      const input = call[0] as { TableName?: string };
-      return input.TableName === 'author-profiles-table';
+    // Should NOT read author profile via getItem (atomic ADD eliminates read-before-write)
+    const authorGetCalls = mocks.getItem.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'author-profiles-table'
+    );
+    expect(authorGetCalls).toHaveLength(0);
+
+    // Should use UpdateCommand (partial update) via docClient.send
+    const authorUpdateCall = mocks.docClientSend.mock.calls.find((call: unknown[]) => {
+      const input = call[0] as { TableName?: string; UpdateExpression?: string };
+      return (
+        input.TableName === 'author-profiles-table' &&
+        input.UpdateExpression?.includes('mergeCount30d')
+      );
     });
     expect(authorUpdateCall).toBeDefined();
+    // Verify it uses ADD for atomic increment and sets the correct author
+    const updateInput = authorUpdateCall![0] as {
+      UpdateExpression: string;
+      ExpressionAttributeValues: Record<string, unknown>;
+    };
+    expect(updateInput.UpdateExpression).toContain('ADD mergeCount30d');
+    expect(updateInput.ExpressionAttributeValues[':author']).toBe('octocat');
   });
 
   it('skips author update when author is not provided', async () => {
