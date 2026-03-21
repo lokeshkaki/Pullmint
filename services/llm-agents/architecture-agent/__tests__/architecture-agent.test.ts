@@ -781,6 +781,64 @@ describe('architecture-agent handler', () => {
     expect(anthropicArgs.model).toContain('sonnet');
   });
 
+  it('includes selected model in cache key input', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        { type: 'text', text: JSON.stringify({ findings: [], riskScore: 20, summary: 'ok' }) },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({ messages: { create: anthropicCreate } })
+    );
+
+    const smallDiff = 'diff --git a/file.ts b/file.ts\n+const x = 1;';
+    const largeDiff = 'a\n'.repeat(500);
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: {
+          get: jest
+            .fn()
+            .mockResolvedValueOnce({ data: smallDiff })
+            .mockResolvedValueOnce({ data: largeDiff }),
+        },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('cache-key-with-model');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent({ executionId: 'exec-small' }));
+    await handler(buildEvent({ executionId: 'exec-large' }));
+
+    const hashInputs = hashContent.mock.calls.map((call) => String(call[0]));
+    expect(hashInputs).toHaveLength(2);
+    expect(hashInputs[0]).toContain('---model---');
+    expect(hashInputs[0]).toContain('haiku');
+    expect(hashInputs[1]).toContain('---model---');
+    expect(hashInputs[1]).toContain('sonnet');
+    expect(hashInputs[0]).not.toEqual(hashInputs[1]);
+  });
+
   it('uses LLM_MAX_TOKENS env var for max_tokens in Anthropic call', async () => {
     process.env.LLM_MAX_TOKENS = '1000';
     const handler = await loadHandler();
@@ -1289,8 +1347,10 @@ describe('architecture-agent handler', () => {
       expect.objectContaining({ repoRegistryTable: 'registry-table' })
     );
 
-    // hashContent includes contextVersion
-    expect(hashContent).toHaveBeenCalledWith(diff + '\n---cv---\n3');
+    // hashContent includes selected model and contextVersion
+    expect(hashContent).toHaveBeenCalledWith(
+      expect.stringContaining(diff + '\n---model---\nclaude-haiku-4-5-20251001\n---cv---\n3')
+    );
 
     // Prompt includes repo_knowledge
     const anthropicArgs = anthropicCreate.mock.calls[0][0];
@@ -1365,8 +1425,10 @@ describe('architecture-agent handler', () => {
     // Handler must succeed despite context assembly failure
     await expect(handler(buildEvent())).resolves.toBeUndefined();
 
-    // hashContent uses default contextVersion 1
-    expect(hashContent).toHaveBeenCalledWith(diff + '\n---cv---\n1');
+    // hashContent uses selected model and default contextVersion 1
+    expect(hashContent).toHaveBeenCalledWith(
+      expect.stringContaining(diff + '\n---model---\nclaude-haiku-4-5-20251001\n---cv---\n1')
+    );
 
     // Prompt should NOT contain repo_knowledge
     const anthropicArgs = anthropicCreate.mock.calls[0][0];
