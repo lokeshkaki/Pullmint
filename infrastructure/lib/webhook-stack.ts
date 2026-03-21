@@ -282,6 +282,7 @@ export class WebhookStack extends cdk.Stack {
       memorySize: 256,
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        DASHBOARD_ALLOWED_ORIGINS: process.env.DASHBOARD_ALLOWED_ORIGINS ?? '',
       },
       bundling: {
         minify: true,
