@@ -160,7 +160,7 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       }
 
       // 4. Check cache — key includes selected model + contextVersion so stale context/model output is not served
-      let selectedModel = selectModel(diff);
+      const selectedModel = selectModel(diff);
       const cacheKey = hashContent(
         diff + '\n---model---\n' + selectedModel + '\n---cv---\n' + String(contextVersion)
       );
