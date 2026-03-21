@@ -87,7 +87,7 @@ export class WebhookStack extends cdk.Stack {
       tableName: 'pullmint-pr-executions',
       partitionKey: { name: 'executionId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
 
