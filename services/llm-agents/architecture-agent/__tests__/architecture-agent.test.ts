@@ -13,7 +13,7 @@ jest.mock('../../../shared/eventbridge', () => ({
 }));
 
 jest.mock('../../../shared/dynamodb', () => ({
-  getItem: jest.fn(),
+  getValidatedItem: jest.fn(),
   putItem: jest.fn(),
   updateItem: jest.fn(),
   atomicIncrementCounter: jest.fn(),
@@ -56,7 +56,7 @@ const getSharedMocks = () => ({
     .getGitHubInstallationClient as jest.Mock,
   getSecret: jest.requireMock('../../../shared/secrets').getSecret as jest.Mock,
   publishEvent: jest.requireMock('../../../shared/eventbridge').publishEvent as jest.Mock,
-  getItem: jest.requireMock('../../../shared/dynamodb').getItem as jest.Mock,
+  getValidatedItem: jest.requireMock('../../../shared/dynamodb').getValidatedItem as jest.Mock,
   putItem: jest.requireMock('../../../shared/dynamodb').putItem as jest.Mock,
   updateItem: jest.requireMock('../../../shared/dynamodb').updateItem as jest.Mock,
   hashContent: jest.requireMock('../../../shared/utils').hashContent as jest.Mock,
@@ -146,7 +146,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -155,7 +155,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key');
-    getItem.mockResolvedValue({
+    getValidatedItem.mockResolvedValue({
       findings: [
         {
           type: 'architecture',
@@ -234,7 +234,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -243,7 +243,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -305,7 +305,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -314,7 +314,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -403,7 +403,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -412,7 +412,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -467,7 +467,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -476,7 +476,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-no-usage');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -532,7 +532,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -541,7 +541,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-markdown');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -616,7 +616,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -626,7 +626,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-ratelimit-check');
-    getItem.mockResolvedValue(null); // cache miss
+    getValidatedItem.mockResolvedValue(null); // cache miss
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -664,7 +664,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       atomicIncrementCounter,
@@ -673,7 +673,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-ratelimit-exceeded');
-    getItem.mockResolvedValue(null); // cache miss
+    getValidatedItem.mockResolvedValue(null); // cache miss
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     atomicIncrementCounter.mockResolvedValue(11); // exceeds default limit of 10
@@ -715,7 +715,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -724,7 +724,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-small-diff');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -761,7 +761,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -770,7 +770,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-large-diff');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -813,7 +813,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -822,7 +822,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-with-model');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -867,7 +867,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -876,7 +876,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-max-tokens');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -935,7 +935,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -944,7 +944,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-s3');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1005,7 +1005,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1014,7 +1014,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-lightweight');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1059,7 +1059,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1068,7 +1068,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-checkpoint1');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1118,7 +1118,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1127,7 +1127,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-calibration');
-    getItem
+    getValidatedItem
       .mockResolvedValueOnce(null) // cache miss
       .mockResolvedValueOnce({ calibrationFactor: 1.2 }); // calibration record
     updateItem.mockResolvedValue(undefined);
@@ -1172,7 +1172,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1181,7 +1181,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-cal-default');
-    getItem.mockResolvedValue(null); // both cache miss and no calibration record
+    getValidatedItem.mockResolvedValue(null); // both cache miss and no calibration record
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1222,7 +1222,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1231,7 +1231,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-ci-fail');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1285,7 +1285,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1330,7 +1330,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-ctx');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1403,7 +1403,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1415,7 +1415,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('cache-key-ctx-fail');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1472,7 +1472,7 @@ describe('architecture-agent handler', () => {
       getSecret,
       getGitHubInstallationClient,
       hashContent,
-      getItem,
+      getValidatedItem,
       updateItem,
       publishEvent,
       putItem,
@@ -1481,7 +1481,7 @@ describe('architecture-agent handler', () => {
     getSecret.mockResolvedValue('secret');
     getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
     hashContent.mockReturnValue('null-risk-key');
-    getItem.mockResolvedValue(null);
+    getValidatedItem.mockResolvedValue(null);
     updateItem.mockResolvedValue(undefined);
     publishEvent.mockResolvedValue(undefined);
     putItem.mockResolvedValue(undefined);
@@ -1519,10 +1519,11 @@ describe('architecture-agent handler', () => {
 
   it('should update execution status to failed using already-parsed executionId when error occurs', async () => {
     const handler = await loadHandler();
-    const { getItem, updateItem, getGitHubInstallationClient, getSecret } = getSharedMocks();
+    const { getValidatedItem, updateItem, getGitHubInstallationClient, getSecret } =
+      getSharedMocks();
 
     // Setup: valid event body but make processing fail
-    getItem.mockResolvedValue({ executionId: 'exec-err', status: 'analyzing' });
+    getValidatedItem.mockResolvedValue({ executionId: 'exec-err', status: 'analyzing' });
     getSecret.mockResolvedValue('fake-api-key');
     getGitHubInstallationClient.mockRejectedValue(new Error('GitHub API down'));
 
@@ -1553,9 +1554,10 @@ describe('architecture-agent handler', () => {
 
   it('should still rethrow original error when updateItem fails in catch block', async () => {
     const handler = await loadHandler();
-    const { getItem, updateItem, getGitHubInstallationClient, getSecret } = getSharedMocks();
+    const { getValidatedItem, updateItem, getGitHubInstallationClient, getSecret } =
+      getSharedMocks();
 
-    getItem.mockResolvedValue({ executionId: 'exec-err2', status: 'analyzing' });
+    getValidatedItem.mockResolvedValue({ executionId: 'exec-err2', status: 'analyzing' });
     getSecret.mockResolvedValue('fake-api-key');
     getGitHubInstallationClient.mockRejectedValue(new Error('GitHub API down'));
     updateItem.mockRejectedValue(new Error('DynamoDB unavailable'));

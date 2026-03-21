@@ -2,7 +2,7 @@ import type { SQSEvent } from 'aws-lambda';
 
 // Mock shared modules
 jest.mock('../../shared/dynamodb', () => ({
-  getItem: jest.fn(),
+  getValidatedItem: jest.fn(),
   updateItem: jest.fn(),
   putItem: jest.fn(),
   atomicDecrement: jest.fn(),
@@ -75,7 +75,7 @@ type HandlerFn = (event: SQSEvent) => Promise<void>;
 const getMocks = () => ({
   updateItem: jest.requireMock('../../shared/dynamodb').updateItem as jest.Mock,
   putItem: jest.requireMock('../../shared/dynamodb').putItem as jest.Mock,
-  getItem: jest.requireMock('../../shared/dynamodb').getItem as jest.Mock,
+  getValidatedItem: jest.requireMock('../../shared/dynamodb').getValidatedItem as jest.Mock,
   atomicDecrement: jest.requireMock('../../shared/dynamodb').atomicDecrement as jest.Mock,
   fetchFileTree: jest.requireMock('../git-history').fetchFileTree as jest.Mock,
   fetchFileCommitHistory: jest.requireMock('../git-history').fetchFileCommitHistory as jest.Mock,
@@ -127,7 +127,7 @@ describe('handler — full-index mode', () => {
     mocks.fetchFileTree.mockResolvedValue(['src/auth/index.ts']);
     mocks.detectModules.mockReturnValue([]);
     mocks.updateItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
 
     await handler(makeEvent({ mode: 'full-index', repoFullName: 'org/repo', installationId: 1 }));
 
@@ -209,7 +209,7 @@ describe('handler — full-index mode', () => {
     mocks.detectModules.mockReturnValue([]);
     mocks.updateItem.mockResolvedValue(undefined);
     mocks.putItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
 
     await handler(makeEvent({ mode: 'full-index', repoFullName: 'org/repo', installationId: 1 }));
 
@@ -235,9 +235,9 @@ describe('handler — full-index mode', () => {
     mocks.fetchFileTree.mockResolvedValue([]);
     mocks.detectModules.mockReturnValue([]);
     mocks.updateItem.mockResolvedValue(undefined);
-    // First getItem call (releaseQueuedPRs → repo registry) returns queued IDs
-    // Second getItem call (releaseQueuedPRs → execution lookup) returns execution
-    mocks.getItem
+    // First getValidatedItem call (releaseQueuedPRs → repo registry) returns queued IDs
+    // Second getValidatedItem call (releaseQueuedPRs → execution lookup) returns execution
+    mocks.getValidatedItem
       .mockResolvedValueOnce({
         repoFullName: 'org/repo',
         queuedExecutionIds: ['exec-1'],
@@ -312,7 +312,7 @@ describe('handler — batch mode', () => {
     mocks.atomicDecrement.mockResolvedValue(0);
     mocks.putItem.mockResolvedValue(undefined);
     mocks.updateItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
     mockOctokitInstance.rest.repos.getContent.mockResolvedValue({
       data: { content: Buffer.from('export function auth() {}').toString('base64') },
     });
@@ -358,7 +358,7 @@ describe('handler — incremental mode', () => {
       lastCommitSha: 'def456',
     });
     mocks.putItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
     mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
     mocks.detectModules.mockReturnValue([]);
 
@@ -406,7 +406,7 @@ describe('handler — incremental mode', () => {
       lastCommitSha: 'abc',
     });
     mocks.putItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
     // fetchFileTree succeeds → detectModules finds affected module
     mocks.fetchFileTree.mockResolvedValue([
       'src/auth/index.ts',
@@ -461,7 +461,7 @@ describe('handler — incremental mode', () => {
       lastCommitSha: 'sha789',
     });
     mocks.putItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
     mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
     mocks.detectModules.mockReturnValue([]);
 
@@ -512,7 +512,7 @@ describe('handler — incremental mode', () => {
     } as never;
 
     mocks.putItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
     mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
     mocks.detectModules.mockReturnValue([]);
 
@@ -572,7 +572,7 @@ describe('handler — incremental mode', () => {
       lastCommitSha: 'def456',
     });
     mocks.putItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
     mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
     mocks.detectModules.mockReturnValue([]);
 
@@ -592,8 +592,8 @@ describe('handler — incremental mode', () => {
     );
     expect(authorPutCalls).toHaveLength(0);
 
-    // Should NOT read author profile via getItem (atomic ADD eliminates read-before-write)
-    const authorGetCalls = mocks.getItem.mock.calls.filter(
+    // Should NOT read author profile via getValidatedItem (atomic ADD eliminates read-before-write)
+    const authorGetCalls = mocks.getValidatedItem.mock.calls.filter(
       (call: unknown[]) => call[0] === 'author-profiles-table'
     );
     expect(authorGetCalls).toHaveLength(0);
@@ -629,7 +629,7 @@ describe('handler — incremental mode', () => {
       lastCommitSha: 'abc',
     });
     mocks.putItem.mockResolvedValue(undefined);
-    mocks.getItem.mockResolvedValue(null);
+    mocks.getValidatedItem.mockResolvedValue(null);
     mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
     mocks.detectModules.mockReturnValue([]);
 

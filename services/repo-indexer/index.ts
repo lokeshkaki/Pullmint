@@ -2,14 +2,15 @@ import type { SQSHandler, SQSEvent } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { getItem, updateItem, putItem, atomicDecrement } from '../shared/dynamodb';
+import { getValidatedItem, updateItem, putItem, atomicDecrement } from '../shared/dynamodb';
 import { getSecret } from '../shared/secrets';
 import { getGitHubInstallationClient } from '../shared/github-app';
 import { fetchFileTree, fetchFileCommitHistory, aggregateAuthorProfiles } from './git-history';
 import { detectModules } from './module-detector';
 import { generateModuleNarrative } from './narrative-generator';
 import { generateEmbedding } from './embeddings';
-import type { RepoRegistryRecord, FileMetrics, ModuleNarrative } from '../shared/types';
+import type { FileMetrics, ModuleNarrative } from '../shared/types';
+import { RepoRegistryRecordSchema, PRExecutionSchema } from '../shared/schemas';
 import type { Octokit } from '@octokit/rest';
 
 const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -428,15 +429,21 @@ async function handleIncremental(msg: IncrementalMessage): Promise<void> {
 }
 
 async function releaseQueuedPRs(repoFullName: string): Promise<void> {
-  const registry = await getItem<RepoRegistryRecord>(REPO_REGISTRY_TABLE_NAME, { repoFullName });
+  const registry = await getValidatedItem(
+    REPO_REGISTRY_TABLE_NAME,
+    { repoFullName },
+    RepoRegistryRecordSchema
+  );
   if (!registry?.queuedExecutionIds?.length) return;
 
   // Re-publish each queued execution to the analysis queue
   for (const executionId of registry.queuedExecutionIds) {
     try {
-      const execution = await getItem<Record<string, unknown>>(EXECUTIONS_TABLE_NAME, {
-        executionId,
-      });
+      const execution = await getValidatedItem(
+        EXECUTIONS_TABLE_NAME,
+        { executionId },
+        PRExecutionSchema
+      );
       if (execution) {
         const detail = {
           executionId,

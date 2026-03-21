@@ -60,6 +60,8 @@ export const PRExecutionSchema = z.object({
   repoPrKey: z.string().optional(),
   prNumber: z.number(),
   headSha: z.string(),
+  baseSha: z.string().optional(),
+  orgId: z.string().optional(),
   title: z.string().optional(),
   author: z.string().optional(),
   status: z.enum([
@@ -156,6 +158,16 @@ export const CalibrationRecordSchema = z.object({
   lastUpdatedAt: z.number(),
 });
 
+// --- Analysis Cache Record ---
+
+export const AnalysisCacheRecordSchema = z.object({
+  cacheKey: z.string(),
+  findings: z.array(FindingSchema),
+  riskScore: z.number(),
+  contextQuality: z.enum(['full', 'partial', 'none']).optional(),
+  ttl: z.number().optional(),
+});
+
 // --- Inferred types ---
 
 export type ValidatedPRExecution = z.infer<typeof PRExecutionSchema>;
@@ -165,3 +177,4 @@ export type ValidatedAuthorProfile = z.infer<typeof AuthorProfileSchema>;
 export type ValidatedModuleNarrative = z.infer<typeof ModuleNarrativeSchema>;
 export type ValidatedRepoRegistryRecord = z.infer<typeof RepoRegistryRecordSchema>;
 export type ValidatedCalibrationRecord = z.infer<typeof CalibrationRecordSchema>;
+export type ValidatedAnalysisCacheRecord = z.infer<typeof AnalysisCacheRecordSchema>;
