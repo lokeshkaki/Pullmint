@@ -251,7 +251,9 @@ describe('calibration-service handler', () => {
     ddbMock.on(PutCommand).rejects(conditionalError);
     ddbMock.on(UpdateCommand).resolves({});
 
-    await expect(handler(confirmedEvent('exec-1'), {} as never, {} as never)).resolves.toBeUndefined();
+    await expect(
+      handler(confirmedEvent('exec-1'), {} as never, {} as never)
+    ).resolves.toBeUndefined();
 
     expect(ddbMock.commandCalls(GetCommand).length).toBe(3);
     expect(ddbMock.commandCalls(PutCommand).length).toBe(1);
