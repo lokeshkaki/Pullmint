@@ -447,7 +447,7 @@ export class WebhookStack extends cdk.Stack {
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         DEDUP_TABLE_NAME: dedupTable.tableName,
-        DASHBOARD_AUTH_TOKEN: dashboardAuthSecret.secretValue.unsafeUnwrap(),
+        DASHBOARD_AUTH_SECRET_ARN: dashboardAuthSecret.secretArn,
         DASHBOARD_ALLOWED_ORIGINS: process.env.DASHBOARD_ALLOWED_ORIGINS ?? '',
       },
       bundling: {

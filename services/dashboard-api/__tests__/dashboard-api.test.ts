@@ -11,12 +11,18 @@ import { mockClient } from 'aws-sdk-client-mock';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 import type { PRExecution } from '../../shared/types';
 import { publishEvent } from '../../shared/eventbridge';
+import { getSecret } from '../../shared/secrets';
 
 jest.mock('../../shared/eventbridge', () => ({
   publishEvent: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../../shared/secrets', () => ({
+  getSecret: jest.fn(),
+}));
+
 const mockPublishEvent = publishEvent as jest.MockedFunction<typeof publishEvent>;
+const mockGetSecret = getSecret as jest.MockedFunction<typeof getSecret>;
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
@@ -25,8 +31,11 @@ describe('Dashboard API Handler', () => {
     ddbMock.reset();
     mockPublishEvent.mockReset();
     mockPublishEvent.mockResolvedValue(undefined);
+    mockGetSecret.mockReset();
+    mockGetSecret.mockResolvedValue('test-token');
     process.env.EXECUTIONS_TABLE_NAME = 'test-executions-table';
-    process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
+    process.env.DASHBOARD_AUTH_SECRET_ARN =
+      'arn:aws:secretsmanager:us-east-1:123456789012:secret:test-dashboard-auth';
     process.env.CALIBRATION_TABLE_NAME = 'test-calibration-table';
     process.env.DEDUP_TABLE_NAME = 'test-dedup-table';
     process.env.REPO_REGISTRY_TABLE_NAME = 'test-registry-table';
@@ -34,7 +43,7 @@ describe('Dashboard API Handler', () => {
   });
 
   afterEach(() => {
-    delete process.env.DASHBOARD_AUTH_TOKEN;
+    delete process.env.DASHBOARD_AUTH_SECRET_ARN;
     delete process.env.CALIBRATION_TABLE_NAME;
     delete process.env.DEDUP_TABLE_NAME;
     delete process.env.REPO_REGISTRY_TABLE_NAME;
@@ -125,11 +134,12 @@ describe('Dashboard API Handler', () => {
 
   describe('Authorization', () => {
     afterEach(() => {
-      delete process.env.DASHBOARD_AUTH_TOKEN;
+      delete process.env.DASHBOARD_AUTH_SECRET_ARN;
     });
 
     it('should reject requests without a token when auth is enabled', async () => {
-      process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
+      process.env.DASHBOARD_AUTH_SECRET_ARN =
+        'arn:aws:secretsmanager:us-east-1:123456789012:secret:test-dashboard-auth';
       // Explicitly pass no auth header
       const event = createMockEvent('/dashboard/executions', 'GET', null, {});
 
@@ -139,8 +149,8 @@ describe('Dashboard API Handler', () => {
       expect(JSON.parse(result.body)).toHaveProperty('error', 'Unauthorized');
     });
 
-    it('should return 503 when DASHBOARD_AUTH_TOKEN is not configured', async () => {
-      delete process.env.DASHBOARD_AUTH_TOKEN;
+    it('should return 503 when DASHBOARD_AUTH_SECRET_ARN is not configured', async () => {
+      delete process.env.DASHBOARD_AUTH_SECRET_ARN;
       const event = createMockEvent('/dashboard/executions', 'GET', null, {});
 
       const result = await handler(event);
@@ -153,7 +163,8 @@ describe('Dashboard API Handler', () => {
     });
 
     it('should allow requests with a valid bearer token', async () => {
-      process.env.DASHBOARD_AUTH_TOKEN = 'test-token';
+      process.env.DASHBOARD_AUTH_SECRET_ARN =
+        'arn:aws:secretsmanager:us-east-1:123456789012:secret:test-dashboard-auth';
       ddbMock.on(QueryCommand).resolves({ Items: [] });
       const event = createMockEvent('/dashboard/executions', 'GET', null, {
         Authorization: 'Bearer test-token',
