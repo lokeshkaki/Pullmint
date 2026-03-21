@@ -268,6 +268,42 @@ describe('handler — full-index mode', () => {
       { queuedExecutionIds: [] }
     );
   });
+
+  it('writes failed status with error message when full-index throws', async () => {
+    const handler = await loadHandler();
+    const mocks = getMocks();
+
+    mockOctokitInstance.rest.repos.get.mockRejectedValue(new Error('GitHub API unavailable'));
+    mocks.updateItem.mockResolvedValue(undefined);
+
+    await expect(
+      handler(makeEvent({ mode: 'full-index', repoFullName: 'org/repo', installationId: 1 }))
+    ).rejects.toThrow('GitHub API unavailable');
+
+    expect(mocks.updateItem).toHaveBeenCalledWith(
+      'registry-table',
+      { repoFullName: 'org/repo' },
+      expect.objectContaining({ indexingStatus: 'failed', lastError: 'GitHub API unavailable' })
+    );
+  });
+
+  it('writes failed status with Unknown error for non-Error throws', async () => {
+    const handler = await loadHandler();
+    const mocks = getMocks();
+
+    mockOctokitInstance.rest.repos.get.mockRejectedValue('string error');
+    mocks.updateItem.mockResolvedValue(undefined);
+
+    await expect(
+      handler(makeEvent({ mode: 'full-index', repoFullName: 'org/repo', installationId: 1 }))
+    ).rejects.toBe('string error');
+
+    expect(mocks.updateItem).toHaveBeenCalledWith(
+      'registry-table',
+      { repoFullName: 'org/repo' },
+      expect.objectContaining({ indexingStatus: 'failed', lastError: 'Unknown error' })
+    );
+  });
 });
 
 describe('handler — batch mode', () => {
