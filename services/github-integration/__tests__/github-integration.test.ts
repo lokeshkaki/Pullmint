@@ -767,7 +767,16 @@ describe('GitHub Integration', () => {
       Body: {
         transformToString: () =>
           Promise.resolve(
-            JSON.stringify({ findings: [{ type: 'architecture', severity: 'INVALID_SEVERITY', title: 'Bad', description: 'x' }] })
+            JSON.stringify({
+              findings: [
+                {
+                  type: 'architecture',
+                  severity: 'INVALID_SEVERITY',
+                  title: 'Bad',
+                  description: 'x',
+                },
+              ],
+            })
           ),
       },
     });

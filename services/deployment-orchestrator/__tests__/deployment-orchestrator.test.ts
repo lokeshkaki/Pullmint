@@ -780,7 +780,11 @@ describe('Deployment Orchestrator', () => {
     expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
     const secondCall = (updateItem as jest.Mock).mock.calls[1];
     expect(secondCall[2]).toMatchObject({ status: 'deployment-blocked' });
-    expect(getValidatedItem).toHaveBeenCalledWith('cal-table', { repoFullName: 'owner/repo' }, expect.anything());
+    expect(getValidatedItem).toHaveBeenCalledWith(
+      'cal-table',
+      { repoFullName: 'owner/repo' },
+      expect.anything()
+    );
   });
 
   it('uses actual blastRadiusMultiplier from execution record in pre-deploy checkpoint', async () => {
