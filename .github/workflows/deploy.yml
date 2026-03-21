@@ -71,11 +71,17 @@ jobs:
         run: |
           ENDPOINT=$(aws cloudformation describe-stacks --stack-name PullmintStagingStack --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
           ENDPOINT="${ENDPOINT%/}"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${ENDPOINT}/dashboard")
-          if [ "$STATUS" != "302" ]; then
-            echo "Smoke test failed: expected 302, got $STATUS"
-            exit 1
-          fi
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${ENDPOINT}/dashboard")
+            if [ "$STATUS" = "302" ]; then
+              echo "Smoke test passed (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i: got $STATUS, expected 302"
+            sleep 10
+          done
+          echo "Smoke test failed after 3 attempts"
+          exit 1
 
       - name: Post deployment status
         if: success()
