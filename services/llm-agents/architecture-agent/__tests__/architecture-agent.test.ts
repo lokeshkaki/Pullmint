@@ -1380,4 +1380,66 @@ describe('architecture-agent handler', () => {
 
     delete process.env.REPO_REGISTRY_TABLE_NAME;
   });
+
+  it('should default null riskScore to 50 (manual review), not 0 (auto-approve)', async () => {
+    const handler = await loadHandler();
+
+    const anthropicCreate = jest.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ riskScore: null, findings: [], summary: 'test' }),
+        },
+      ],
+      usage: { input_tokens: 5, output_tokens: 5 },
+    });
+    const anthropicConstructor = jest.requireMock('@anthropic-ai/sdk').default as jest.Mock;
+    anthropicConstructor.mockImplementation(
+      (): AnthropicMock => ({
+        messages: { create: anthropicCreate },
+      })
+    );
+
+    const diff = 'diff --git a/file.ts b/file.ts\n+const value = 1;';
+    const octokitMock: OctokitMock = {
+      rest: {
+        pulls: { get: jest.fn().mockResolvedValue({ data: diff }) },
+        checks: { listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }) },
+      },
+    };
+
+    const {
+      getSecret,
+      getGitHubInstallationClient,
+      hashContent,
+      getItem,
+      updateItem,
+      publishEvent,
+      putItem,
+    } = getSharedMocks();
+
+    getSecret.mockResolvedValue('secret');
+    getGitHubInstallationClient.mockResolvedValue(octokitMock as never);
+    hashContent.mockReturnValue('null-risk-key');
+    getItem.mockResolvedValue(null);
+    updateItem.mockResolvedValue(undefined);
+    publishEvent.mockResolvedValue(undefined);
+    putItem.mockResolvedValue(undefined);
+
+    await handler(buildEvent());
+
+    // riskScore should be 50 (manual review threshold), NOT 0 (auto-approve)
+    expect(updateItem).toHaveBeenCalledWith(
+      'executions-table',
+      { executionId: 'exec-123' },
+      expect.objectContaining({ riskScore: 50 })
+    );
+
+    expect(publishEvent).toHaveBeenCalledWith(
+      'event-bus',
+      'pullmint.agent',
+      'analysis.complete',
+      expect.objectContaining({ riskScore: 50 })
+    );
+  });
 });
