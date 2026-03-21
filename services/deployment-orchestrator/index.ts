@@ -292,13 +292,21 @@ async function runCheckpoint2(
   }
 
   // Fetch existing checkpoints so checkpoint2 can be appended rather than overwriting checkpoint1
-  const execution = await getItem<{ checkpoints?: CheckpointRecord[] }>(
+  const execution = await getItem<{
+    checkpoints?: CheckpointRecord[];
+    repoContext?: { blastRadiusMultiplier?: number };
+    signalsReceived?: Record<string, Signal>;
+  }>(
     config.executionsTableName,
     { executionId: detail.executionId }
   );
   const priorCheckpoints = execution?.checkpoints ?? [];
+  const blastRadiusMultiplier = execution?.repoContext?.blastRadiusMultiplier ?? 1.0;
+  const ingestedSignals: Signal[] = execution?.signalsReceived
+    ? Object.values(execution.signalsReceived)
+    : [];
 
-  const signals: Signal[] = [];
+  const signals: Signal[] = [...ingestedSignals];
   signals.push({
     signalType: 'time_of_day',
     value: Date.now(),
@@ -318,7 +326,7 @@ async function runCheckpoint2(
     llmBaseScore: detail.riskScore,
     signals,
     calibrationFactor,
-    blastRadiusMultiplier: 1.0,
+    blastRadiusMultiplier,
   });
 
   const checkpoint: CheckpointRecord = {

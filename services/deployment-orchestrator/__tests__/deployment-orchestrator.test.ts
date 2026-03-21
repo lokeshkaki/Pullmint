@@ -783,6 +783,62 @@ describe('Deployment Orchestrator', () => {
     expect(getItem).toHaveBeenCalledWith('cal-table', { repoFullName: 'owner/repo' });
   });
 
+  it('uses actual blastRadiusMultiplier from execution record in pre-deploy checkpoint', async () => {
+    // riskScore=10, blastRadius=5.0 → score = 10 * 5.0 * 1.0 + time_signal ≥ 50 → always blocked
+    // With old hardcoded blastRadius=1.0: score = 10 → well below threshold → would have proceeded
+    (getItem as jest.Mock)
+      .mockResolvedValueOnce(null) // idempotency: no prior deployment started
+      .mockResolvedValueOnce({    // runCheckpoint2 execution record: high blast radius
+        checkpoints: [],
+        repoContext: { blastRadiusMultiplier: 5.0 },
+        signalsReceived: {},
+      });
+
+    const lowRiskDetail = { ...baseDetail, riskScore: 10 };
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: lowRiskDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    // Score = 10 * 5.0 + time_delta (0-5) = 50-55 ≥ 40 → blocked
+    expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
+    const secondCall = (updateItem as jest.Mock).mock.calls[1];
+    expect(secondCall[2]).toMatchObject({
+      status: 'deployment-blocked',
+      checkpoints: [expect.objectContaining({ type: 'pre-deploy', decision: 'held' })],
+    });
+  });
+
+  it('includes ingested signals from signalsReceived in pre-deploy checkpoint', async () => {
+    // riskScore=25, signalsReceived has a CI failure (+15), blastRadius=1.0
+    // score = 25 * 1.0 + 15 + time_signal ≥ 40 → blocked
+    // Without using signalsReceived: score = 25 + time_signal < 40 → would have proceeded
+    (getItem as jest.Mock)
+      .mockResolvedValueOnce(null) // idempotency
+      .mockResolvedValueOnce({    // execution record with CI failure signal
+        checkpoints: [],
+        repoContext: { blastRadiusMultiplier: 1.0 },
+        signalsReceived: {
+          'ci.result': { signalType: 'ci.result', value: false, timestamp: Date.now(), source: 'ci' },
+        },
+      });
+
+    const moderateRiskDetail = { ...baseDetail, riskScore: 25 };
+
+    await handler(
+      { 'detail-type': 'deployment_approved', detail: moderateRiskDetail } as any,
+      mockContext,
+      mockCallback
+    );
+
+    // 25 * 1.0 + 15 (ci.result) + 0 (time_of_day if not friday) = 40 → blocked
+    expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
+    const secondCall = (updateItem as jest.Mock).mock.calls[1];
+    expect(secondCall[2]).toMatchObject({ status: 'deployment-blocked' });
+  });
+
   it('should skip webhook call if execution already has deploymentStartedAt', async () => {
     // Execution already marked as deploying from a prior Lambda invocation
     (getItem as jest.Mock).mockResolvedValue({
