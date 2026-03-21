@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, BatchGetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import type {
   PREvent,
@@ -10,11 +10,13 @@ import type {
   RepoRegistryRecord,
 } from '../../shared/types';
 import type { Octokit } from '@octokit/rest';
+import { rankBySimilarity } from './vector-search';
 
 const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const bedrockClient = new BedrockRuntimeClient({});
 
-const OPENSEARCH_TIMEOUT_MS = 3000;
+const NARRATIVE_SEARCH_TIMEOUT_MS = 3000;
+const PREFIX_FALLBACK_TIMEOUT_MS = 5000;
 const TOP_K_NARRATIVES = 5;
 
 function timeoutRace<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -34,7 +36,7 @@ export interface ContextConfig {
 }
 
 /**
- * Assemble rich context for a PR review from DynamoDB and OpenSearch.
+ * Assemble rich context for a PR review from DynamoDB-backed knowledge tables.
  * Gracefully degrades on partial failures.
  */
 export async function assembleContext(
@@ -50,7 +52,7 @@ export async function assembleContext(
     fetchContextVersion(prEvent.repoFullName, config.repoRegistryTable),
     fetchFileMetrics(prEvent.repoFullName, changedFiles, config.fileKnowledgeTable),
     fetchAuthorProfile(prEvent.repoFullName, prEvent.author, config.authorProfilesTable),
-    fetchModuleNarrativesWithFallback(prEvent.repoFullName, prEvent.title, changedFiles, config),
+    fetchModuleNarratives(prEvent.repoFullName, prEvent.title, changedFiles, config),
     fetchPRDescription(octokit, owner, repo, prEvent.prNumber),
     Promise.resolve(runStaticAnalysis(diff)),
   ]);
@@ -61,14 +63,14 @@ export async function assembleContext(
   const contextVersion = cvResult.status === 'fulfilled' ? cvResult.value : 1;
   const fileMetrics = metricsResult.status === 'fulfilled' ? metricsResult.value : [];
   const authorProfile = authorResult.status === 'fulfilled' ? authorResult.value : null;
-  const { narratives, usedFallback } =
+  const { narratives, degraded } =
     narrativesResult.status === 'fulfilled'
       ? narrativesResult.value
-      : { narratives: [], usedFallback: false };
+      : { narratives: [], degraded: false };
   const prDescription = descResult.status === 'fulfilled' ? descResult.value : '';
   const staticFindings = staticResult.status === 'fulfilled' ? staticResult.value : [];
 
-  if (usedFallback || results.some((r) => r.status === 'rejected')) {
+  if (degraded || results.some((r) => r.status === 'rejected')) {
     contextQuality = 'partial';
   }
   if (fileMetrics.length === 0 && narratives.length === 0 && !authorProfile) {
@@ -139,88 +141,117 @@ async function generateEmbeddingLocal(text: string): Promise<number[]> {
   return decoded.embedding;
 }
 
-async function fetchModuleNarrativesWithFallback(
+async function fetchModuleNarratives(
   repoFullName: string,
   prTitle: string,
   changedFiles: string[],
   config: ContextConfig
-): Promise<{ narratives: ModuleNarrative[]; usedFallback: boolean }> {
-  // Try OpenSearch semantic query first with timeout
+): Promise<{ narratives: ModuleNarrative[]; degraded: boolean }> {
+  const queryText = `${prTitle} ${changedFiles.join(' ')}`.trim();
+
+  let queryEmbedding: number[];
   try {
-    const queryText = `${prTitle} ${changedFiles.join(' ')}`;
-    const embedding = await timeoutRace(
+    queryEmbedding = await timeoutRace(
       generateEmbeddingLocal(queryText),
-      OPENSEARCH_TIMEOUT_MS,
+      NARRATIVE_SEARCH_TIMEOUT_MS,
       'embedding timeout'
     );
-
-    const url = `${config.opensearchEndpoint}/module-narrative-index/_search`;
-    const response = await timeoutRace(
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          size: TOP_K_NARRATIVES,
-          query: {
-            knn: {
-              embedding: {
-                vector: embedding,
-                k: TOP_K_NARRATIVES,
-                filter: { term: { repoFullName } },
-              },
-            },
-          },
-        }),
-      }),
-      OPENSEARCH_TIMEOUT_MS,
-      'opensearch timeout'
-    );
-
-    if (!response.ok) throw new Error(`OpenSearch ${response.status}`);
-    const body = (await response.json()) as { hits: { hits: Array<{ _source: ModuleNarrative }> } };
-    return { narratives: body.hits.hits.map((h) => h._source), usedFallback: false };
-  } catch (opensearchError) {
-    console.warn('[context-assembly] OpenSearch failed, falling back to DynamoDB', {
-      error: opensearchError instanceof Error ? opensearchError.message : 'unknown',
+  } catch (embeddingError) {
+    console.warn('[context-assembly] Embedding generation failed, falling back to prefix search', {
+      error: embeddingError instanceof Error ? embeddingError.message : 'unknown',
     });
 
-    // Fallback: exact-match from DynamoDB for files in the diff
-    const FALLBACK_TIMEOUT_MS = 5000;
-    const fallbackStart = Date.now();
-    const modulePathPrefixes = new Set(
-      changedFiles.map((f) => f.split('/').slice(0, -1).join('/')).filter((prefix) => !!prefix)
-    );
-    const totalPrefixes = modulePathPrefixes.size;
-    const narratives: ModuleNarrative[] = [];
-    let processedPrefixes = 0;
-
-    for (const prefix of modulePathPrefixes) {
-      if (Date.now() - fallbackStart > FALLBACK_TIMEOUT_MS) {
-        console.warn('[context-assembly] DynamoDB fallback loop timed out', {
-          fetchedCount: narratives.length,
-          remainingPrefixes: Math.max(totalPrefixes - processedPrefixes, 0),
-        });
-        break;
-      }
-
-      processedPrefixes += 1;
-      try {
-        const result = await docClient.send(
-          new GetCommand({
-            TableName: config.moduleNarrativesTable,
-            Key: { pk: `${repoFullName}#${prefix}` },
-          })
-        );
-        if (result.Item) narratives.push(result.Item as ModuleNarrative);
-      } catch (ddbError) {
-        console.warn('[context-assembly] DynamoDB fallback fetch failed for prefix', {
-          prefix,
-          error: ddbError instanceof Error ? ddbError.message : 'unknown',
-        });
-      }
-    }
-    return { narratives, usedFallback: true };
+    return {
+      narratives: await fetchNarrativesByPrefix(repoFullName, changedFiles, config),
+      degraded: true,
+    };
   }
+
+  try {
+    const result = await docClient.send(
+      new QueryCommand({
+        TableName: config.moduleNarrativesTable,
+        IndexName: 'repoFullName-index',
+        KeyConditionExpression: 'repoFullName = :repo',
+        ExpressionAttributeValues: {
+          ':repo': repoFullName,
+        },
+      })
+    );
+
+    const narratives = (result.Items ?? []) as ModuleNarrative[];
+    const rankedNarratives = rankBySimilarity(
+      queryEmbedding,
+      narratives,
+      (narrative) => narrative.embedding,
+      TOP_K_NARRATIVES
+    );
+
+    if (rankedNarratives.length > 0 || narratives.length === 0) {
+      return { narratives: rankedNarratives, degraded: false };
+    }
+
+    console.warn('[context-assembly] Repo narratives missing embeddings, falling back to prefix search', {
+      repoFullName,
+      narrativeCount: narratives.length,
+    });
+
+    return {
+      narratives: await fetchNarrativesByPrefix(repoFullName, changedFiles, config),
+      degraded: true,
+    };
+  } catch (ddbError) {
+    console.warn('[context-assembly] DynamoDB repo narrative query failed, falling back to prefix search', {
+      error: ddbError instanceof Error ? ddbError.message : 'unknown',
+    });
+
+    return {
+      narratives: await fetchNarrativesByPrefix(repoFullName, changedFiles, config),
+      degraded: true,
+    };
+  }
+}
+
+async function fetchNarrativesByPrefix(
+  repoFullName: string,
+  changedFiles: string[],
+  config: ContextConfig
+): Promise<ModuleNarrative[]> {
+  const fallbackStart = Date.now();
+  const modulePathPrefixes = new Set(
+    changedFiles.map((filePath) => filePath.split('/').slice(0, -1).join('/')).filter(Boolean)
+  );
+  const totalPrefixes = modulePathPrefixes.size;
+  const narratives: ModuleNarrative[] = [];
+  let processedPrefixes = 0;
+
+  for (const prefix of modulePathPrefixes) {
+    if (Date.now() - fallbackStart > PREFIX_FALLBACK_TIMEOUT_MS) {
+      console.warn('[context-assembly] DynamoDB fallback loop timed out', {
+        fetchedCount: narratives.length,
+        remainingPrefixes: Math.max(totalPrefixes - processedPrefixes, 0),
+      });
+      break;
+    }
+
+    processedPrefixes += 1;
+    try {
+      const result = await docClient.send(
+        new GetCommand({
+          TableName: config.moduleNarrativesTable,
+          Key: { pk: `${repoFullName}#${prefix}` },
+        })
+      );
+      if (result.Item) narratives.push(result.Item as ModuleNarrative);
+    } catch (ddbError) {
+      console.warn('[context-assembly] DynamoDB fallback fetch failed for prefix', {
+        prefix,
+        error: ddbError instanceof Error ? ddbError.message : 'unknown',
+      });
+    }
+  }
+
+  return narratives;
 }
 
 async function fetchPRDescription(

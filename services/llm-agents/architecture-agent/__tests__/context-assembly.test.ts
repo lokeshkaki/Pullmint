@@ -1,13 +1,15 @@
 import { mockClient } from 'aws-sdk-client-mock';
-import { DynamoDBDocumentClient, GetCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  BatchGetCommand,
+  QueryCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { assembleContext } from '../context-assembly';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const bedrockMock = mockClient(BedrockRuntimeClient);
-
-const mockFetch = jest.fn();
-global.fetch = mockFetch;
 
 const mockOctokit = {
   rest: { pulls: { get: jest.fn() } },
@@ -17,7 +19,6 @@ beforeEach(() => {
   ddbMock.reset();
   bedrockMock.reset();
   jest.resetAllMocks();
-  global.fetch = mockFetch;
 });
 
 describe('assembleContext', () => {
@@ -41,17 +42,14 @@ describe('assembleContext', () => {
   };
 
   it('returns full contextQuality when all sources respond', async () => {
-    // DynamoDB: contextVersion
     ddbMock
       .on(GetCommand, { TableName: 'registry-table' })
       .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 3 } });
 
-    // DynamoDB: file metrics
     ddbMock
       .on(BatchGetCommand)
       .resolves({ Responses: { 'file-table': [{ pk: 'org/repo#src/auth.ts', churnRate30d: 5 }] } });
 
-    // DynamoDB: author profile
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({
       Item: {
         repoFullName: 'org/repo',
@@ -63,38 +61,34 @@ describe('assembleContext', () => {
       },
     });
 
-    // Bedrock: embedding
-    const embeddingResponse = JSON.stringify({ embedding: new Array(1536).fill(0.1) });
+    ddbMock.on(QueryCommand, { TableName: 'narratives-table', IndexName: 'repoFullName-index' }).resolves({
+      Items: [
+        {
+          modulePath: 'src/auth',
+          narrativeText: 'Auth module.',
+          repoFullName: 'org/repo',
+          generatedAtSha: 'abc',
+          version: 1,
+          embedding: [1, 0, 0],
+        },
+        {
+          modulePath: 'src/utils',
+          narrativeText: 'Utility module.',
+          repoFullName: 'org/repo',
+          generatedAtSha: 'abc',
+          version: 1,
+          embedding: [0, 1, 0],
+        },
+      ],
+    });
+
     bedrockMock.on(InvokeModelCommand).resolves({
-      body: Buffer.from(embeddingResponse) as never,
+      body: Buffer.from(JSON.stringify({ embedding: [0.9, 0.1, 0] })) as never,
     });
 
-    // OpenSearch returns narratives
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          hits: {
-            hits: [
-              {
-                _source: {
-                  modulePath: 'src/auth',
-                  narrativeText: 'Auth module.',
-                  repoFullName: 'org/repo',
-                  generatedAtSha: 'abc',
-                  version: 1,
-                },
-              },
-            ],
-          },
-        }),
-    });
-
-    // PR description
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: 'Fixes the login bug.' } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/auth.ts'],
@@ -104,23 +98,16 @@ describe('assembleContext', () => {
 
     expect(result.contextQuality).toBe('full');
     expect(result.prDescription).toBe('Fixes the login bug.');
-    expect(result.moduleNarratives).toHaveLength(1);
+    expect(result.moduleNarratives[0].modulePath).toBe('src/auth');
     expect(result.contextVersion).toBe(3);
   });
 
-  it('returns partial contextQuality when OpenSearch times out', async () => {
-    // DynamoDB: contextVersion
+  it('returns partial contextQuality when embedding generation fails and prefix fallback succeeds', async () => {
     ddbMock
       .on(GetCommand, { TableName: 'registry-table' })
       .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
-
-    // DynamoDB: file metrics — empty
     ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
-
-    // DynamoDB: author profile — none
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
-
-    // DynamoDB: module narratives fallback — return a narrative
     ddbMock.on(GetCommand, { TableName: 'narratives-table' }).resolves({
       Item: {
         modulePath: 'src',
@@ -131,17 +118,10 @@ describe('assembleContext', () => {
       },
     });
 
-    // Bedrock timeout simulated by rejection
     bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
-
-    // OpenSearch — not reached because embedding fails first
-    mockFetch.mockRejectedValue(new Error('timeout'));
-
-    // PR description
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/auth.ts'],
@@ -155,18 +135,14 @@ describe('assembleContext', () => {
   });
 
   it('returns none contextQuality when all context sources fail', async () => {
-    // All DynamoDB calls fail
     ddbMock.on(GetCommand).rejects(new Error('DynamoDB error'));
     ddbMock.on(BatchGetCommand).rejects(new Error('DynamoDB error'));
+    ddbMock.on(QueryCommand).rejects(new Error('DynamoDB error'));
 
     bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
-    mockFetch.mockRejectedValue(new Error('timeout'));
-
-    // PR description fails too
     mockOctokit.rest.pulls.get.mockRejectedValue(new Error('GitHub error'));
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/auth.ts'],
@@ -185,13 +161,14 @@ describe('assembleContext', () => {
       .on(GetCommand, { TableName: 'registry-table' })
       .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
 
-    bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
-    mockFetch.mockRejectedValue(new Error('timeout'));
+    bedrockMock.on(InvokeModelCommand).resolves({
+      body: Buffer.from(JSON.stringify({ embedding: [1, 0, 0] })) as never,
+    });
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       [],
@@ -200,7 +177,6 @@ describe('assembleContext', () => {
     );
 
     expect(result.fileMetrics).toEqual([]);
-    // No BatchGetCommand should have been sent for empty files
     expect(ddbMock.commandCalls(BatchGetCommand)).toHaveLength(0);
   });
 
@@ -212,16 +188,14 @@ describe('assembleContext', () => {
       .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
     ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+    ddbMock.on(GetCommand, { TableName: 'narratives-table' }).resolves({ Item: undefined });
 
     bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
-    mockFetch.mockRejectedValue(new Error('timeout'));
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
-    // Generate 105 file paths
-    const manyFiles = Array.from({ length: 105 }, (_, i) => `src/file${i}.ts`);
+    const manyFiles = Array.from({ length: 105 }, (_, index) => `src/file${index}.ts`);
 
     await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       manyFiles,
@@ -229,10 +203,8 @@ describe('assembleContext', () => {
       baseConfig
     );
 
-    // Should warn about capping
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('105 files'));
 
-    // BatchGetCommand should only have 100 keys
     const batchCalls = ddbMock.commandCalls(BatchGetCommand);
     expect(batchCalls).toHaveLength(1);
     const keys = batchCalls[0].args[0].input.RequestItems?.['file-table']?.Keys;
@@ -247,13 +219,12 @@ describe('assembleContext', () => {
       .resolves({ Item: { repoFullName: 'org/repo' } });
     ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+    ddbMock.on(GetCommand, { TableName: 'narratives-table' }).resolves({ Item: undefined });
 
     bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
-    mockFetch.mockRejectedValue(new Error('timeout'));
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/auth.ts'],
@@ -270,13 +241,14 @@ describe('assembleContext', () => {
       .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
     ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
 
-    bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
-    mockFetch.mockRejectedValue(new Error('timeout'));
+    bedrockMock.on(InvokeModelCommand).resolves({
+      body: Buffer.from(JSON.stringify({ embedding: [1, 0, 0] })) as never,
+    });
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: null } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/auth.ts'],
@@ -287,7 +259,53 @@ describe('assembleContext', () => {
     expect(result.prDescription).toBe('');
   });
 
-  it('falls back to DynamoDB narratives when OpenSearch returns non-ok status', async () => {
+  it('should fetch narratives from DynamoDB using repoFullName GSI and rank by similarity', async () => {
+    ddbMock
+      .on(GetCommand, { TableName: 'registry-table' })
+      .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
+    ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
+    ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        {
+          pk: 'org/repo#src/auth',
+          repoFullName: 'org/repo',
+          modulePath: 'src/auth',
+          narrativeText: 'Authentication module',
+          generatedAtSha: 'abc',
+          version: 1,
+          embedding: [1, 0, 0],
+        },
+        {
+          pk: 'org/repo#src/utils',
+          repoFullName: 'org/repo',
+          modulePath: 'src/utils',
+          narrativeText: 'Utility functions',
+          generatedAtSha: 'def',
+          version: 1,
+          embedding: [0, 1, 0],
+        },
+      ],
+    });
+
+    bedrockMock.on(InvokeModelCommand).resolves({
+      body: Buffer.from(JSON.stringify({ embedding: [0.9, 0.1, 0] })) as never,
+    });
+    mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
+
+    const result = await assembleContext(
+      mockOctokit as any,
+      basePrEvent,
+      ['src/auth/index.ts'],
+      'mock diff content',
+      baseConfig
+    );
+
+    expect(result.moduleNarratives.length).toBeGreaterThan(0);
+    expect(result.moduleNarratives[0].modulePath).toBe('src/auth');
+  });
+
+  it('falls back to prefix search when the repo narrative query fails', async () => {
     ddbMock
       .on(GetCommand, { TableName: 'registry-table' })
       .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 2 } });
@@ -302,19 +320,14 @@ describe('assembleContext', () => {
         version: 1,
       },
     });
+    ddbMock.on(QueryCommand).rejects(new Error('query failed'));
 
-    // Bedrock succeeds for embedding
-    const embeddingResponse = JSON.stringify({ embedding: new Array(1536).fill(0.1) });
     bedrockMock.on(InvokeModelCommand).resolves({
-      body: Buffer.from(embeddingResponse) as never,
+      body: Buffer.from(JSON.stringify({ embedding: [1, 0, 0] })) as never,
     });
-
-    // OpenSearch returns 500
-    mockFetch.mockResolvedValue({ ok: false, status: 500 });
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/auth.ts'],
@@ -337,13 +350,10 @@ describe('assembleContext', () => {
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
     ddbMock.on(GetCommand, { TableName: 'narratives-table' }).resolves({ Item: undefined });
 
-    // Bedrock never resolves — simulates a hang
     bedrockMock.on(InvokeModelCommand).callsFake(() => new Promise(() => {}));
-
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
     const resultPromise = assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/auth.ts'],
@@ -351,12 +361,10 @@ describe('assembleContext', () => {
       baseConfig
     );
 
-    // Advance past the timeout
     jest.advanceTimersByTime(4000);
 
     const result = await resultPromise;
 
-    // Should fall back gracefully — 'none' because no context data was available
     expect(result.contextQuality).toBe('none');
 
     jest.useRealTimers();
@@ -387,11 +395,9 @@ describe('assembleContext', () => {
     });
 
     bedrockMock.on(InvokeModelCommand).rejects(new Error('embedding failed'));
-    mockFetch.mockRejectedValue(new Error('opensearch down'));
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
       ['src/a/file.ts', 'src/b/file.ts', 'src/c/file.ts'],
@@ -402,7 +408,7 @@ describe('assembleContext', () => {
     expect(result.contextQuality).toBe('partial');
     expect(result.moduleNarratives).toHaveLength(1);
     expect(warnSpy).toHaveBeenCalledWith(
-      '[context-assembly] OpenSearch failed, falling back to DynamoDB',
+      '[context-assembly] Embedding generation failed, falling back to prefix search',
       expect.objectContaining({ error: 'embedding failed' })
     );
     expect(warnSpy).toHaveBeenCalledWith(
@@ -422,19 +428,19 @@ describe('assembleContext', () => {
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
 
     bedrockMock.on(InvokeModelCommand).rejects(new Error('timeout'));
-    mockFetch.mockRejectedValue(new Error('timeout'));
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
 
     const result = await assembleContext(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       mockOctokit as any,
       basePrEvent,
-      ['README.md'], // root-level file, no directory prefix
+      ['README.md'],
       'mock diff content',
       baseConfig
     );
 
-    // Root-level files produce empty prefix which is skipped — no narratives table lookup
     expect(result.moduleNarratives).toEqual([]);
+    expect(
+      ddbMock.commandCalls(GetCommand).filter((call) => call.args[0].input.TableName === 'narratives-table')
+    ).toHaveLength(0);
   });
 });
