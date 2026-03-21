@@ -520,7 +520,7 @@ export class WebhookStack extends cdk.Stack {
       timeout: cdk.Duration.minutes(5),
       tracing: lambda.Tracing.ACTIVE,
       environment: {
-        EXECUTIONS_TABLE_NAME: executionsTable.tableName,
+        REPO_REGISTRY_TABLE_NAME: repoRegistryTable.tableName,
         DEPENDENCY_GRAPH_TABLE_NAME: dependencyGraphTable.tableName,
         GITHUB_APP_ID: githubAppId ?? '',
         GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
@@ -657,7 +657,7 @@ export class WebhookStack extends cdk.Stack {
     executionsTable.grantReadData(calibrationServiceFn);
 
     // Dependency scanner permissions
-    executionsTable.grantReadData(dependencyScannerFn);
+    repoRegistryTable.grantReadData(dependencyScannerFn);
     dependencyGraphTable.grantReadWriteData(dependencyScannerFn);
     githubAppPrivateKey.grantRead(dependencyScannerFn);
 
