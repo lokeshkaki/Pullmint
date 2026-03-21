@@ -231,6 +231,24 @@ describe('signal-ingestion handler', () => {
     expect(result?.statusCode).toBe(500);
   });
 
+  it('should use atomic SET on nested map key to avoid race condition', async () => {
+    // signalsReceived map does not exist yet
+    ddbMock.on(GetCommand).resolves({ Item: { executionId: 'exec-1', status: 'monitoring' } });
+    ddbMock.on(UpdateCommand).resolves({});
+    ebMock.on(PutEventsCommand).resolves({ FailedEntryCount: 0, Entries: [] });
+
+    await handler(makeEvent('exec-1', validSignal), {} as never, {} as never);
+
+    // Verify the UpdateCommand uses if_not_exists + nested path SET, not full map overwrite
+    const updateCalls = ddbMock.commandCalls(UpdateCommand);
+    const signalUpdate = updateCalls.find((c) =>
+      c.args[0].input.UpdateExpression?.includes('signalsReceived.#signalKey')
+    );
+    expect(signalUpdate).toBeDefined();
+    // Also verify if_not_exists is used for map creation
+    expect(signalUpdate?.args[0].input.UpdateExpression).toContain('if_not_exists');
+  });
+
   it('uses nested SET when signalsReceived map already exists', async () => {
     ddbMock.on(GetCommand).resolves({
       Item: {

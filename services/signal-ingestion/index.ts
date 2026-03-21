@@ -92,31 +92,25 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     // 5. Store signal — single conditional update per path to avoid DynamoDB
     // PathNotFoundException when signalsReceived map does not yet exist.
     const signalEntry = { value: signal.value, source: signal.source, receivedAt: Date.now() };
-    if (existingMap) {
-      // Map exists — use nested path SET (concurrent-safe, no overwrite of other keys)
-      await ddb.send(
-        new UpdateCommand({
-          TableName: EXECUTIONS_TABLE_NAME,
-          Key: { executionId },
-          UpdateExpression: 'SET #sr.#key = :signal, updatedAt = :now',
-          ExpressionAttributeNames: { '#sr': 'signalsReceived', '#key': signalKey },
-          ExpressionAttributeValues: { ':signal': signalEntry, ':now': Date.now() },
-        })
-      );
-    } else {
-      // Map absent — write the whole map in one shot
-      await ddb.send(
-        new UpdateCommand({
-          TableName: EXECUTIONS_TABLE_NAME,
-          Key: { executionId },
-          UpdateExpression: 'SET signalsReceived = :signals, updatedAt = :now',
-          ExpressionAttributeValues: {
-            ':signals': { [signalKey]: signalEntry },
-            ':now': Date.now(),
-          },
-        })
-      );
-    }
+    // Atomic: SET the nested key, creating the map if absent.
+    // Uses if_not_exists to initialise signalsReceived when it doesn't yet exist,
+    // then sets the nested key — all in one expression, eliminating the race where
+    // two concurrent writers both see "map absent" and overwrite each other.
+    await ddb.send(
+      new UpdateCommand({
+        TableName: EXECUTIONS_TABLE_NAME,
+        Key: { executionId },
+        UpdateExpression:
+          'SET signalsReceived = if_not_exists(signalsReceived, :emptyMap), ' +
+          'signalsReceived.#signalKey = :signalEntry, updatedAt = :now',
+        ExpressionAttributeNames: { '#signalKey': signalKey },
+        ExpressionAttributeValues: {
+          ':emptyMap': {},
+          ':signalEntry': signalEntry,
+          ':now': Date.now(),
+        },
+      })
+    );
 
     // 6. Publish event via shared helper (includes 256KB guard and FailedEntryCount check)
     await publishEvent(EVENT_BUS_NAME, 'pullmint.signals', 'signal.received', {
