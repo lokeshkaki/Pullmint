@@ -7,6 +7,7 @@ const EXPECTED_SIGNAL_TYPES = [
   'production.error_rate',
   'production.latency',
   'time_of_day',
+  'simultaneous_deploy',
 ] as const;
 
 function getSignalDelta(signal: Signal): number {
@@ -22,6 +23,9 @@ function getSignalDelta(signal: Signal): number {
       return typeof value === 'number' && value > 20 ? 10 : 0;
     case 'time_of_day':
       return typeof value === 'number' && isFridayAfternoon(value) ? 5 : 0;
+    case 'author_history':
+      // value is rollback rate (0.0 - 1.0). High rollback rate increases risk.
+      return typeof value === 'number' && value > 0.2 ? 10 : 0;
     case 'simultaneous_deploy':
       return value === true ? 8 : 0;
     default:
@@ -31,7 +35,10 @@ function getSignalDelta(signal: Signal): number {
 
 function isFridayAfternoon(timestamp: number): boolean {
   const d = new Date(timestamp);
-  return d.getUTCDay() === 5 && d.getUTCHours() >= 15;
+  const day = d.getUTCDay();
+  const hour = d.getUTCHours();
+  // Cover Friday 12:00 UTC through Saturday 06:00 UTC to include UTC-7 (US Pacific) through UTC+5 (India)
+  return (day === 5 && hour >= 12) || (day === 6 && hour < 6);
 }
 
 function buildReason(
@@ -65,9 +72,9 @@ export function evaluateRisk(input: RiskEvaluationInput): RiskEvaluation {
 
   const dedupedSignals = deduplicateSignals(signals);
   const signalDelta = dedupedSignals.reduce((sum, s) => sum + getSignalDelta(s), 0);
-  const rawScore = llmBaseScore + signalDelta;
-  const blastAdjusted = rawScore * blastRadiusMultiplier;
-  const calibrationAdjusted = blastAdjusted * calibrationFactor;
+  // Apply multipliers only to the LLM base score so signal deltas always contribute their face value
+  const adjustedBase = llmBaseScore * blastRadiusMultiplier * calibrationFactor;
+  const calibrationAdjusted = adjustedBase + signalDelta;
   const score = Math.min(100, Math.round(calibrationAdjusted));
 
   const receivedTypes = new Set(dedupedSignals.map((s) => s.signalType));

@@ -29,6 +29,7 @@ describe('evaluateRisk', () => {
       expect(result.missingSignals).toContain('production.latency');
       expect(result.missingSignals).toContain('author_history');
       expect(result.missingSignals).toContain('time_of_day');
+      expect(result.missingSignals).toContain('simultaneous_deploy');
     });
 
     it('returns a non-empty reason string', () => {
@@ -135,7 +136,7 @@ describe('evaluateRisk', () => {
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
 
-    it('adds 0 for a Friday morning deploy (before 3pm)', () => {
+    it('adds 0 for a Friday morning deploy (before 12:00 UTC)', () => {
       const fridayMorning = new Date('2026-03-13T10:00:00Z').getTime();
       const signals: Signal[] = [
         {
@@ -144,6 +145,32 @@ describe('evaluateRisk', () => {
           source: 'system',
           timestamp: fridayMorning,
         },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
+    });
+
+    it('adds +5 for Friday 12:00 UTC (covers US Pacific Friday afternoon)', () => {
+      // Friday noon UTC = Friday morning US Pacific — included in extended window
+      const fridayNoonUTC = new Date('2026-03-13T12:00:00Z').getTime();
+      const signals: Signal[] = [
+        { signalType: 'time_of_day', value: fridayNoonUTC, source: 'system', timestamp: fridayNoonUTC },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(35);
+    });
+
+    it('adds +5 for Saturday 03:00 UTC (Friday evening US Pacific)', () => {
+      // Saturday 03:00 UTC = Friday 8pm US Pacific — still in extended window
+      const saturdayEarlyUTC = new Date('2026-03-14T03:00:00Z').getTime();
+      const signals: Signal[] = [
+        { signalType: 'time_of_day', value: saturdayEarlyUTC, source: 'system', timestamp: saturdayEarlyUTC },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(35);
+    });
+
+    it('adds 0 for Saturday 07:00 UTC (past the extended window)', () => {
+      const saturdayMorningUTC = new Date('2026-03-14T07:00:00Z').getTime();
+      const signals: Signal[] = [
+        { signalType: 'time_of_day', value: saturdayMorningUTC, source: 'system', timestamp: saturdayMorningUTC },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
@@ -199,6 +226,21 @@ describe('evaluateRisk', () => {
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
 
+    it('applies author_history delta when rollback rate exceeds 0.2', () => {
+      const signals: Signal[] = [
+        { signalType: 'author_history', value: 0.4, source: 'pullmint', timestamp: Date.now() },
+      ];
+      // rollback rate 40% > 20% threshold → +10
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(40);
+    });
+
+    it('adds 0 for author_history when rollback rate is at or below 0.2', () => {
+      const signals: Signal[] = [
+        { signalType: 'author_history', value: 0.2, source: 'pullmint', timestamp: Date.now() },
+      ];
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
+    });
+
     it('ignores unknown signal types', () => {
       const signals = [
         {
@@ -213,12 +255,12 @@ describe('evaluateRisk', () => {
   });
 
   describe('multipliers', () => {
-    it('applies blastRadiusMultiplier to (baseScore + signalDelta)', () => {
-      // (30 + 15) * 2.0 * 1.0 = 90
+    it('applies blastRadiusMultiplier to base score only, not signal deltas', () => {
+      // 30 * 2.0 * 1.0 + 15 = 75 — multipliers apply only to LLM base, signal deltas add at face value
       const signals: Signal[] = [
         { signalType: 'ci.result', value: false, source: 'github', timestamp: Date.now() },
       ];
-      expect(evaluateRisk({ ...baseInput, signals, blastRadiusMultiplier: 2.0 }).score).toBe(90);
+      expect(evaluateRisk({ ...baseInput, signals, blastRadiusMultiplier: 2.0 }).score).toBe(75);
     });
 
     it('applies calibrationFactor after blastRadiusMultiplier', () => {
@@ -259,6 +301,21 @@ describe('evaluateRisk', () => {
         }).score
       ).toBe(0);
     });
+
+    it('should not amplify signal deltas by both multipliers', () => {
+      // blastRadius=1.5, calibration=1.5, CI fail (+15)
+      // New formula: 20 * 1.5 * 1.5 + 15 = 45 + 15 = 60
+      // Old formula would have produced: (20 + 15) * 1.5 * 1.5 = 78.75 → 79
+      const result = evaluateRisk({
+        llmBaseScore: 20,
+        signals: [
+          { signalType: 'ci.result', value: false, timestamp: Date.now(), source: 'ci' },
+        ],
+        calibrationFactor: 1.5,
+        blastRadiusMultiplier: 1.5,
+      });
+      expect(result.score).toBe(60);
+    });
   });
 
   describe('confidence', () => {
@@ -270,18 +327,19 @@ describe('evaluateRisk', () => {
         { signalType: 'production.error_rate', value: 0, source: 'datadog', timestamp: Date.now() },
         { signalType: 'production.latency', value: 0, source: 'datadog', timestamp: Date.now() },
         { signalType: 'time_of_day', value: Date.now(), source: 'system', timestamp: Date.now() },
+        { signalType: 'simultaneous_deploy', value: false, source: 'pullmint', timestamp: Date.now() },
       ];
       expect(evaluateRisk({ ...baseInput, signals: allSignals }).confidence).toBe(1.0);
     });
 
-    it('is 0.5 when exactly half of expected signals are present', () => {
+    it('is approximately 3/7 when 3 of 7 expected signals are present', () => {
       const signals: Signal[] = [
         { signalType: 'ci.result', value: true, source: 'github', timestamp: Date.now() },
         { signalType: 'ci.coverage', value: 0, source: 'github', timestamp: Date.now() },
         { signalType: 'author_history', value: 0.9, source: 'pullmint', timestamp: Date.now() },
       ];
-      // 3 of 6 = 0.5
-      expect(evaluateRisk({ ...baseInput, signals }).confidence).toBe(0.5);
+      // 3 of 7 ≈ 0.43
+      expect(evaluateRisk({ ...baseInput, signals }).confidence).toBeCloseTo(3 / 7, 2);
     });
 
     it('does not count duplicate signal types toward confidence more than once', () => {
@@ -289,9 +347,9 @@ describe('evaluateRisk', () => {
         { signalType: 'ci.result', value: true, source: 'github', timestamp: 1000 },
         { signalType: 'ci.result', value: false, source: 'github', timestamp: 2000 }, // same type, different time
       ];
-      // ci.result present once in the set of expected types — still 1/6
+      // ci.result present once in the set of expected types — still 1/7
       const result = evaluateRisk({ ...baseInput, signals });
-      expect(result.confidence).toBeCloseTo(1 / 6, 2);
+      expect(result.confidence).toBeCloseTo(1 / 7, 2);
     });
 
     it('missing signals list excludes signal types that are present', () => {
@@ -301,6 +359,15 @@ describe('evaluateRisk', () => {
       const result = evaluateRisk({ ...baseInput, signals });
       expect(result.missingSignals).not.toContain('ci.result');
       expect(result.missingSignals).toContain('production.error_rate');
+    });
+
+    it('includes simultaneous_deploy in expected signals for confidence calculation', () => {
+      const signals: Signal[] = [
+        { signalType: 'simultaneous_deploy', value: true, source: 'pullmint', timestamp: Date.now() },
+      ];
+      const result = evaluateRisk({ ...baseInput, signals });
+      expect(result.confidence).toBeGreaterThan(0);
+      expect(result.missingSignals).not.toContain('simultaneous_deploy');
     });
   });
 });
