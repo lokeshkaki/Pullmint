@@ -1,6 +1,6 @@
 import { handler, buildCommentBody, getRiskEmoji, getRiskLevel } from '../index';
 import { publishEvent } from '../../shared/eventbridge';
-import { getItem, updateItem, updateItemConditional } from '../../shared/dynamodb';
+import { getValidatedItem, updateItem, updateItemConditional } from '../../shared/dynamodb';
 import { getGitHubInstallationClient } from '../../shared/github-app';
 
 jest.mock('../../shared/eventbridge', () => ({
@@ -8,7 +8,7 @@ jest.mock('../../shared/eventbridge', () => ({
 }));
 
 jest.mock('../../shared/dynamodb', () => ({
-  getItem: jest.fn(),
+  getValidatedItem: jest.fn(),
   updateItem: jest.fn(),
   updateItemConditional: jest.fn(),
 }));
@@ -83,7 +83,7 @@ describe('GitHub Integration', () => {
     });
 
     (updateItemConditional as jest.Mock).mockResolvedValue(undefined);
-    (getItem as jest.Mock).mockResolvedValue(null);
+    (getValidatedItem as jest.Mock).mockResolvedValue(null);
     getS3SendMock().mockResolvedValue({});
 
     process.env.EXECUTIONS_TABLE_NAME = 'exec-table';
@@ -760,9 +760,55 @@ describe('GitHub Integration', () => {
     ).rejects.toThrow('Empty S3 response for key: executions/exec-123/analysis.json');
   });
 
+  it('returns empty findings when S3 findings fail schema validation', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+    // Return findings with an invalid severity value to trigger Zod failure
+    getS3SendMock().mockResolvedValueOnce({
+      Body: {
+        transformToString: () =>
+          Promise.resolve(
+            JSON.stringify({ findings: [{ type: 'architecture', severity: 'INVALID_SEVERITY', title: 'Bad', description: 'x' }] })
+          ),
+      },
+    });
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, s3Key: 'executions/exec-123/analysis.json', findings: undefined },
+    } as any);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('S3 findings failed validation'),
+      expect.objectContaining({ s3Key: 'executions/exec-123/analysis.json' })
+    );
+    const commentBody = (createComment.mock.calls[0][0] as { body: string }).body;
+    expect(commentBody).toContain('No Issues Found');
+    warnSpy.mockRestore();
+  });
+
+  it('returns empty findings when S3 response has non-array findings field', async () => {
+    process.env.DEPLOYMENT_STRATEGY = 'label';
+    // Return JSON where findings is not an array — exercises the !Array.isArray branch
+    getS3SendMock().mockResolvedValueOnce({
+      Body: {
+        transformToString: () => Promise.resolve(JSON.stringify({ findings: null })),
+      },
+    });
+
+    await invokeHandler({
+      'detail-type': 'analysis.complete',
+      detail: { ...baseDetail, s3Key: 'executions/exec-123/analysis.json', findings: undefined },
+    } as any);
+
+    const commentBody = (createComment.mock.calls[0][0] as { body: string }).body;
+    expect(commentBody).toContain('No Issues Found');
+  });
+
   it('fetches execution checkpoint and includes confidence in PR comment', async () => {
     process.env.DEPLOYMENT_STRATEGY = 'label';
-    (getItem as jest.Mock).mockResolvedValue({
+    (getValidatedItem as jest.Mock).mockResolvedValue({
       checkpoints: [
         {
           type: 'analysis',

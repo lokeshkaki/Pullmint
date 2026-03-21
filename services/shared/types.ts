@@ -18,6 +18,8 @@ export interface PRExecution {
   repoPrKey?: string;
   prNumber: number;
   headSha: string;
+  title?: string;
+  author?: string;
   status:
     | 'pending'
     | 'analyzing'
@@ -33,6 +35,7 @@ export interface PRExecution {
   entityType?: 'execution';
   findings?: Finding[];
   riskScore?: number;
+  confidenceScore?: number;
   error?: string;
   updatedAt?: number;
   deploymentStatus?: 'deploying' | 'deployed' | 'failed';

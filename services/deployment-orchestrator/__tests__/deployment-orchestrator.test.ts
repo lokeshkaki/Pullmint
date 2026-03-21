@@ -1,6 +1,6 @@
 import { handler } from '../index';
 import { publishEvent } from '../../shared/eventbridge';
-import { getItem, updateItem } from '../../shared/dynamodb';
+import { getValidatedItem, updateItem } from '../../shared/dynamodb';
 import { getSecret } from '../../shared/secrets';
 import { DeploymentApprovedEvent } from '../../shared/types';
 import { Context, Callback } from 'aws-lambda';
@@ -10,7 +10,7 @@ jest.mock('../../shared/eventbridge', () => ({
 }));
 
 jest.mock('../../shared/dynamodb', () => ({
-  getItem: jest.fn(),
+  getValidatedItem: jest.fn(),
   updateItem: jest.fn(),
 }));
 
@@ -49,7 +49,7 @@ describe('Deployment Orchestrator', () => {
     delete process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN;
     delete process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL;
     delete process.env.CALIBRATION_TABLE_NAME;
-    (getItem as jest.Mock).mockResolvedValue(null);
+    (getValidatedItem as jest.Mock).mockResolvedValue(null);
     (getSecret as jest.Mock).mockResolvedValue(
       JSON.stringify({ url: 'https://deploy.example.com', token: 'test-auth-token' })
     );
@@ -748,8 +748,8 @@ describe('Deployment Orchestrator', () => {
 
   it('defaults calibration factor to 1.0 when calibration record is absent', async () => {
     process.env.CALIBRATION_TABLE_NAME = 'cal-table';
-    // getItem returns null → calibrationFactor defaults to 1.0, score stays low
-    (getItem as jest.Mock).mockResolvedValue(null);
+    // getValidatedItem returns null → calibrationFactor defaults to 1.0, score stays low
+    (getValidatedItem as jest.Mock).mockResolvedValue(null);
 
     await handler(
       { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
@@ -768,7 +768,7 @@ describe('Deployment Orchestrator', () => {
   it('uses calibration factor from DynamoDB to block deployment when CALIBRATION_TABLE_NAME is set', async () => {
     process.env.CALIBRATION_TABLE_NAME = 'cal-table';
     // calibrationFactor=2.0, riskScore=25 → score = 25 * 2.0 = 50 ≥ 40 → blocked
-    (getItem as jest.Mock).mockResolvedValue({ calibrationFactor: 2.0 });
+    (getValidatedItem as jest.Mock).mockResolvedValue({ calibrationFactor: 2.0 });
     const moderateRiskDetail = { ...baseDetail, riskScore: 25 };
 
     await handler(
@@ -780,13 +780,13 @@ describe('Deployment Orchestrator', () => {
     expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
     const secondCall = (updateItem as jest.Mock).mock.calls[1];
     expect(secondCall[2]).toMatchObject({ status: 'deployment-blocked' });
-    expect(getItem).toHaveBeenCalledWith('cal-table', { repoFullName: 'owner/repo' });
+    expect(getValidatedItem).toHaveBeenCalledWith('cal-table', { repoFullName: 'owner/repo' }, expect.anything());
   });
 
   it('uses actual blastRadiusMultiplier from execution record in pre-deploy checkpoint', async () => {
     // riskScore=10, blastRadius=5.0 → score = 10 * 5.0 * 1.0 + time_signal ≥ 50 → always blocked
     // With old hardcoded blastRadius=1.0: score = 10 → well below threshold → would have proceeded
-    (getItem as jest.Mock)
+    (getValidatedItem as jest.Mock)
       .mockResolvedValueOnce(null) // idempotency: no prior deployment started
       .mockResolvedValueOnce({
         // runCheckpoint2 execution record: high blast radius
@@ -816,7 +816,7 @@ describe('Deployment Orchestrator', () => {
     // riskScore=25, signalsReceived has a CI failure (+15), blastRadius=1.0
     // score = 25 * 1.0 + 15 + time_signal ≥ 40 → blocked
     // Without using signalsReceived: score = 25 + time_signal < 40 → would have proceeded
-    (getItem as jest.Mock)
+    (getValidatedItem as jest.Mock)
       .mockResolvedValueOnce(null) // idempotency
       .mockResolvedValueOnce({
         // execution record with CI failure signal
@@ -848,7 +848,7 @@ describe('Deployment Orchestrator', () => {
 
   it('should skip webhook call if execution already has deploymentStartedAt', async () => {
     // Execution already marked as deploying from a prior Lambda invocation
-    (getItem as jest.Mock).mockResolvedValue({
+    (getValidatedItem as jest.Mock).mockResolvedValue({
       executionId: 'exec-123',
       status: 'deploying',
       deploymentStartedAt: Date.now() - 5000,
@@ -883,9 +883,9 @@ describe('Deployment Orchestrator', () => {
       reason: 'ok',
       evaluatedAt: 0,
     };
-    // First getItem call: idempotency guard (no deploymentStartedAt → proceed)
-    // Second getItem call: runCheckpoint2 fetches prior checkpoints
-    (getItem as jest.Mock)
+    // First getValidatedItem call: idempotency guard (no deploymentStartedAt → proceed)
+    // Second getValidatedItem call: runCheckpoint2 fetches prior checkpoints
+    (getValidatedItem as jest.Mock)
       .mockResolvedValueOnce({ checkpoints: [priorCheckpoint] })
       .mockResolvedValueOnce({ checkpoints: [priorCheckpoint] });
 
