@@ -18,6 +18,7 @@ import type { RepoRegistryRecord } from '../shared/types';
 import { getItem, getValidatedItem, updateItem } from '../shared/dynamodb';
 import { PRExecutionSchema } from '../shared/schemas';
 import { publishEvent } from '../shared/eventbridge';
+import { getSecret } from '../shared/secrets';
 import { addTraceAnnotations } from '../shared/tracer';
 
 const ddbClient = new DynamoDBClient({});
@@ -133,11 +134,11 @@ function getEventBusName(): string {
   return process.env.EVENT_BUS_NAME || 'pullmint-bus';
 }
 
-function isAuthorized(event: APIGatewayProxyEvent): boolean {
-  const authToken = process.env.DASHBOARD_AUTH_TOKEN;
-  if (!authToken) {
-    // Deny all requests when token is not configured — safe-by-default
-    console.error('DASHBOARD_AUTH_TOKEN not configured — denying all requests');
+async function isAuthorized(event: APIGatewayProxyEvent): Promise<boolean> {
+  const authSecretArn = process.env.DASHBOARD_AUTH_SECRET_ARN;
+  if (!authSecretArn) {
+    // Deny all requests when auth secret ARN is not configured.
+    console.error('DASHBOARD_AUTH_SECRET_ARN not configured; denying all requests');
     return false;
   }
 
@@ -146,6 +147,7 @@ function isAuthorized(event: APIGatewayProxyEvent): boolean {
     return false;
   }
 
+  const authToken = await getSecret(authSecretArn);
   const token = headerValue.startsWith('Bearer ') ? headerValue.slice(7) : headerValue;
   return token === authToken;
 }
@@ -200,7 +202,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
-    if (!process.env.DASHBOARD_AUTH_TOKEN) {
+    if (!process.env.DASHBOARD_AUTH_SECRET_ARN) {
       return {
         statusCode: 503,
         headers: corsHeaders,
@@ -208,7 +210,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       };
     }
 
-    if (!isAuthorized(event)) {
+    if (!(await isAuthorized(event))) {
       return {
         statusCode: 401,
         headers: corsHeaders,
