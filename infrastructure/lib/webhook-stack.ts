@@ -727,7 +727,13 @@ export class WebhookStack extends cdk.Stack {
         source: ['pullmint.agent'],
         detailType: ['analysis.complete'],
       },
-      targets: [new targets.LambdaFunction(githubIntegration)],
+      targets: [
+        new targets.LambdaFunction(githubIntegration, {
+          deadLetterQueue: webhookDLQ,
+          retryAttempts: 2,
+          maxEventAge: cdk.Duration.hours(2),
+        }),
+      ],
     });
 
     // Route deployment approvals to orchestrator
@@ -753,7 +759,13 @@ export class WebhookStack extends cdk.Stack {
         source: ['pullmint.orchestrator', 'pullmint.github'],
         detailType: ['deployment.status'],
       },
-      targets: [new targets.LambdaFunction(githubIntegration)],
+      targets: [
+        new targets.LambdaFunction(githubIntegration, {
+          deadLetterQueue: webhookDLQ,
+          retryAttempts: 2,
+          maxEventAge: cdk.Duration.hours(2),
+        }),
+      ],
     });
 
     // Scheduled trigger: deployment monitor runs every 5 minutes
