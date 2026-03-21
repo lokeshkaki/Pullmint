@@ -5,6 +5,7 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
@@ -232,6 +233,23 @@ export class WebhookStack extends cdk.Stack {
           expiration: cdk.Duration.days(90),
           id: 'expire-after-90-days',
         },
+      ],
+    });
+
+    const dashboardBucket = new s3.Bucket(this, 'DashboardBucket', {
+      bucketName: `pullmint-dashboard-${cdk.Stack.of(this).account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    new s3deploy.BucketDeployment(this, 'DashboardDeployment', {
+      sources: [s3deploy.Source.asset(path.join(__dirname, '../../services/dashboard-ui/static'))],
+      destinationBucket: dashboardBucket,
+      cacheControl: [
+        s3deploy.CacheControl.setPublic(),
+        s3deploy.CacheControl.maxAge(cdk.Duration.hours(1)),
       ],
     });
 
