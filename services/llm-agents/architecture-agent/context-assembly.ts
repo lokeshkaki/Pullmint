@@ -1,5 +1,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, BatchGetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  BatchGetCommand,
+  QueryCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import type {
   PREvent,
@@ -190,19 +195,25 @@ async function fetchModuleNarratives(
       return { narratives: rankedNarratives, degraded: false };
     }
 
-    console.warn('[context-assembly] Repo narratives missing embeddings, falling back to prefix search', {
-      repoFullName,
-      narrativeCount: narratives.length,
-    });
+    console.warn(
+      '[context-assembly] Repo narratives missing embeddings, falling back to prefix search',
+      {
+        repoFullName,
+        narrativeCount: narratives.length,
+      }
+    );
 
     return {
       narratives: await fetchNarrativesByPrefix(repoFullName, changedFiles, config),
       degraded: true,
     };
   } catch (ddbError) {
-    console.warn('[context-assembly] DynamoDB repo narrative query failed, falling back to prefix search', {
-      error: ddbError instanceof Error ? ddbError.message : 'unknown',
-    });
+    console.warn(
+      '[context-assembly] DynamoDB repo narrative query failed, falling back to prefix search',
+      {
+        error: ddbError instanceof Error ? ddbError.message : 'unknown',
+      }
+    );
 
     return {
       narratives: await fetchNarrativesByPrefix(repoFullName, changedFiles, config),

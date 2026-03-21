@@ -60,26 +60,28 @@ describe('assembleContext', () => {
       },
     });
 
-    ddbMock.on(QueryCommand, { TableName: 'narratives-table', IndexName: 'repoFullName-index' }).resolves({
-      Items: [
-        {
-          modulePath: 'src/auth',
-          narrativeText: 'Auth module.',
-          repoFullName: 'org/repo',
-          generatedAtSha: 'abc',
-          version: 1,
-          embedding: [1, 0, 0],
-        },
-        {
-          modulePath: 'src/utils',
-          narrativeText: 'Utility module.',
-          repoFullName: 'org/repo',
-          generatedAtSha: 'abc',
-          version: 1,
-          embedding: [0, 1, 0],
-        },
-      ],
-    });
+    ddbMock
+      .on(QueryCommand, { TableName: 'narratives-table', IndexName: 'repoFullName-index' })
+      .resolves({
+        Items: [
+          {
+            modulePath: 'src/auth',
+            narrativeText: 'Auth module.',
+            repoFullName: 'org/repo',
+            generatedAtSha: 'abc',
+            version: 1,
+            embedding: [1, 0, 0],
+          },
+          {
+            modulePath: 'src/utils',
+            narrativeText: 'Utility module.',
+            repoFullName: 'org/repo',
+            generatedAtSha: 'abc',
+            version: 1,
+            embedding: [0, 1, 0],
+          },
+        ],
+      });
 
     bedrockMock.on(InvokeModelCommand).resolves({
       body: Buffer.from(JSON.stringify({ embedding: [0.9, 0.1, 0] })) as never,
@@ -304,6 +306,60 @@ describe('assembleContext', () => {
     expect(result.moduleNarratives[0].modulePath).toBe('src/auth');
   });
 
+  it('falls back to prefix search when repo narratives are missing embeddings', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    ddbMock
+      .on(GetCommand, { TableName: 'registry-table' })
+      .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
+    ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
+    ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        {
+          pk: 'org/repo#src/auth',
+          repoFullName: 'org/repo',
+          modulePath: 'src/auth',
+          narrativeText: 'Auth module without embedding.',
+          generatedAtSha: 'abc',
+          version: 1,
+        },
+      ],
+    });
+    ddbMock.on(GetCommand, { TableName: 'narratives-table' }).resolves({
+      Item: {
+        modulePath: 'src',
+        narrativeText: 'Prefix fallback narrative.',
+        repoFullName: 'org/repo',
+        generatedAtSha: 'abc',
+        version: 1,
+      },
+    });
+
+    bedrockMock.on(InvokeModelCommand).resolves({
+      body: Buffer.from(JSON.stringify({ embedding: [1, 0, 0] })) as never,
+    });
+    mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
+
+    const result = await assembleContext(
+      mockOctokit as any,
+      basePrEvent,
+      ['src/auth/file.ts'],
+      'mock diff content',
+      baseConfig
+    );
+
+    expect(result.contextQuality).toBe('partial');
+    expect(result.moduleNarratives).toHaveLength(1);
+    expect(result.moduleNarratives[0].narrativeText).toBe('Prefix fallback narrative.');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[context-assembly] Repo narratives missing embeddings, falling back to prefix search',
+      expect.objectContaining({ repoFullName: 'org/repo', narrativeCount: 1 })
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it('falls back to prefix search when the repo narrative query fails', async () => {
     ddbMock
       .on(GetCommand, { TableName: 'registry-table' })
@@ -439,7 +495,9 @@ describe('assembleContext', () => {
 
     expect(result.moduleNarratives).toEqual([]);
     expect(
-      ddbMock.commandCalls(GetCommand).filter((call) => call.args[0].input.TableName === 'narratives-table')
+      ddbMock
+        .commandCalls(GetCommand)
+        .filter((call) => call.args[0].input.TableName === 'narratives-table')
     ).toHaveLength(0);
   });
 });
