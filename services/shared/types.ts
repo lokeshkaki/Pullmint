@@ -18,6 +18,8 @@ export interface PRExecution {
   repoPrKey?: string;
   prNumber: number;
   headSha: string;
+  baseSha?: string;
+  orgId?: string;
   title?: string;
   author?: string;
   status:
