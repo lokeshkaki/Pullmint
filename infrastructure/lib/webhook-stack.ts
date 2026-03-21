@@ -8,6 +8,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
@@ -295,6 +296,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         EVENT_BUS_NAME: this.eventBus.eventBusName,
@@ -316,6 +318,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         ANTHROPIC_API_KEY_ARN: anthropicApiKey.secretArn,
@@ -347,6 +350,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         GITHUB_APP_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
@@ -383,6 +387,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         EVENT_BUS_NAME: this.eventBus.eventBusName,
@@ -408,6 +413,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
@@ -428,6 +434,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(10),
       memorySize: 128,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       bundling: {
         minify: true,
@@ -443,6 +450,7 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
@@ -481,6 +489,7 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(60),
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
@@ -500,6 +509,7 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         CALIBRATION_TABLE_NAME: calibrationTable.tableName,
@@ -518,6 +528,7 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(5),
+      logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
         REPO_REGISTRY_TABLE_NAME: repoRegistryTable.tableName,
@@ -538,6 +549,7 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       memorySize: 1024,
+      logRetention: logs.RetentionDays.ONE_MONTH,
       timeout: cdk.Duration.minutes(15),
       environment: {
         REPO_REGISTRY_TABLE_NAME: repoRegistryTable.tableName,
