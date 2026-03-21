@@ -306,7 +306,6 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
-      reservedConcurrentExecutions: 50,
       logGroup: oneMonthLambdaLogGroup('WebhookReceiverLogGroup'),
       tracing: lambda.Tracing.ACTIVE,
       environment: {
@@ -329,7 +328,6 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
-      reservedConcurrentExecutions: 10,
       logGroup: oneMonthLambdaLogGroup('ArchitectureAgentLogGroup'),
       tracing: lambda.Tracing.ACTIVE,
       environment: {
@@ -399,7 +397,6 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(2),
       memorySize: 512,
-      reservedConcurrentExecutions: 5,
       logGroup: oneMonthLambdaLogGroup('DeploymentOrchestratorLogGroup'),
       tracing: lambda.Tracing.ACTIVE,
       environment: {
@@ -544,7 +541,6 @@ export class WebhookStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
-      reservedConcurrentExecutions: 2,
       logGroup: oneMonthLambdaLogGroup('DependencyScannerLogGroup'),
       tracing: lambda.Tracing.ACTIVE,
       environment: {
@@ -566,7 +562,6 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       memorySize: 1024,
-      reservedConcurrentExecutions: 5,
       logGroup: oneMonthLambdaLogGroup('RepoIndexerLogGroup'),
       timeout: cdk.Duration.minutes(15),
       environment: {
