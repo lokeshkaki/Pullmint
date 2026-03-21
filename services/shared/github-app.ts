@@ -78,10 +78,16 @@ export type GitHubClient = GitHubRestClient;
 
 let installationClient: GitHubClient | undefined;
 let cachedRepoFullName: string | undefined;
+let cachedAt: number | undefined;
 let appClient: GitHubAppClient | undefined;
 
+const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes (tokens expire at 60, refresh early)
+
 export async function getGitHubInstallationClient(repoFullName: string): Promise<GitHubClient> {
-  if (installationClient && cachedRepoFullName === repoFullName) {
+  const now = Date.now();
+  const isExpired = cachedAt !== undefined && now - cachedAt > TOKEN_TTL_MS;
+
+  if (installationClient && cachedRepoFullName === repoFullName && !isExpired) {
     return installationClient;
   }
 
@@ -105,5 +111,6 @@ export async function getGitHubInstallationClient(repoFullName: string): Promise
 
   installationClient = await appClient.getInstallationOctokit(installationId);
   cachedRepoFullName = repoFullName;
+  cachedAt = Date.now();
   return installationClient;
 }
