@@ -39,8 +39,33 @@ export const handler = async (): Promise<void> => {
     })
   );
 
+  let failedCount = 0;
+
   for (const execution of executions) {
-    await evaluateCheckpoint(execution as Record<string, unknown>, now);
+    try {
+      await evaluateCheckpoint(execution as Record<string, unknown>, now);
+    } catch (err) {
+      failedCount += 1;
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error(
+        JSON.stringify({
+          error: 'checkpoint_evaluation_failed',
+          executionId: execution.executionId,
+          message: error.message,
+          stack: error.stack,
+        })
+      );
+    }
+  }
+
+  if (failedCount > 0) {
+    console.error(
+      JSON.stringify({
+        error: 'batch_partial_failure',
+        failedCount,
+        totalCount: executions.length,
+      })
+    );
   }
 };
 
