@@ -223,6 +223,72 @@ describe('deployment-monitor handler', () => {
     expect(ddbMock.commandCalls(UpdateCommand).length).toBe(0);
   });
 
+  it('continues processing remaining executions when one fails', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exec1 = { ...monitoringExecution, executionId: 'exec-1', signalsReceived: {} };
+    const exec2 = { ...monitoringExecution, executionId: 'exec-2', signalsReceived: {} };
+    const exec3 = { ...monitoringExecution, executionId: 'exec-3', signalsReceived: {} };
+
+    ddbMock.on(QueryCommand).resolves({ Items: [exec1, exec2, exec3] });
+    ddbMock
+      .on(UpdateCommand)
+      .resolvesOnce({})
+      .rejectsOnce(new Error('checkpoint write failed'))
+      .resolvesOnce({});
+
+    await expect(handler({} as never, {} as never, {} as never)).resolves.not.toThrow();
+
+    const processedExecutionIds = ddbMock
+      .commandCalls(UpdateCommand)
+      .map((call) => (call.args[0].input.Key as { executionId: string }).executionId);
+    expect(processedExecutionIds).toEqual(['exec-1', 'exec-2', 'exec-3']);
+
+    const errorMessages = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(
+      errorMessages.some(
+        (message) =>
+          message.includes('checkpoint_evaluation_failed') &&
+          message.includes('"executionId":"exec-2"')
+      )
+    ).toBe(true);
+  });
+
+  it('logs summary when partial failures occur', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exec1 = { ...monitoringExecution, executionId: 'exec-a', signalsReceived: {} };
+    const exec2 = { ...monitoringExecution, executionId: 'exec-b', signalsReceived: {} };
+    const exec3 = { ...monitoringExecution, executionId: 'exec-c', signalsReceived: {} };
+
+    ddbMock.on(QueryCommand).resolves({ Items: [exec1, exec2, exec3] });
+    ddbMock
+      .on(UpdateCommand)
+      .resolvesOnce({})
+      .rejectsOnce(new Error('second execution failed'))
+      .resolvesOnce({});
+
+    await handler({} as never, {} as never, {} as never);
+
+    const summaryLog = errorSpy.mock.calls
+      .map((call) => {
+        try {
+          return JSON.parse(String(call[0])) as {
+            error?: string;
+            failedCount?: number;
+            totalCount?: number;
+          };
+        } catch {
+          return null;
+        }
+      })
+      .find((payload) => payload?.error === 'batch_partial_failure');
+
+    expect(summaryLog).toEqual({
+      error: 'batch_partial_failure',
+      failedCount: 1,
+      totalCount: 3,
+    });
+  });
+
   it('does nothing when query returns no monitoring executions', async () => {
     // Covers the Items = [] default branch when DynamoDB returns no Items field
     ddbMock.on(QueryCommand).resolves({});
