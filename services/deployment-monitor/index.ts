@@ -12,7 +12,7 @@ import type {
 
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
-const ROLLBACK_THRESHOLD = parseInt(process.env.ROLLBACK_RISK_THRESHOLD || '50');
+const ROLLBACK_THRESHOLD = parseInt(process.env.ROLLBACK_RISK_THRESHOLD || '50', 10);
 const LOW_CONFIDENCE_THRESHOLD = 0.3;
 const T5_MS = 5 * 60 * 1000;
 const T30_MS = 30 * 60 * 1000;

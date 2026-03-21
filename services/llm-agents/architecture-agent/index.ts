@@ -60,11 +60,11 @@ const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME!;
 const ANALYSIS_RESULTS_BUCKET = process.env.ANALYSIS_RESULTS_BUCKET!;
 const LLM_RATE_LIMIT_TABLE = process.env.LLM_RATE_LIMIT_TABLE || '';
 const CALIBRATION_TABLE_NAME = process.env.CALIBRATION_TABLE_NAME || '';
-const LLM_HOURLY_LIMIT_PER_REPO = parseInt(process.env.LLM_HOURLY_LIMIT_PER_REPO || '10');
+const LLM_HOURLY_LIMIT_PER_REPO = parseInt(process.env.LLM_HOURLY_LIMIT_PER_REPO || '10', 10);
 const SMALL_DIFF_MODEL = process.env.LLM_SMALL_DIFF_MODEL || 'claude-haiku-4-5-20251001';
 const LARGE_DIFF_MODEL = process.env.LLM_LARGE_DIFF_MODEL || 'claude-sonnet-4-6';
-const SMALL_DIFF_LINE_THRESHOLD = parseInt(process.env.LLM_SMALL_DIFF_LINE_THRESHOLD || '500');
-const LLM_MAX_TOKENS = parseInt(process.env.LLM_MAX_TOKENS || '2000');
+const SMALL_DIFF_LINE_THRESHOLD = parseInt(process.env.LLM_SMALL_DIFF_LINE_THRESHOLD || '500', 10);
+const LLM_MAX_TOKENS = parseInt(process.env.LLM_MAX_TOKENS || '2000', 10);
 
 const s3Client = new S3Client({});
 
