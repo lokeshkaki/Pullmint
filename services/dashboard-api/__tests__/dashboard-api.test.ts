@@ -30,6 +30,7 @@ describe('Dashboard API Handler', () => {
     process.env.CALIBRATION_TABLE_NAME = 'test-calibration-table';
     process.env.DEDUP_TABLE_NAME = 'test-dedup-table';
     process.env.REPO_REGISTRY_TABLE_NAME = 'test-registry-table';
+    process.env.DASHBOARD_ALLOWED_ORIGINS = 'https://dashboard.pullmint.io,https://localhost:3000';
   });
 
   afterEach(() => {
@@ -37,13 +38,17 @@ describe('Dashboard API Handler', () => {
     delete process.env.CALIBRATION_TABLE_NAME;
     delete process.env.DEDUP_TABLE_NAME;
     delete process.env.REPO_REGISTRY_TABLE_NAME;
+    delete process.env.DASHBOARD_ALLOWED_ORIGINS;
   });
 
   const createMockEvent = (
     path: string,
     method: string = 'GET',
     queryParams: Record<string, string> | null = null,
-    headers: Record<string, string> = { Authorization: 'Bearer test-token' },
+    headers: Record<string, string> = {
+      Authorization: 'Bearer test-token',
+      origin: 'https://dashboard.pullmint.io',
+    },
     body: string | null = null
   ): APIGatewayProxyEvent => ({
     path,
@@ -66,8 +71,45 @@ describe('Dashboard API Handler', () => {
       const result = await handler(event);
 
       expect(result.statusCode).toBe(200);
-      expect(result.headers).toHaveProperty('Access-Control-Allow-Origin', '*');
+      expect(result.headers).toHaveProperty(
+        'Access-Control-Allow-Origin',
+        'https://dashboard.pullmint.io'
+      );
       expect(result.headers).toHaveProperty('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      expect(result.headers).toHaveProperty('Vary', 'Origin');
+    });
+  });
+
+  describe('CORS origin matching', () => {
+    it('should return matching origin, not wildcard', async () => {
+      ddbMock.on(QueryCommand).resolves({ Items: [] });
+      const event = createMockEvent('/dashboard/executions', 'GET', null, {
+        Authorization: 'Bearer test-token',
+        origin: 'https://dashboard.pullmint.io',
+      });
+
+      const result = await handler(event);
+      expect(result.headers!['Access-Control-Allow-Origin']).toBe('https://dashboard.pullmint.io');
+    });
+
+    it('should return empty origin for non-matching request', async () => {
+      const event = createMockEvent('/dashboard/executions', 'GET', null, {
+        Authorization: 'Bearer test-token',
+        origin: 'https://evil.com',
+      });
+
+      const result = await handler(event);
+      expect(result.headers!['Access-Control-Allow-Origin']).toBe('');
+    });
+
+    it('should return empty origin when no origin header is sent', async () => {
+      ddbMock.on(QueryCommand).resolves({ Items: [] });
+      const event = createMockEvent('/dashboard/executions', 'GET', null, {
+        Authorization: 'Bearer test-token',
+      });
+
+      const result = await handler(event);
+      expect(result.headers!['Access-Control-Allow-Origin']).toBe('');
     });
   });
 
@@ -376,7 +418,10 @@ describe('Dashboard API Handler', () => {
       const event = createMockEvent('/dashboard/unknown');
       const result = await handler(event);
 
-      expect(result.headers).toHaveProperty('Access-Control-Allow-Origin', '*');
+      expect(result.headers).toHaveProperty(
+        'Access-Control-Allow-Origin',
+        'https://dashboard.pullmint.io'
+      );
       expect(result.headers).toHaveProperty('Content-Type', 'application/json');
     });
 

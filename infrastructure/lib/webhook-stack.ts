@@ -52,6 +52,11 @@ export class WebhookStack extends cdk.Stack {
       description: 'GitHub App private key for authentication',
     });
 
+    const deploymentWebhookSecret = new secretsmanager.Secret(this, 'DeploymentWebhookSecret', {
+      secretName: 'pullmint/deployment-webhook',
+      description: 'Deployment webhook URL and auth token',
+    });
+
     const signalIngestionSecret = new secretsmanager.Secret(this, 'SignalIngestionSecret', {
       secretName: 'pullmint/signal-ingestion-hmac-secret',
       description: 'HMAC secret for Pullmint signal ingestion webhook',
@@ -395,8 +400,7 @@ export class WebhookStack extends cdk.Stack {
       environment: {
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
-        DEPLOYMENT_WEBHOOK_URL: process.env.DEPLOYMENT_WEBHOOK_URL || '',
-        DEPLOYMENT_WEBHOOK_AUTH_TOKEN: process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN || '',
+        DEPLOYMENT_WEBHOOK_SECRET_ARN: deploymentWebhookSecret.secretArn,
         DEPLOYMENT_WEBHOOK_TIMEOUT_MS: process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS || '10000',
         DEPLOYMENT_WEBHOOK_RETRIES: process.env.DEPLOYMENT_WEBHOOK_RETRIES || '2',
         DEPLOYMENT_ROLLBACK_WEBHOOK_URL: process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL || '',
@@ -422,6 +426,7 @@ export class WebhookStack extends cdk.Stack {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         DEDUP_TABLE_NAME: dedupTable.tableName,
         DASHBOARD_AUTH_TOKEN: dashboardAuthSecret.secretValue.unsafeUnwrap(),
+        DASHBOARD_ALLOWED_ORIGINS: process.env.DASHBOARD_ALLOWED_ORIGINS ?? '',
       },
       bundling: {
         minify: true,
@@ -649,6 +654,7 @@ export class WebhookStack extends cdk.Stack {
     // Deployment orchestrator permissions
     executionsTable.grantReadWriteData(deploymentOrchestrator);
     this.eventBus.grantPutEventsTo(deploymentOrchestrator);
+    deploymentWebhookSecret.grantRead(deploymentOrchestrator);
     calibrationTable.grantReadData(deploymentOrchestrator);
     deploymentOrchestrator.addEnvironment('CALIBRATION_TABLE_NAME', calibrationTable.tableName);
 
