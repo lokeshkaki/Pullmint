@@ -20,12 +20,24 @@ import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
+interface PullmintWebhookStackProps extends cdk.StackProps {
+  stage: 'staging' | 'production';
+}
+
 export class WebhookStack extends cdk.Stack {
   public readonly eventBus: events.EventBus;
   public readonly webhookUrl: string;
 
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: PullmintWebhookStackProps) {
     super(scope, id, props);
+
+    const { stage } = props;
+    const stagePrefix = stage === 'production' ? 'pullmint' : `pullmint-${stage}`;
+    const secretPrefix = stage === 'production' ? 'pullmint' : `pullmint/${stage}`;
+    const stageAwareName = (name: string): string => `${stagePrefix}-${name}`;
+    const stageAwareSecretName = (name: string): string => `${secretPrefix}/${name}`;
+    const stageAwareExportName = (name: string): string =>
+      stage === 'production' ? name : `${name}-${stage}`;
 
     const githubAppId = process.env.GITHUB_APP_ID;
     if (!githubAppId) {
@@ -39,7 +51,7 @@ export class WebhookStack extends cdk.Stack {
     // Secrets Manager
     // ===========================
     const githubWebhookSecret = new secretsmanager.Secret(this, 'GitHubWebhookSecret', {
-      secretName: 'pullmint/github-webhook-secret',
+      secretName: stageAwareSecretName('github-webhook-secret'),
       description: 'GitHub webhook secret for signature verification',
       generateSecretString: {
         excludePunctuation: true,
@@ -48,22 +60,22 @@ export class WebhookStack extends cdk.Stack {
     });
 
     const anthropicApiKey = new secretsmanager.Secret(this, 'AnthropicApiKey', {
-      secretName: 'pullmint/anthropic-api-key',
+      secretName: stageAwareSecretName('anthropic-api-key'),
       description: 'Anthropic API key for LLM agents',
     });
 
     const githubAppPrivateKey = new secretsmanager.Secret(this, 'GitHubAppPrivateKey', {
-      secretName: 'pullmint/github-app-private-key',
+      secretName: stageAwareSecretName('github-app-private-key'),
       description: 'GitHub App private key for authentication',
     });
 
     const deploymentWebhookSecret = new secretsmanager.Secret(this, 'DeploymentWebhookSecret', {
-      secretName: 'pullmint/deployment-webhook',
+      secretName: stageAwareSecretName('deployment-webhook'),
       description: 'Deployment webhook URL and auth token',
     });
 
     const signalIngestionSecret = new secretsmanager.Secret(this, 'SignalIngestionSecret', {
-      secretName: 'pullmint/signal-ingestion-hmac-secret',
+      secretName: stageAwareSecretName('signal-ingestion-hmac-secret'),
       description: 'HMAC secret for Pullmint signal ingestion webhook',
       generateSecretString: {
         excludePunctuation: true,
@@ -72,7 +84,7 @@ export class WebhookStack extends cdk.Stack {
     });
 
     const dashboardAuthSecret = new secretsmanager.Secret(this, 'DashboardAuthSecret', {
-      secretName: 'pullmint/dashboard-auth-token',
+      secretName: stageAwareSecretName('dashboard-auth-token'),
       description: 'Bearer token for dashboard API authentication',
       generateSecretString: {
         excludePunctuation: true,
@@ -86,7 +98,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Webhook deduplication table
     const dedupTable = new dynamodb.Table(this, 'WebhookDeduplication', {
-      tableName: 'pullmint-webhook-dedup',
+      tableName: stageAwareName('webhook-dedup'),
       partitionKey: { name: 'deliveryId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
@@ -95,7 +107,7 @@ export class WebhookStack extends cdk.Stack {
 
     // PR executions table
     const executionsTable = new dynamodb.Table(this, 'PRExecutions', {
-      tableName: 'pullmint-pr-executions',
+      tableName: stageAwareName('pr-executions'),
       partitionKey: { name: 'executionId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -174,7 +186,7 @@ export class WebhookStack extends cdk.Stack {
 
     // LLM rate limit table — atomic per-repo hourly counters to cap API spend
     const llmRateLimitTable = new dynamodb.Table(this, 'LLMRateLimitTable', {
-      tableName: 'pullmint-llm-rate-limit',
+      tableName: stageAwareName('llm-rate-limit'),
       partitionKey: { name: 'counterKey', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
@@ -183,7 +195,7 @@ export class WebhookStack extends cdk.Stack {
 
     // LLM cache table
     const cacheTable = new dynamodb.Table(this, 'LLMCache', {
-      tableName: 'pullmint-llm-cache',
+      tableName: stageAwareName('llm-cache'),
       partitionKey: { name: 'cacheKey', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
@@ -192,28 +204,28 @@ export class WebhookStack extends cdk.Stack {
 
     // Knowledge base tables
     const fileKnowledgeTable = new dynamodb.Table(this, 'FileKnowledgeTable', {
-      tableName: 'pullmint-file-knowledge',
+      tableName: stageAwareName('file-knowledge'),
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
     const authorProfilesTable = new dynamodb.Table(this, 'AuthorProfilesTable', {
-      tableName: 'pullmint-author-profiles',
+      tableName: stageAwareName('author-profiles'),
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
     const repoRegistryTable = new dynamodb.Table(this, 'RepoRegistryTable', {
-      tableName: 'pullmint-repo-registry',
+      tableName: stageAwareName('repo-registry'),
       partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
     const moduleNarrativesTable = new dynamodb.Table(this, 'ModuleNarrativesTable', {
-      tableName: 'pullmint-module-narratives',
+      tableName: stageAwareName('module-narratives'),
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -232,7 +244,7 @@ export class WebhookStack extends cdk.Stack {
     // Analysis results bucket — stores full LLM outputs for audit trail and to avoid
     // EventBridge's 256KB event size limit when findings arrays are large
     const analysisResultsBucket = new s3.Bucket(this, 'AnalysisResultsBucket', {
-      bucketName: `pullmint-analysis-results-${this.account}`,
+      bucketName: `${stageAwareName('analysis-results')}-${this.account}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -246,7 +258,7 @@ export class WebhookStack extends cdk.Stack {
     });
 
     const dashboardBucket = new s3.Bucket(this, 'DashboardBucket', {
-      bucketName: `pullmint-dashboard-${cdk.Stack.of(this).account}`,
+      bucketName: `${stageAwareName('dashboard')}-${cdk.Stack.of(this).account}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -266,7 +278,7 @@ export class WebhookStack extends cdk.Stack {
     // EventBridge
     // ===========================
     this.eventBus = new events.EventBus(this, 'PullmintEventBus', {
-      eventBusName: 'pullmint-events',
+      eventBusName: stageAwareName('events'),
     });
 
     // ===========================
@@ -275,13 +287,13 @@ export class WebhookStack extends cdk.Stack {
 
     // Dead Letter Queue for webhook processing
     const webhookDLQ = new sqs.Queue(this, 'WebhookDLQ', {
-      queueName: 'pullmint-webhook-dlq',
+      queueName: stageAwareName('webhook-dlq'),
       retentionPeriod: cdk.Duration.days(14),
     });
 
     // Queue for LLM agent processing
     const llmQueue = new sqs.Queue(this, 'LLMQueue', {
-      queueName: 'pullmint-llm-queue',
+      queueName: stageAwareName('llm-queue'),
       visibilityTimeout: cdk.Duration.minutes(12),
       deadLetterQueue: {
         queue: webhookDLQ,
@@ -290,28 +302,28 @@ export class WebhookStack extends cdk.Stack {
     });
 
     const deploymentDLQ = new sqs.Queue(this, 'DeploymentDLQ', {
-      queueName: 'pullmint-deployment-dlq',
+      queueName: stageAwareName('deployment-dlq'),
       retentionPeriod: cdk.Duration.days(14),
     });
 
     const onboardingDlq = new sqs.Queue(this, 'OnboardingDlq', {
-      queueName: 'pullmint-onboarding-dlq',
+      queueName: stageAwareName('onboarding-dlq'),
       retentionPeriod: cdk.Duration.days(14),
     });
 
     const onboardingQueue = new sqs.Queue(this, 'OnboardingQueue', {
-      queueName: 'pullmint-onboarding-queue',
+      queueName: stageAwareName('onboarding-queue'),
       visibilityTimeout: cdk.Duration.minutes(90),
       deadLetterQueue: { queue: onboardingDlq, maxReceiveCount: 3 },
     });
 
     const knowledgeUpdateDlq = new sqs.Queue(this, 'KnowledgeUpdateDlq', {
-      queueName: 'pullmint-knowledge-update-dlq',
+      queueName: stageAwareName('knowledge-update-dlq'),
       retentionPeriod: cdk.Duration.days(14),
     });
 
     const knowledgeUpdateQueue = new sqs.Queue(this, 'KnowledgeUpdateQueue', {
-      queueName: 'pullmint-knowledge-update-queue',
+      queueName: stageAwareName('knowledge-update-queue'),
       visibilityTimeout: cdk.Duration.minutes(90),
       deadLetterQueue: { queue: knowledgeUpdateDlq, maxReceiveCount: 3 },
     });
@@ -327,7 +339,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Webhook receiver
     const webhookHandler = new NodejsFunction(this, 'WebhookReceiver', {
-      functionName: 'pullmint-webhook-receiver',
+      functionName: stageAwareName('webhook-receiver'),
       entry: path.join(__dirname, '../../services/webhook-receiver/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -349,7 +361,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Architecture Agent
     const architectureAgent = new NodejsFunction(this, 'ArchitectureAgent', {
-      functionName: 'pullmint-architecture-agent',
+      functionName: stageAwareName('architecture-agent'),
       entry: path.join(__dirname, '../../services/llm-agents/architecture-agent/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -381,7 +393,7 @@ export class WebhookStack extends cdk.Stack {
 
     // GitHub integration handler
     const githubIntegration = new NodejsFunction(this, 'GitHubIntegration', {
-      functionName: 'pullmint-github-integration',
+      functionName: stageAwareName('github-integration'),
       entry: path.join(__dirname, '../../services/github-integration/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -418,7 +430,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Deployment orchestrator
     const deploymentOrchestrator = new NodejsFunction(this, 'DeploymentOrchestrator', {
-      functionName: 'pullmint-deployment-orchestrator',
+      functionName: stageAwareName('deployment-orchestrator'),
       entry: path.join(__dirname, '../../services/deployment-orchestrator/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -443,7 +455,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Dashboard API
     const dashboardApi = new NodejsFunction(this, 'DashboardApi', {
-      functionName: 'pullmint-dashboard-api',
+      functionName: stageAwareName('dashboard-api'),
       entry: path.join(__dirname, '../../services/dashboard-api/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -465,7 +477,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Dashboard UI
     const dashboardUi = new NodejsFunction(this, 'DashboardUi', {
-      functionName: 'pullmint-dashboard-ui',
+      functionName: stageAwareName('dashboard-ui'),
       entry: path.join(__dirname, '../../services/dashboard-ui/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -481,7 +493,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Signal Ingestion Lambda
     const signalIngestionFn = new NodejsFunction(this, 'SignalIngestionFunction', {
-      functionName: 'pullmint-signal-ingestion',
+      functionName: stageAwareName('signal-ingestion'),
       entry: path.join(__dirname, '../../services/signal-ingestion/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -521,7 +533,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Deployment Monitor Lambda
     const deploymentMonitorFn = new NodejsFunction(this, 'DeploymentMonitorFunction', {
-      functionName: 'pullmint-deployment-monitor',
+      functionName: stageAwareName('deployment-monitor'),
       entry: path.join(__dirname, '../../services/deployment-monitor/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -542,7 +554,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Calibration Service Lambda
     const calibrationServiceFn = new NodejsFunction(this, 'CalibrationServiceFunction', {
-      functionName: 'pullmint-calibration-service',
+      functionName: stageAwareName('calibration-service'),
       entry: path.join(__dirname, '../../services/calibration-service/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -562,7 +574,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Dependency Scanner Lambda
     const dependencyScannerFn = new NodejsFunction(this, 'DependencyScannerFunction', {
-      functionName: 'pullmint-dependency-scanner',
+      functionName: stageAwareName('dependency-scanner'),
       entry: path.join(__dirname, '../../services/dependency-scanner/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -584,7 +596,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Repo Indexer Lambda
     const repoIndexerFn = new NodejsFunction(this, 'RepoIndexerFunction', {
-      functionName: 'pullmint-repo-indexer',
+      functionName: stageAwareName('repo-indexer'),
       entry: path.join(__dirname, '../../services/repo-indexer/index.ts'),
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -854,10 +866,11 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
 
     const api = new apigateway.RestApi(this, 'WebhookAPI', {
-      restApiName: 'Pullmint Webhook API',
+      restApiName:
+        stage === 'production' ? 'Pullmint Webhook API' : `Pullmint Webhook API (${stage})`,
       description: 'Receives GitHub webhook events',
       deployOptions: {
-        stageName: 'prod',
+        stageName: stage,
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
@@ -987,7 +1000,7 @@ export class WebhookStack extends cdk.Stack {
       this,
       'DashboardSecurityHeaders',
       {
-        responseHeadersPolicyName: 'pullmint-dashboard-security',
+        responseHeadersPolicyName: stageAwareName('dashboard-security'),
         securityHeadersBehavior: {
           contentSecurityPolicy: {
             contentSecurityPolicy:
@@ -1068,7 +1081,7 @@ export class WebhookStack extends cdk.Stack {
     });
 
     const alertsTopic = new sns.Topic(this, 'PullmintAlertsTopic', {
-      topicName: 'pullmint-alerts',
+      topicName: stageAwareName('alerts'),
       displayName: 'Pullmint Alerts',
     });
 
@@ -1098,7 +1111,7 @@ export class WebhookStack extends cdk.Stack {
       this,
       'DeploymentOrchestratorErrors',
       {
-        alarmName: 'pullmint-deployment-orchestrator-errors',
+        alarmName: stageAwareName('deployment-orchestrator-errors'),
         alarmDescription: 'Alert when deployment orchestrator has elevated error rate',
         metric: deploymentOrchestrator.metricErrors({
           period: cdk.Duration.minutes(5),
@@ -1114,7 +1127,7 @@ export class WebhookStack extends cdk.Stack {
 
     // GitHub integration error alarm
     const gitHubIntegrationErrorsAlarm = new cloudwatch.Alarm(this, 'GitHubIntegrationErrors', {
-      alarmName: 'pullmint-github-integration-errors',
+      alarmName: stageAwareName('github-integration-errors'),
       alarmDescription: 'Alert when GitHub integration has elevated error rate',
       metric: githubIntegration.metricErrors({
         period: cdk.Duration.minutes(5),
@@ -1129,7 +1142,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Webhook handler error alarm
     const webhookHandlerErrorsAlarm = new cloudwatch.Alarm(this, 'WebhookHandlerErrors', {
-      alarmName: 'pullmint-webhook-handler-errors',
+      alarmName: stageAwareName('webhook-handler-errors'),
       alarmDescription: 'Alert when webhook handler has elevated error rate',
       metric: webhookHandler.metricErrors({
         period: cdk.Duration.minutes(5),
@@ -1144,7 +1157,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Architecture agent error alarm
     const architectureAgentErrorsAlarm = new cloudwatch.Alarm(this, 'ArchitectureAgentErrors', {
-      alarmName: 'pullmint-architecture-agent-errors',
+      alarmName: stageAwareName('architecture-agent-errors'),
       alarmDescription: 'Alert when architecture agent has elevated error rate',
       metric: architectureAgent.metricErrors({
         period: cdk.Duration.minutes(5),
@@ -1159,7 +1172,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Webhook DLQ depth alarm — any message means a PR event was permanently dropped
     const webhookDLQDepthAlarm = new cloudwatch.Alarm(this, 'WebhookDLQDepth', {
-      alarmName: 'pullmint-webhook-dlq-depth',
+      alarmName: stageAwareName('webhook-dlq-depth'),
       alarmDescription: 'Messages in webhook DLQ indicate permanently dropped PR events',
       metric: webhookDLQ.metricApproximateNumberOfMessagesVisible({
         period: cdk.Duration.minutes(1),
@@ -1175,7 +1188,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Deployment DLQ depth alarm — any message means a deployment event was permanently dropped
     const deploymentDLQDepthAlarm = new cloudwatch.Alarm(this, 'DeploymentDLQDepth', {
-      alarmName: 'pullmint-deployment-dlq-depth',
+      alarmName: stageAwareName('deployment-dlq-depth'),
       alarmDescription: 'Messages in deployment DLQ indicate permanently dropped deployment events',
       metric: deploymentDLQ.metricApproximateNumberOfMessagesVisible({
         period: cdk.Duration.minutes(1),
@@ -1191,7 +1204,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Onboarding DLQ depth alarm — any message means onboarding events were dropped permanently
     const onboardingDLQDepthAlarm = new cloudwatch.Alarm(this, 'OnboardingDLQDepth', {
-      alarmName: 'pullmint-onboarding-dlq-depth',
+      alarmName: stageAwareName('onboarding-dlq-depth'),
       alarmDescription: 'Messages in onboarding DLQ indicate permanently dropped onboarding events',
       metric: onboardingDlq.metricApproximateNumberOfMessagesVisible({
         period: cdk.Duration.minutes(1),
@@ -1207,7 +1220,7 @@ export class WebhookStack extends cdk.Stack {
 
     // Knowledge update DLQ depth alarm — any message means knowledge update events were dropped permanently
     const knowledgeUpdateDLQDepthAlarm = new cloudwatch.Alarm(this, 'KnowledgeUpdateDLQDepth', {
-      alarmName: 'pullmint-knowledge-update-dlq-depth',
+      alarmName: stageAwareName('knowledge-update-dlq-depth'),
       alarmDescription:
         'Messages in knowledge update DLQ indicate permanently dropped knowledge update events',
       metric: knowledgeUpdateDlq.metricApproximateNumberOfMessagesVisible({
@@ -1224,7 +1237,7 @@ export class WebhookStack extends cdk.Stack {
 
     // API Gateway 5XX alarm
     const apiGateway5xxAlarm = new cloudwatch.Alarm(this, 'ApiGateway5xxErrors', {
-      alarmName: 'pullmint-api-gateway-5xx',
+      alarmName: stageAwareName('api-gateway-5xx'),
       alarmDescription: 'Alert when API Gateway returns elevated 5XX responses',
       metric: api.metricServerError({
         period: cdk.Duration.minutes(5),
@@ -1242,7 +1255,7 @@ export class WebhookStack extends cdk.Stack {
     // ===========================
 
     const dashboard = new cloudwatch.Dashboard(this, 'PullmintDashboard', {
-      dashboardName: 'pullmint-overview',
+      dashboardName: stageAwareName('overview'),
     });
 
     // Row 1: Lambda Invocations and Errors
@@ -1552,37 +1565,43 @@ export class WebhookStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'WebhookURL', {
       value: this.webhookUrl,
       description: 'Webhook URL for GitHub',
-      exportName: 'PullmintWebhookURL',
+      exportName: stageAwareExportName('PullmintWebhookURL'),
+    });
+
+    new cdk.CfnOutput(this, 'ApiUrl', {
+      value: api.url,
+      description: 'Base API URL',
+      exportName: stageAwareExportName('PullmintApiUrl'),
     });
 
     new cdk.CfnOutput(this, 'DashboardURL', {
       value: `https://${dashboardDistribution.distributionDomainName}`,
       description: 'Dashboard UI URL',
-      exportName: 'PullmintDashboardURL',
+      exportName: stageAwareExportName('PullmintDashboardURL'),
     });
 
     new cdk.CfnOutput(this, 'WebhookSecretArn', {
       value: githubWebhookSecret.secretArn,
       description: 'ARN of webhook secret in Secrets Manager',
-      exportName: 'PullmintWebhookSecretArn',
+      exportName: stageAwareExportName('PullmintWebhookSecretArn'),
     });
 
     new cdk.CfnOutput(this, 'EventBusName', {
       value: this.eventBus.eventBusName,
       description: 'EventBridge bus name',
-      exportName: 'PullmintEventBusName',
+      exportName: stageAwareExportName('PullmintEventBusName'),
     });
 
     new cdk.CfnOutput(this, 'ExecutionsTableName', {
       value: executionsTable.tableName,
       description: 'DynamoDB table for PR executions',
-      exportName: 'PullmintExecutionsTableName',
+      exportName: stageAwareExportName('PullmintExecutionsTableName'),
     });
 
     new cdk.CfnOutput(this, 'CloudWatchDashboardURL', {
       value: `https://console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`,
       description: 'CloudWatch Dashboard URL',
-      exportName: 'PullmintDashboardCloudWatchURL',
+      exportName: stageAwareExportName('PullmintDashboardCloudWatchURL'),
     });
   }
 }
