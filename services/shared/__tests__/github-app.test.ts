@@ -97,4 +97,27 @@ describe('getGitHubInstallationClient', () => {
     expect(first).toBe(second);
     expect(mockGetInstallationOctokit).toHaveBeenCalledTimes(1);
   });
+
+  it('should refresh client after token TTL expires', async () => {
+    jest.useFakeTimers();
+
+    const client1 = { rest: { pulls: { get: jest.fn(), createReview: jest.fn() }, issues: { createComment: jest.fn() } } };
+    const client2 = { rest: { pulls: { get: jest.fn(), createReview: jest.fn() }, issues: { createComment: jest.fn() } } };
+    mockGetInstallationOctokit.mockResolvedValueOnce(client1).mockResolvedValueOnce(client2);
+
+    const { getGitHubInstallationClient } = loadModule();
+
+    const first = await getGitHubInstallationClient('owner/repo');
+    expect(first).toBe(client1);
+
+    // Advance time past 50-minute TTL
+    jest.advanceTimersByTime(51 * 60 * 1000);
+
+    const second = await getGitHubInstallationClient('owner/repo');
+    expect(second).toBe(client2);
+    expect(second).not.toBe(first);
+    expect(mockGetInstallationOctokit).toHaveBeenCalledTimes(2);
+
+    jest.useRealTimers();
+  });
 });
