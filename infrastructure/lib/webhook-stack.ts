@@ -11,8 +11,10 @@ import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
@@ -1054,25 +1056,59 @@ export class WebhookStack extends cdk.Stack {
       `https://${dashboardDistribution.distributionDomainName}`
     );
 
+    const alertEmail = new cdk.CfnParameter(this, 'AlertEmail', {
+      type: 'String',
+      default: '',
+      description: 'Optional email address for Pullmint CloudWatch alarm notifications',
+    });
+
+    const alertsTopic = new sns.Topic(this, 'PullmintAlertsTopic', {
+      topicName: 'pullmint-alerts',
+      displayName: 'Pullmint Alerts',
+    });
+
+    const hasAlertEmail = new cdk.CfnCondition(this, 'HasAlertEmail', {
+      expression: cdk.Fn.conditionNot(cdk.Fn.conditionEquals(alertEmail.valueAsString, '')),
+    });
+
+    const alertsEmailSubscription = new sns.CfnSubscription(
+      this,
+      'PullmintAlertsEmailSubscription',
+      {
+        topicArn: alertsTopic.topicArn,
+        protocol: 'email',
+        endpoint: alertEmail.valueAsString,
+      }
+    );
+    alertsEmailSubscription.cfnOptions.condition = hasAlertEmail;
+
+    const alertsTopicAction = new cloudwatchActions.SnsAction(alertsTopic);
+
     // ===========================
     // CloudWatch Alarms
     // ===========================
 
     // Deployment orchestrator error alarm
-    new cloudwatch.Alarm(this, 'DeploymentOrchestratorErrors', {
-      alarmName: 'pullmint-deployment-orchestrator-errors',
-      alarmDescription: 'Alert when deployment orchestrator has elevated error rate',
-      metric: deploymentOrchestrator.metricErrors({
-        period: cdk.Duration.minutes(5),
-        statistic: 'Sum',
-      }),
-      threshold: 3,
-      evaluationPeriods: 1,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
+    const deploymentOrchestratorErrorsAlarm = new cloudwatch.Alarm(
+      this,
+      'DeploymentOrchestratorErrors',
+      {
+        alarmName: 'pullmint-deployment-orchestrator-errors',
+        alarmDescription: 'Alert when deployment orchestrator has elevated error rate',
+        metric: deploymentOrchestrator.metricErrors({
+          period: cdk.Duration.minutes(5),
+          statistic: 'Sum',
+        }),
+        threshold: 3,
+        evaluationPeriods: 1,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      }
+    );
+    deploymentOrchestratorErrorsAlarm.addAlarmAction(alertsTopicAction);
+    deploymentOrchestratorErrorsAlarm.addOkAction(alertsTopicAction);
 
     // GitHub integration error alarm
-    new cloudwatch.Alarm(this, 'GitHubIntegrationErrors', {
+    const gitHubIntegrationErrorsAlarm = new cloudwatch.Alarm(this, 'GitHubIntegrationErrors', {
       alarmName: 'pullmint-github-integration-errors',
       alarmDescription: 'Alert when GitHub integration has elevated error rate',
       metric: githubIntegration.metricErrors({
@@ -1083,9 +1119,11 @@ export class WebhookStack extends cdk.Stack {
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    gitHubIntegrationErrorsAlarm.addAlarmAction(alertsTopicAction);
+    gitHubIntegrationErrorsAlarm.addOkAction(alertsTopicAction);
 
     // Webhook handler error alarm
-    new cloudwatch.Alarm(this, 'WebhookHandlerErrors', {
+    const webhookHandlerErrorsAlarm = new cloudwatch.Alarm(this, 'WebhookHandlerErrors', {
       alarmName: 'pullmint-webhook-handler-errors',
       alarmDescription: 'Alert when webhook handler has elevated error rate',
       metric: webhookHandler.metricErrors({
@@ -1096,9 +1134,26 @@ export class WebhookStack extends cdk.Stack {
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    webhookHandlerErrorsAlarm.addAlarmAction(alertsTopicAction);
+    webhookHandlerErrorsAlarm.addOkAction(alertsTopicAction);
+
+    // Architecture agent error alarm
+    const architectureAgentErrorsAlarm = new cloudwatch.Alarm(this, 'ArchitectureAgentErrors', {
+      alarmName: 'pullmint-architecture-agent-errors',
+      alarmDescription: 'Alert when architecture agent has elevated error rate',
+      metric: architectureAgent.metricErrors({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    architectureAgentErrorsAlarm.addAlarmAction(alertsTopicAction);
+    architectureAgentErrorsAlarm.addOkAction(alertsTopicAction);
 
     // Webhook DLQ depth alarm — any message means a PR event was permanently dropped
-    new cloudwatch.Alarm(this, 'WebhookDLQDepth', {
+    const webhookDLQDepthAlarm = new cloudwatch.Alarm(this, 'WebhookDLQDepth', {
       alarmName: 'pullmint-webhook-dlq-depth',
       alarmDescription: 'Messages in webhook DLQ indicate permanently dropped PR events',
       metric: webhookDLQ.metricApproximateNumberOfMessagesVisible({
@@ -1110,9 +1165,11 @@ export class WebhookStack extends cdk.Stack {
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    webhookDLQDepthAlarm.addAlarmAction(alertsTopicAction);
+    webhookDLQDepthAlarm.addOkAction(alertsTopicAction);
 
     // Deployment DLQ depth alarm — any message means a deployment event was permanently dropped
-    new cloudwatch.Alarm(this, 'DeploymentDLQDepth', {
+    const deploymentDLQDepthAlarm = new cloudwatch.Alarm(this, 'DeploymentDLQDepth', {
       alarmName: 'pullmint-deployment-dlq-depth',
       alarmDescription: 'Messages in deployment DLQ indicate permanently dropped deployment events',
       metric: deploymentDLQ.metricApproximateNumberOfMessagesVisible({
@@ -1124,6 +1181,56 @@ export class WebhookStack extends cdk.Stack {
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    deploymentDLQDepthAlarm.addAlarmAction(alertsTopicAction);
+    deploymentDLQDepthAlarm.addOkAction(alertsTopicAction);
+
+    // Onboarding DLQ depth alarm — any message means onboarding events were dropped permanently
+    const onboardingDLQDepthAlarm = new cloudwatch.Alarm(this, 'OnboardingDLQDepth', {
+      alarmName: 'pullmint-onboarding-dlq-depth',
+      alarmDescription: 'Messages in onboarding DLQ indicate permanently dropped onboarding events',
+      metric: onboardingDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(1),
+        statistic: 'Maximum',
+      }),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    onboardingDLQDepthAlarm.addAlarmAction(alertsTopicAction);
+    onboardingDLQDepthAlarm.addOkAction(alertsTopicAction);
+
+    // Knowledge update DLQ depth alarm — any message means knowledge update events were dropped permanently
+    const knowledgeUpdateDLQDepthAlarm = new cloudwatch.Alarm(this, 'KnowledgeUpdateDLQDepth', {
+      alarmName: 'pullmint-knowledge-update-dlq-depth',
+      alarmDescription:
+        'Messages in knowledge update DLQ indicate permanently dropped knowledge update events',
+      metric: knowledgeUpdateDlq.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(1),
+        statistic: 'Maximum',
+      }),
+      threshold: 0,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    knowledgeUpdateDLQDepthAlarm.addAlarmAction(alertsTopicAction);
+    knowledgeUpdateDLQDepthAlarm.addOkAction(alertsTopicAction);
+
+    // API Gateway 5XX alarm
+    const apiGateway5xxAlarm = new cloudwatch.Alarm(this, 'ApiGateway5xxErrors', {
+      alarmName: 'pullmint-api-gateway-5xx',
+      alarmDescription: 'Alert when API Gateway returns elevated 5XX responses',
+      metric: api.metricServerError({
+        period: cdk.Duration.minutes(5),
+        statistic: 'Sum',
+      }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    apiGateway5xxAlarm.addAlarmAction(alertsTopicAction);
+    apiGateway5xxAlarm.addOkAction(alertsTopicAction);
 
     // ===========================
     // CloudWatch Dashboard
