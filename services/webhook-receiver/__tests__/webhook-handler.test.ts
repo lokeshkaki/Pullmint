@@ -787,7 +787,15 @@ describe('Webhook Handler', () => {
         if (getCallCount === 1) {
           return { Item: undefined }; // dedup check: not processed
         }
-        return { Item: { repoFullName: 'owner/repo', indexingStatus: 'indexing' } };
+        return {
+          Item: {
+            repoFullName: 'owner/repo',
+            indexingStatus: 'indexing',
+            contextVersion: 1,
+            pendingBatches: 0,
+            queuedExecutionIds: [],
+          },
+        };
       });
       ddbMock.on(UpdateCommand).resolves({});
 
@@ -814,7 +822,15 @@ describe('Webhook Handler', () => {
         if (getCallCount === 1) {
           return { Item: undefined }; // dedup check: not processed
         }
-        return { Item: { repoFullName: 'owner/repo', indexingStatus: 'indexed' } };
+        return {
+          Item: {
+            repoFullName: 'owner/repo',
+            indexingStatus: 'indexed',
+            contextVersion: 2,
+            pendingBatches: 0,
+            queuedExecutionIds: [],
+          },
+        };
       });
 
       const result = await handler(event);

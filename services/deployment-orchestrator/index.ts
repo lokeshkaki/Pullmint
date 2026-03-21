@@ -1,6 +1,7 @@
 import { EventBridgeHandler } from 'aws-lambda';
 import { publishEvent } from '../shared/eventbridge';
-import { getItem, updateItem } from '../shared/dynamodb';
+import { getValidatedItem, updateItem } from '../shared/dynamodb';
+import { PRExecutionSchema, CalibrationRecordSchema } from '../shared/schemas';
 import { createStructuredError } from '../shared/error-handling';
 import { getSecret } from '../shared/secrets';
 import { addTraceAnnotations } from '../shared/tracer';
@@ -43,9 +44,11 @@ export const handler: EventBridgeHandler<
 
   try {
     // Idempotency guard: if a prior invocation already started deploying, skip to avoid double-deployment
-    const existing = await getItem<{ deploymentStartedAt?: number }>(config.executionsTableName, {
-      executionId: detail.executionId,
-    });
+    const existing = await getValidatedItem(
+      config.executionsTableName,
+      { executionId: detail.executionId },
+      PRExecutionSchema
+    );
     if (existing?.deploymentStartedAt) {
       console.warn(
         `Deployment already started for ${detail.executionId} — skipping duplicate invocation`
@@ -292,15 +295,15 @@ async function runCheckpoint2(
   }
 
   // Fetch existing checkpoints so checkpoint2 can be appended rather than overwriting checkpoint1
-  const execution = await getItem<{
-    checkpoints?: CheckpointRecord[];
-    repoContext?: { blastRadiusMultiplier?: number };
-    signalsReceived?: Record<string, Signal>;
-  }>(config.executionsTableName, { executionId: detail.executionId });
-  const priorCheckpoints = execution?.checkpoints ?? [];
+  const execution = await getValidatedItem(
+    config.executionsTableName,
+    { executionId: detail.executionId },
+    PRExecutionSchema
+  );
+  const priorCheckpoints = (execution?.checkpoints ?? []) as CheckpointRecord[];
   const blastRadiusMultiplier = execution?.repoContext?.blastRadiusMultiplier ?? 1.0;
   const ingestedSignals: Signal[] = execution?.signalsReceived
-    ? Object.values(execution.signalsReceived)
+    ? (Object.values(execution.signalsReceived) as Signal[])
     : [];
 
   const signals: Signal[] = [...ingestedSignals];
@@ -313,9 +316,11 @@ async function runCheckpoint2(
 
   let calibrationFactor = 1.0;
   if (config.calibrationTableName) {
-    const calRecord = await getItem<{ calibrationFactor: number }>(config.calibrationTableName, {
-      repoFullName: detail.repoFullName,
-    });
+    const calRecord = await getValidatedItem(
+      config.calibrationTableName,
+      { repoFullName: detail.repoFullName },
+      CalibrationRecordSchema
+    );
     calibrationFactor = calRecord?.calibrationFactor ?? 1.0;
   }
 

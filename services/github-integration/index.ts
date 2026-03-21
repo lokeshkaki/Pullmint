@@ -1,21 +1,22 @@
 import { EventBridgeHandler } from 'aws-lambda';
+import { z } from 'zod';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getGitHubInstallationClient } from '../shared/github-app';
 import { publishEvent } from '../shared/eventbridge';
-import { getItem, updateItem, updateItemConditional } from '../shared/dynamodb';
+import { getValidatedItem, updateItem, updateItemConditional } from '../shared/dynamodb';
 import { createStructuredError, retryWithBackoff } from '../shared/error-handling';
 import { addTraceAnnotations } from '../shared/tracer';
+import { PRExecutionSchema, FindingSchema, ValidatedCheckpointRecord } from '../shared/schemas';
 import {
   PREvent,
   Finding,
   AnalysisResult,
   DeploymentApprovedEvent,
   DeploymentStatusEvent,
-  CheckpointRecord,
 } from '../shared/types';
 
 type CommentOpts = {
-  checkpoint?: CheckpointRecord;
+  checkpoint?: ValidatedCheckpointRecord;
   dashboardUrl?: string;
 };
 
@@ -83,8 +84,18 @@ async function fetchFindingsFromS3(s3Key: string): Promise<Finding[]> {
   if (!body) {
     throw new Error(`Empty S3 response for key: ${s3Key}`);
   }
-  const parsed = JSON.parse(body) as { findings: Finding[] };
-  return parsed.findings;
+  const parsed = JSON.parse(body) as { findings: unknown[] };
+  const findings = z
+    .array(FindingSchema)
+    .safeParse(Array.isArray(parsed.findings) ? parsed.findings : []);
+  if (!findings.success) {
+    console.warn('[github-integration] S3 findings failed validation — returning empty array', {
+      s3Key,
+      errors: findings.error.issues,
+    });
+    return [];
+  }
+  return findings.data;
 }
 
 async function handleAnalysisComplete(detail: AnalysisCompleteEvent): Promise<void> {
@@ -92,9 +103,10 @@ async function handleAnalysisComplete(detail: AnalysisCompleteEvent): Promise<vo
   console.log(`Posting results for PR #${detail.prNumber} in ${detail.repoFullName}`);
 
   // Fetch execution record to surface checkpoint1 data in the PR comment
-  const execution = await getItem<{ checkpoints?: CheckpointRecord[] }>(
+  const execution = await getValidatedItem(
     config.executionsTableName,
-    { executionId: detail.executionId }
+    { executionId: detail.executionId },
+    PRExecutionSchema
   );
   const checkpoint1 = execution?.checkpoints?.[0];
   const dashboardUrl = process.env.DASHBOARD_URL || '';

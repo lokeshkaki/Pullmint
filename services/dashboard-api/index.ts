@@ -14,9 +14,8 @@ import type {
   APIGatewayProxyEventQueryStringParameters,
 } from 'aws-lambda';
 import { z } from 'zod';
-import type { RepoRegistryRecord } from '../shared/types';
-import { getItem, getValidatedItem, updateItem } from '../shared/dynamodb';
-import { PRExecutionSchema } from '../shared/schemas';
+import { getValidatedItem, updateItem } from '../shared/dynamodb';
+import { PRExecutionSchema, RepoRegistryRecordSchema } from '../shared/schemas';
 import { publishEvent } from '../shared/eventbridge';
 import { getSecret } from '../shared/secrets';
 import { addTraceAnnotations } from '../shared/tracer';
@@ -253,9 +252,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       const owner = parts[3];
       const repo = parts[4];
       const repoFullName = `${owner}/${repo}`;
-      const existing = await getItem<RepoRegistryRecord>(getRepoRegistryTableName(), {
-        repoFullName,
-      });
+      const existing = await getValidatedItem(
+        getRepoRegistryTableName(),
+        {
+          repoFullName,
+        },
+        RepoRegistryRecordSchema
+      );
       if (!existing) {
         return {
           statusCode: 404,
@@ -287,7 +290,11 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       const owner = parts[3];
       const repo = parts[4];
       const repoFullName = `${owner}/${repo}`;
-      const item = await getItem<RepoRegistryRecord>(getRepoRegistryTableName(), { repoFullName });
+      const item = await getValidatedItem(
+        getRepoRegistryTableName(),
+        { repoFullName },
+        RepoRegistryRecordSchema
+      );
       if (!item) {
         return {
           statusCode: 404,
@@ -584,23 +591,38 @@ async function getBoard(headers: Record<string, string>): Promise<APIGatewayProx
 
   results.forEach((result, i) => {
     const status = allStatuses[i];
-    board[status] = (result.Items ?? []).map((item) => {
-      const checkpoints = item.checkpoints as { type: string }[] | undefined;
-      return {
-        executionId: item.executionId as string,
-        repoFullName: item.repoFullName as string,
-        prNumber: item.prNumber as number,
-        title: item.title as string | undefined,
-        author: item.author as string | undefined,
-        riskScore: item.riskScore as number | undefined,
-        confidenceScore: item.confidenceScore as number | undefined,
-        currentCheckpoint: checkpoints?.at(-1)?.type,
-        deploymentStartedAt: item.deploymentStartedAt as number | undefined,
-        timeInCurrentStateMs: item.deploymentStartedAt
-          ? Date.now() - (item.deploymentStartedAt as number)
-          : undefined,
-      };
-    });
+    board[status] = (result.Items ?? [])
+      .map((item) => {
+        const parsed = PRExecutionSchema.safeParse(item);
+        if (!parsed.success) {
+          const executionId =
+            item && typeof item === 'object' && 'executionId' in item
+              ? String(item.executionId)
+              : undefined;
+          console.warn('[dashboard-api] Skipping invalid board record', {
+            executionId,
+            errors: parsed.error.issues,
+          });
+          return null;
+        }
+        const exec = parsed.data;
+        const lastCheckpoint = exec.checkpoints?.at(-1);
+        return {
+          executionId: exec.executionId,
+          repoFullName: exec.repoFullName,
+          prNumber: exec.prNumber,
+          title: exec.title,
+          author: exec.author,
+          riskScore: exec.riskScore,
+          confidenceScore: exec.confidenceScore,
+          currentCheckpoint: lastCheckpoint?.type,
+          deploymentStartedAt: exec.deploymentStartedAt,
+          timeInCurrentStateMs: exec.deploymentStartedAt
+            ? Date.now() - exec.deploymentStartedAt
+            : undefined,
+        };
+      })
+      .filter((card): card is NonNullable<typeof card> => card !== null);
   });
 
   return {
