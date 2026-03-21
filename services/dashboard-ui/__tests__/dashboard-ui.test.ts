@@ -23,7 +23,7 @@ describe('Dashboard UI Handler', () => {
       const result = await handler(event);
 
       expect(result.statusCode).toBe(200);
-      expect(result.headers).toHaveProperty('Content-Type', 'text/html');
+      expect(result.headers).toHaveProperty('Content-Type', 'text/html; charset=utf-8');
       expect(result.body).toContain('<!DOCTYPE html>');
       expect(result.body).toContain('<title>Pullmint Dashboard</title>');
     });
