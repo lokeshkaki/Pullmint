@@ -47,10 +47,6 @@ jest.mock('../embeddings', () => ({
   generateEmbedding: jest.fn().mockResolvedValue(new Array(1536).fill(0.1)),
 }));
 
-jest.mock('../opensearch-client', () => ({
-  upsertNarrative: jest.fn().mockResolvedValue(undefined),
-}));
-
 // Mock AWS SDK direct usage (handler creates its own docClient and sqsClient)
 jest.mock('@aws-sdk/client-dynamodb', () => ({
   DynamoDBClient: jest.fn(),
@@ -97,7 +93,6 @@ const loadHandler = async (): Promise<HandlerFn> => {
   process.env.EXECUTIONS_TABLE_NAME = 'executions-table';
   process.env.ANALYSIS_QUEUE_URL = 'https://sqs.example.com/queue';
   process.env.ONBOARDING_QUEUE_URL = 'https://sqs.example.com/onboarding-queue';
-  process.env.OPENSEARCH_ENDPOINT = 'https://os.example.com';
   process.env.ANTHROPIC_API_KEY_ARN = 'arn:aws:secretsmanager:us-east-1:123:secret:key';
   const module = await import('../index');
   return module.handler as HandlerFn;
@@ -307,13 +302,12 @@ describe('handler — full-index mode', () => {
 });
 
 describe('handler — batch mode', () => {
-  it('generates narratives, embeds, and upserts for each module', async () => {
+  it('generates narratives, embeds, and persists each module to DynamoDB', async () => {
     const handler = await loadHandler();
     const mocks = getMocks();
     const generateNarrative = jest.requireMock('../narrative-generator')
       .generateModuleNarrative as jest.Mock;
     const generateEmbed = jest.requireMock('../embeddings').generateEmbedding as jest.Mock;
-    const upsert = jest.requireMock('../opensearch-client').upsertNarrative as jest.Mock;
 
     mocks.atomicDecrement.mockResolvedValue(0);
     mocks.putItem.mockResolvedValue(undefined);
@@ -340,7 +334,6 @@ describe('handler — batch mode', () => {
 
     expect(generateNarrative).toHaveBeenCalled();
     expect(generateEmbed).toHaveBeenCalled();
-    expect(upsert).toHaveBeenCalled();
     expect(mocks.putItem).toHaveBeenCalled();
     // atomicDecrement returned 0, so should mark indexed
     expect(mocks.updateItem).toHaveBeenCalledWith(
@@ -403,7 +396,6 @@ describe('handler — incremental mode', () => {
     const generateNarrative = jest.requireMock('../narrative-generator')
       .generateModuleNarrative as jest.Mock;
     const generateEmbed = jest.requireMock('../embeddings').generateEmbedding as jest.Mock;
-    const upsert = jest.requireMock('../opensearch-client').upsertNarrative as jest.Mock;
 
     mocks.fetchFileCommitHistory.mockResolvedValue({
       filePath: 'src/auth/index.ts',
@@ -443,7 +435,6 @@ describe('handler — incremental mode', () => {
 
     expect(generateNarrative).toHaveBeenCalled();
     expect(generateEmbed).toHaveBeenCalled();
-    expect(upsert).toHaveBeenCalled();
     expect(mocks.putItem).toHaveBeenCalledWith(
       'module-narratives-table',
       expect.objectContaining({ modulePath: 'src/auth' })

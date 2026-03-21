@@ -149,7 +149,6 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
               fileKnowledgeTable: process.env.FILE_KNOWLEDGE_TABLE_NAME ?? '',
               authorProfilesTable: process.env.AUTHOR_PROFILES_TABLE_NAME ?? '',
               moduleNarrativesTable: process.env.MODULE_NARRATIVES_TABLE_NAME ?? '',
-              opensearchEndpoint: process.env.OPENSEARCH_ENDPOINT ?? '',
             }
           );
           contextPackage = assembled;

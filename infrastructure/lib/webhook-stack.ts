@@ -209,6 +209,12 @@ export class WebhookStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    moduleNarrativesTable.addGlobalSecondaryIndex({
+      indexName: 'repoFullName-index',
+      partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // ===========================
     // S3
     // ===========================
@@ -281,12 +287,6 @@ export class WebhookStack extends cdk.Stack {
       queueName: 'pullmint-knowledge-update-queue',
       visibilityTimeout: cdk.Duration.minutes(90),
       deadLetterQueue: { queue: knowledgeUpdateDlq, maxReceiveCount: 3 },
-    });
-
-    const openSearchEndpoint = new cdk.CfnParameter(this, 'OpenSearchEndpoint', {
-      type: 'String',
-      description: 'OpenSearch Serverless collection endpoint URL',
-      default: '',
     });
 
     const oneMonthLambdaLogGroup = (id: string): logs.LogGroup =>
@@ -572,7 +572,6 @@ export class WebhookStack extends cdk.Stack {
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
         ANALYSIS_QUEUE_URL: llmQueue.queueUrl,
         ONBOARDING_QUEUE_URL: onboardingQueue.queueUrl,
-        OPENSEARCH_ENDPOINT: openSearchEndpoint.valueAsString,
         ANTHROPIC_API_KEY_ARN: anthropicApiKey.secretArn,
         GITHUB_APP_ID: githubAppId ?? '',
         GITHUB_PRIVATE_KEY_ARN: githubAppPrivateKey.secretArn,
@@ -633,7 +632,6 @@ export class WebhookStack extends cdk.Stack {
       'MODULE_NARRATIVES_TABLE_NAME',
       moduleNarrativesTable.tableName
     );
-    architectureAgent.addEnvironment('OPENSEARCH_ENDPOINT', openSearchEndpoint.valueAsString);
     repoRegistryTable.grantReadData(architectureAgent);
     fileKnowledgeTable.grantReadData(architectureAgent);
     authorProfilesTable.grantReadData(architectureAgent);

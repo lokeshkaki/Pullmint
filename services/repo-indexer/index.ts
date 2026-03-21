@@ -9,7 +9,6 @@ import { fetchFileTree, fetchFileCommitHistory, aggregateAuthorProfiles } from '
 import { detectModules } from './module-detector';
 import { generateModuleNarrative } from './narrative-generator';
 import { generateEmbedding } from './embeddings';
-import { upsertNarrative } from './opensearch-client';
 import type { RepoRegistryRecord, FileMetrics, ModuleNarrative } from '../shared/types';
 import type { Octokit } from '@octokit/rest';
 
@@ -22,7 +21,6 @@ const MODULE_NARRATIVES_TABLE_NAME = process.env.MODULE_NARRATIVES_TABLE_NAME!;
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
 const ANALYSIS_QUEUE_URL = process.env.ANALYSIS_QUEUE_URL!;
 const ONBOARDING_QUEUE_URL = process.env.ONBOARDING_QUEUE_URL!;
-const OPENSEARCH_ENDPOINT = process.env.OPENSEARCH_ENDPOINT!;
 const ANTHROPIC_API_KEY_ARN = process.env.ANTHROPIC_API_KEY_ARN!;
 
 const sqsClient = new SQSClient({});
@@ -279,13 +277,13 @@ async function handleBatch(msg: BatchMessage): Promise<void> {
         version: 1,
       };
 
+      const embedding = await generateEmbedding(narrativeText);
+
       await putItem(MODULE_NARRATIVES_TABLE_NAME, {
         ...narrative,
+        embedding,
         pk: `${repoFullName}#${mod.modulePath}`,
       });
-
-      const embedding = await generateEmbedding(narrativeText);
-      await upsertNarrative(OPENSEARCH_ENDPOINT, narrative, embedding);
     } catch {
       // skip individual module failures — batch continues
     }
@@ -403,12 +401,14 @@ async function handleIncremental(msg: IncrementalMessage): Promise<void> {
           generatedAtSha: 'HEAD',
           version: Date.now(),
         };
+
+        const embedding = await generateEmbedding(narrativeText);
+
         await putItem(MODULE_NARRATIVES_TABLE_NAME, {
           ...narrative,
+          embedding,
           pk: `${repoFullName}#${mod.modulePath}`,
         });
-        const embedding = await generateEmbedding(narrativeText);
-        await upsertNarrative(OPENSEARCH_ENDPOINT, narrative, embedding);
       } catch {
         /* skip */
       }
