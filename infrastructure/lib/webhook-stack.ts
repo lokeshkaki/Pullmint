@@ -1001,6 +1001,11 @@ export class WebhookStack extends cdk.Stack {
       }
     );
 
+    dashboardUi.addEnvironment(
+      'DASHBOARD_URL',
+      `https://${dashboardDistribution.distributionDomainName}`
+    );
+
     // ===========================
     // CloudWatch Alarms
     // ===========================

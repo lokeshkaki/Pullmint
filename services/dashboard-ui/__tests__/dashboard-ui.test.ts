@@ -1,413 +1,64 @@
-import { handler } from '../index';
 import type { APIGatewayProxyEvent } from 'aws-lambda';
 
-describe('Dashboard UI Handler', () => {
-  const createMockEvent = (method: string = 'GET'): APIGatewayProxyEvent => ({
-    path: '/dashboard',
-    httpMethod: method,
-    headers: {},
-    multiValueHeaders: {},
-    queryStringParameters: null,
-    multiValueQueryStringParameters: null,
-    pathParameters: null,
-    stageVariables: null,
-    requestContext: {} as any,
-    resource: '',
-    body: null,
-    isBase64Encoded: false,
+const createMockEvent = (method = 'GET'): APIGatewayProxyEvent => ({
+  path: '/dashboard',
+  httpMethod: method,
+  headers: {},
+  multiValueHeaders: {},
+  queryStringParameters: null,
+  multiValueQueryStringParameters: null,
+  pathParameters: null,
+  stageVariables: null,
+  requestContext: {} as any,
+  resource: '',
+  body: null,
+  isBase64Encoded: false,
+});
+
+describe('Dashboard UI redirect handler', () => {
+  const originalDashboardUrl = process.env.DASHBOARD_URL;
+
+  afterEach(() => {
+    jest.resetModules();
+    if (originalDashboardUrl) {
+      process.env.DASHBOARD_URL = originalDashboardUrl;
+    } else {
+      delete process.env.DASHBOARD_URL;
+    }
   });
 
-  describe('GET requests', () => {
-    it('should return HTML content', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
+  it('returns a redirect response when DASHBOARD_URL is configured', async () => {
+    process.env.DASHBOARD_URL = 'https://d111111abcdef8.cloudfront.net';
+    const { handler } = await import('../index');
 
-      expect(result.statusCode).toBe(200);
-      expect(result.headers).toHaveProperty('Content-Type', 'text/html; charset=utf-8');
-      expect(result.body).toContain('<!DOCTYPE html>');
-      expect(result.body).toContain('<title>Pullmint Dashboard</title>');
+    const result = await handler(createMockEvent('GET'));
+
+    expect(result.statusCode).toBe(302);
+    expect(result.headers).toEqual({
+      Location: 'https://d111111abcdef8.cloudfront.net',
+      'Cache-Control': 'no-cache',
     });
-
-    it('should include cache-control headers', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      expect(result.headers).toHaveProperty('Cache-Control', 'no-cache, no-store, must-revalidate');
-    });
-
-    it('should contain dashboard application', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      // Verify key elements exist
-      expect(result.body).toContain('Pullmint Dashboard');
-      expect(result.body).toContain('loadExecutions');
-      expect(result.body).toContain('applyFilters');
-      expect(result.body).toContain('class="executions"');
-    });
-
-    it('should include JavaScript for interactivity', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      expect(result.body).toContain('<script>');
-      expect(result.body).toContain('fetch');
-      expect(result.body).toContain('apiBase');
-    });
-
-    it('should include CSS styling', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      expect(result.body).toContain('<style>');
-      expect(result.body).toContain('.container');
-      expect(result.body).toContain('.execution-item');
-    });
-
-    it('should include filter controls', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      expect(result.body).toContain('repoFilter');
-      expect(result.body).toContain('statusFilter');
-      expect(result.body).toContain('applyFilters');
-      expect(result.body).toContain('clearFilters');
-    });
-
-    it('should include stats display', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      expect(result.body).toContain('totalCount');
-      expect(result.body).toContain('avgRisk');
-      expect(result.body).toContain('deployedCount');
-      expect(result.body).toContain('successRate');
-    });
-
-    it('should include auto-refresh functionality', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      expect(result.body).toContain('startPolling');
-      expect(result.body).toContain('stopPolling');
-      expect(result.body).toContain('setInterval');
-    });
-
-    it('should configure API base URL correctly', async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-
-      expect(result.body).toContain("const dashboardPath = '/dashboard'");
-      expect(result.body).toContain('window.location.pathname.slice');
-    });
+    expect(result.body).toBe('');
   });
 
-  describe('Non-GET requests', () => {
-    it('should reject POST requests', async () => {
-      const event = createMockEvent('POST');
-      const result = await handler(event);
+  it('returns service unavailable when DASHBOARD_URL is missing', async () => {
+    delete process.env.DASHBOARD_URL;
+    const { handler } = await import('../index');
 
-      expect(result.statusCode).toBe(405);
-      expect(result.headers).toHaveProperty('Content-Type', 'text/plain');
-      expect(result.body).toBe('Method not allowed');
-    });
+    const result = await handler(createMockEvent('GET'));
 
-    it('should reject PUT requests', async () => {
-      const event = createMockEvent('PUT');
-      const result = await handler(event);
-
-      expect(result.statusCode).toBe(405);
-    });
-
-    it('should reject DELETE requests', async () => {
-      const event = createMockEvent('DELETE');
-      const result = await handler(event);
-
-      expect(result.statusCode).toBe(405);
-    });
+    expect(result.statusCode).toBe(503);
+    expect(result.headers).toEqual({ 'Content-Type': 'text/plain' });
+    expect(result.body).toBe('Dashboard URL not configured');
   });
 
-  describe('HTML structure validation', () => {
-    let htmlContent: string;
+  it('redirects non-GET requests as well when configured', async () => {
+    process.env.DASHBOARD_URL = 'https://d111111abcdef8.cloudfront.net';
+    const { handler } = await import('../index');
 
-    beforeAll(async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-      htmlContent = result.body;
-    });
+    const result = await handler(createMockEvent('POST'));
 
-    it('should have proper HTML5 doctype', () => {
-      expect(htmlContent).toMatch(/^<!DOCTYPE html>/);
-    });
-
-    it('should have viewport meta tag for responsiveness', () => {
-      expect(htmlContent).toContain('name="viewport"');
-      expect(htmlContent).toContain('width=device-width');
-    });
-
-    it('should have UTF-8 charset', () => {
-      expect(htmlContent).toContain('charset="UTF-8"');
-    });
-
-    it('should have properly structured sections', () => {
-      expect(htmlContent).toContain('<header>');
-      expect(htmlContent).toContain('class="filters"');
-      expect(htmlContent).toContain('class="stats"');
-      expect(htmlContent).toContain('class="executions"');
-    });
-
-    it('should include risk score visualization', () => {
-      expect(htmlContent).toContain('getRiskClass');
-      expect(htmlContent).toContain('risk-low');
-      expect(htmlContent).toContain('risk-medium');
-      expect(htmlContent).toContain('risk-high');
-    });
-
-    it('should include finding severity levels', () => {
-      expect(htmlContent).toContain('finding-severity');
-      expect(htmlContent).toContain('critical');
-      expect(htmlContent).toContain('high');
-      expect(htmlContent).toContain('medium');
-      expect(htmlContent).toContain('low');
-    });
-
-    it('should include deployment timeline', () => {
-      expect(htmlContent).toContain('deployment-timeline');
-      expect(htmlContent).toContain('renderDeployment');
-    });
-
-    it('should include pagination support', () => {
-      expect(htmlContent).toContain('nextToken');
-      expect(htmlContent).toContain('load-more');
-      expect(htmlContent).toContain('loadExecutions(true)');
-    });
-
-    it('should include error handling UI', () => {
-      expect(htmlContent).toContain('class="error"');
-      expect(htmlContent).toContain('class="loading"');
-      expect(htmlContent).toContain('class="empty"');
-    });
-
-    it('should include status badges', () => {
-      expect(htmlContent).toContain('badge.pending');
-      expect(htmlContent).toContain('badge.analyzing');
-      expect(htmlContent).toContain('badge.completed');
-      expect(htmlContent).toContain('badge.failed');
-      expect(htmlContent).toContain('badge.deploying');
-      expect(htmlContent).toContain('badge.deployed');
-    });
-  });
-
-  describe('Responsive design', () => {
-    let htmlContent: string;
-
-    beforeAll(async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-      htmlContent = result.body;
-    });
-
-    it('should use grid layout for stats', () => {
-      expect(htmlContent).toContain('display: grid');
-      expect(htmlContent).toContain('grid-template-columns');
-    });
-
-    it('should use flexbox for filters', () => {
-      expect(htmlContent).toContain('display: flex');
-      expect(htmlContent).toContain('flex-wrap: wrap');
-    });
-
-    it('should have box-sizing border-box', () => {
-      expect(htmlContent).toContain('box-sizing: border-box');
-    });
-  });
-
-  describe('Browser compatibility', () => {
-    let htmlContent: string;
-
-    beforeAll(async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-      htmlContent = result.body;
-    });
-
-    it('should use modern JavaScript features with fallbacks', () => {
-      expect(htmlContent).toContain('async function');
-      expect(htmlContent).toContain('await fetch');
-    });
-
-    it('should handle visibility change for tab switching', () => {
-      expect(htmlContent).toContain('visibilitychange');
-      expect(htmlContent).toContain('document.hidden');
-    });
-
-    it('should use standard DOM APIs', () => {
-      expect(htmlContent).toContain('getElementById');
-      expect(htmlContent).toContain('querySelector');
-      expect(htmlContent).toContain('addEventListener');
-    });
-  });
-
-  describe('Risk Board view (Task 6.2)', () => {
-    let htmlContent: string;
-
-    beforeAll(async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-      htmlContent = result.body;
-    });
-
-    it('should render the risk board container without throwing', () => {
-      expect(htmlContent).toContain('id="board-view"');
-      expect(htmlContent).toContain('class="risk-board"');
-    });
-
-    it('should include renderBoard function', () => {
-      expect(htmlContent).toContain('function renderBoard');
-    });
-
-    it('should include all kanban column labels', () => {
-      expect(htmlContent).toContain('Analyzing');
-      expect(htmlContent).toContain('Pre-Deploy Hold');
-      expect(htmlContent).toContain('Deploying');
-      expect(htmlContent).toContain('Monitoring');
-      expect(htmlContent).toContain('Confirmed');
-      expect(htmlContent).toContain('Rolled Back');
-    });
-
-    it('should apply risk score color classes to board cards', () => {
-      // getRiskClass is already tested, but ensure it is reused in board card rendering
-      expect(htmlContent).toContain('getRiskClass');
-      expect(htmlContent).toContain("'risk-score ' + riskClass");
-    });
-
-    it('should include confidence bar rendering', () => {
-      // CSS class is set dynamically via JS, check for the string used in className assignment
-      expect(htmlContent).toContain("'confidence-bar'");
-      expect(htmlContent).toContain("'confidence-bar-fill'");
-    });
-
-    it('should navigate to execution detail on card click', () => {
-      expect(htmlContent).toContain('showExecutionDetail');
-    });
-
-    it('should include board stats (active, held, rollbacks)', () => {
-      expect(htmlContent).toContain('updateBoardStats');
-    });
-
-    it('should poll board every 30 seconds or provide manual refresh', () => {
-      expect(htmlContent).toContain('loadBoard');
-    });
-  });
-
-  describe('Execution Detail view (Task 6.3)', () => {
-    let htmlContent: string;
-
-    beforeAll(async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-      htmlContent = result.body;
-    });
-
-    it('should render the execution detail view container', () => {
-      expect(htmlContent).toContain('id="detail-view"');
-      expect(htmlContent).toContain('id="checkpointTimeline"');
-    });
-
-    it('should include renderTimeline function', () => {
-      expect(htmlContent).toContain('function renderTimeline');
-    });
-
-    it('should render correct number of checkpoint nodes for all four types', () => {
-      expect(htmlContent).toContain("'analysis'");
-      expect(htmlContent).toContain("'pre-deploy'");
-      expect(htmlContent).toContain("'post-deploy-5'");
-      expect(htmlContent).toContain("'post-deploy-30'");
-    });
-
-    it('should apply green class to approved checkpoint nodes', () => {
-      expect(htmlContent).toContain('checkpoint-node--approved');
-    });
-
-    it('should apply red class to rollback checkpoint nodes', () => {
-      expect(htmlContent).toContain('checkpoint-node--rollback');
-    });
-
-    it('should show signal coverage with received signals listed', () => {
-      expect(htmlContent).toContain('renderSignalCoverage');
-      expect(htmlContent).toContain('signal-dot received');
-    });
-
-    it('should include override button that calls re-evaluate endpoint', () => {
-      expect(htmlContent).toContain('class="btn-override"');
-      expect(htmlContent).toContain('openJustificationModal');
-      expect(htmlContent).toContain('submitOverride');
-      expect(htmlContent).toContain('/re-evaluate');
-    });
-
-    it('should include checkpoint detail panel', () => {
-      expect(htmlContent).toContain('id="checkpointDetail"');
-      expect(htmlContent).toContain('showCheckpointDetail');
-    });
-
-    it('should include repo context panel', () => {
-      expect(htmlContent).toContain('id="repoContextPanel"');
-      expect(htmlContent).toContain('renderRepoContext');
-      expect(htmlContent).toContain('blastRadiusMultiplier');
-    });
-  });
-
-  describe('Calibration Panel (Task 6.4)', () => {
-    let htmlContent: string;
-
-    beforeAll(async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-      htmlContent = result.body;
-    });
-
-    it('should render the calibration view container', () => {
-      expect(htmlContent).toContain('id="calibration-view"');
-      expect(htmlContent).toContain('class="calibration-panel"');
-    });
-
-    it('should include renderCalibration function', () => {
-      expect(htmlContent).toContain('function renderCalibration');
-    });
-
-    it('should show calibrationFactor column in table', () => {
-      expect(htmlContent).toContain('calibrationFactor');
-      expect(htmlContent).toContain('Calibration Factor');
-    });
-
-    it('should show factor as inactive until 10 observations', () => {
-      expect(htmlContent).toContain('factor-inactive');
-      expect(htmlContent).toContain('Pending');
-      expect(htmlContent).toContain('observationsCount');
-    });
-
-    it('should navigate to calibration detail on row click', () => {
-      expect(htmlContent).toContain('loadCalibrationDetail');
-    });
-  });
-
-  describe('Navigation tabs', () => {
-    let htmlContent: string;
-
-    beforeAll(async () => {
-      const event = createMockEvent('GET');
-      const result = await handler(event);
-      htmlContent = result.body;
-    });
-
-    it('should include nav tabs for three views', () => {
-      expect(htmlContent).toContain('class="nav-tabs"');
-      expect(htmlContent).toContain('class="nav-tab active"');
-      expect(htmlContent).toContain('showView');
-    });
-
-    it('should include showView function for switching views', () => {
-      expect(htmlContent).toContain('function showView');
-    });
+    expect(result.statusCode).toBe(302);
+    expect(result.headers?.Location).toBe('https://d111111abcdef8.cloudfront.net');
   });
 });
