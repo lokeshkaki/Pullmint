@@ -159,8 +159,11 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
         }
       }
 
-      // 4. Check cache — key includes contextVersion so stale context is not served
-      const cacheKey = hashContent(diff + '\n---cv---\n' + String(contextVersion));
+      // 4. Check cache — key includes selected model + contextVersion so stale context/model output is not served
+      const selectedModel = selectModel(diff);
+      const cacheKey = hashContent(
+        diff + '\n---model---\n' + selectedModel + '\n---cv---\n' + String(contextVersion)
+      );
       const cached = await getItem<{
         findings: Finding[];
         riskScore: number;
@@ -172,7 +175,6 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       let findings: Finding[];
       let riskScore: number;
       let tokensUsed = 0;
-      let selectedModel = LARGE_DIFF_MODEL;
       const processingStartTime = Date.now();
 
       if (cached) {
@@ -193,7 +195,6 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
           // System prompt contains instructions only; user content contains PR data only.
           // This structurally prevents prompt injection from PR title or diff content.
           const userContent = buildAnalysisPrompt(prEvent.title, diff, contextPackage);
-          selectedModel = selectModel(diff);
 
           // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
           const completion = await retryWithBackoff(
