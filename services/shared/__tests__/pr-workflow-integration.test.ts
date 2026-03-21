@@ -136,14 +136,14 @@ describe('PR Workflow Integration Tests', () => {
     it('should handle idempotent webhook delivery', async () => {
       const { handler: webhookHandler } = await import('../../webhook-receiver/index');
 
-      // Mock duplicate delivery check failure
+      // Mock dedup read check to return an existing record (already processed)
       ddbMock
-        .on(PutCommand, {
+        .on(GetCommand, {
           TableName: DEDUP_TABLE_NAME,
+          Key: { deliveryId: 'duplicate-delivery' },
         })
-        .rejects({
-          name: 'ConditionalCheckFailedException',
-          message: 'Item already exists',
+        .resolves({
+          Item: { deliveryId: 'duplicate-delivery', processedAt: Date.now() },
         });
 
       const prPayload = createPRPayload('opened', 123);
@@ -195,13 +195,11 @@ describe('PR Workflow Integration Tests', () => {
       expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.body).message).toBe('PR action ignored');
 
-      // Verify dedup still recorded (after filtering to avoid unnecessary writes)
-      // Actually, based on the code, dedup happens AFTER filtering, so it should not be recorded
+      // Dedup is written only after successful processing — filtered actions return early
       const dedupCalls = ddbMock.commandCalls(PutCommand, {
         TableName: DEDUP_TABLE_NAME,
       });
-      // The code does dedup AFTER filtering, so this should actually be 1
-      expect(dedupCalls.length).toBe(1);
+      expect(dedupCalls.length).toBe(0);
 
       // Verify no execution created
       const executionCalls = ddbMock.commandCalls(PutCommand, {

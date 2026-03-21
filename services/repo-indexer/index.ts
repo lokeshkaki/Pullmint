@@ -316,20 +316,25 @@ async function handleIncremental(msg: IncrementalMessage): Promise<void> {
     }
   }
 
-  // Update author profile
+  // Update author profile (partial update to preserve rollbackRate and avgRiskScore)
   if (author) {
-    const existing = await getItem<{ mergeCount30d?: number }>(AUTHOR_PROFILES_TABLE_NAME, {
-      pk: `${repoFullName}#${author}`,
-    });
-    await putItem(AUTHOR_PROFILES_TABLE_NAME, {
-      pk: `${repoFullName}#${author}`,
-      repoFullName,
-      authorLogin: author,
-      rollbackRate: 0,
-      mergeCount30d: (existing?.mergeCount30d ?? 0) + 1,
-      avgRiskScore: 0,
-      frequentFiles: changedFiles.slice(0, 20),
-    });
+    await docClient.send(
+      new UpdateCommand({
+        TableName: AUTHOR_PROFILES_TABLE_NAME,
+        Key: { pk: `${repoFullName}#${author}` },
+        UpdateExpression:
+          'SET repoFullName = :repo, authorLogin = :author, ' +
+          'frequentFiles = :files, updatedAt = :now ' +
+          'ADD mergeCount30d :one',
+        ExpressionAttributeValues: {
+          ':repo': repoFullName,
+          ':author': author,
+          ':files': changedFiles.slice(0, 20),
+          ':now': Date.now(),
+          ':one': 1,
+        },
+      })
+    );
   }
 
   // Regenerate narratives for modules containing changed files
