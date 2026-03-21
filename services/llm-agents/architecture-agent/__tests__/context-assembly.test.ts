@@ -362,6 +362,58 @@ describe('assembleContext', () => {
     jest.useRealTimers();
   });
 
+  it('times out DynamoDB fallback loop when timeout budget is exceeded', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const nowSpy = jest.spyOn(Date, 'now');
+    let now = 0;
+    nowSpy.mockImplementation(() => {
+      now += 3000;
+      return now;
+    });
+
+    ddbMock
+      .on(GetCommand, { TableName: 'registry-table' })
+      .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 1 } });
+    ddbMock.on(BatchGetCommand).resolves({ Responses: { 'file-table': [] } });
+    ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({ Item: undefined });
+    ddbMock.on(GetCommand, { TableName: 'narratives-table' }).resolves({
+      Item: {
+        modulePath: 'src/a',
+        narrativeText: 'Fallback narrative.',
+        repoFullName: 'org/repo',
+        generatedAtSha: 'abc',
+        version: 1,
+      },
+    });
+
+    bedrockMock.on(InvokeModelCommand).rejects(new Error('embedding failed'));
+    mockFetch.mockRejectedValue(new Error('opensearch down'));
+    mockOctokit.rest.pulls.get.mockResolvedValue({ data: { body: '' } });
+
+    const result = await assembleContext(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockOctokit as any,
+      basePrEvent,
+      ['src/a/file.ts', 'src/b/file.ts', 'src/c/file.ts'],
+      'mock diff content',
+      baseConfig
+    );
+
+    expect(result.contextQuality).toBe('partial');
+    expect(result.moduleNarratives).toHaveLength(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[context-assembly] OpenSearch failed, falling back to DynamoDB',
+      expect.objectContaining({ error: 'embedding failed' })
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[context-assembly] DynamoDB fallback loop timed out',
+      expect.objectContaining({ fetchedCount: 1, remainingPrefixes: 2 })
+    );
+
+    nowSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
   it('skips root-level files when computing module path prefixes for fallback', async () => {
     ddbMock
       .on(GetCommand, { TableName: 'registry-table' })

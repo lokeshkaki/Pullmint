@@ -179,14 +179,31 @@ async function fetchModuleNarrativesWithFallback(
     if (!response.ok) throw new Error(`OpenSearch ${response.status}`);
     const body = (await response.json()) as { hits: { hits: Array<{ _source: ModuleNarrative }> } };
     return { narratives: body.hits.hits.map((h) => h._source), usedFallback: false };
-  } catch {
+  } catch (opensearchError) {
+    console.warn('[context-assembly] OpenSearch failed, falling back to DynamoDB', {
+      error: opensearchError instanceof Error ? opensearchError.message : 'unknown',
+    });
+
     // Fallback: exact-match from DynamoDB for files in the diff
+    const FALLBACK_TIMEOUT_MS = 5000;
+    const fallbackStart = Date.now();
     const modulePathPrefixes = new Set(
-      changedFiles.map((f) => f.split('/').slice(0, -1).join('/'))
+      changedFiles.map((f) => f.split('/').slice(0, -1).join('/')).filter((prefix) => !!prefix)
     );
+    const totalPrefixes = modulePathPrefixes.size;
     const narratives: ModuleNarrative[] = [];
+    let processedPrefixes = 0;
+
     for (const prefix of modulePathPrefixes) {
-      if (!prefix) continue;
+      if (Date.now() - fallbackStart > FALLBACK_TIMEOUT_MS) {
+        console.warn('[context-assembly] DynamoDB fallback loop timed out', {
+          fetchedCount: narratives.length,
+          remainingPrefixes: Math.max(totalPrefixes - processedPrefixes, 0),
+        });
+        break;
+      }
+
+      processedPrefixes += 1;
       try {
         const result = await docClient.send(
           new GetCommand({
@@ -195,8 +212,11 @@ async function fetchModuleNarrativesWithFallback(
           })
         );
         if (result.Item) narratives.push(result.Item as ModuleNarrative);
-      } catch {
-        /* skip */
+      } catch (ddbError) {
+        console.warn('[context-assembly] DynamoDB fallback fetch failed for prefix', {
+          prefix,
+          error: ddbError instanceof Error ? ddbError.message : 'unknown',
+        });
       }
     }
     return { narratives, usedFallback: true };
