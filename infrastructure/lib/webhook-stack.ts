@@ -49,6 +49,11 @@ export class WebhookStack extends cdk.Stack {
       description: 'GitHub App private key for authentication',
     });
 
+    const deploymentWebhookSecret = new secretsmanager.Secret(this, 'DeploymentWebhookSecret', {
+      secretName: 'pullmint/deployment-webhook',
+      description: 'Deployment webhook URL and auth token',
+    });
+
     // ===========================
     // DynamoDB Tables
     // ===========================
@@ -259,8 +264,7 @@ export class WebhookStack extends cdk.Stack {
       environment: {
         EVENT_BUS_NAME: this.eventBus.eventBusName,
         EXECUTIONS_TABLE_NAME: executionsTable.tableName,
-        DEPLOYMENT_WEBHOOK_URL: process.env.DEPLOYMENT_WEBHOOK_URL || '',
-        DEPLOYMENT_WEBHOOK_AUTH_TOKEN: process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN || '',
+        DEPLOYMENT_WEBHOOK_SECRET_ARN: deploymentWebhookSecret.secretArn,
         DEPLOYMENT_WEBHOOK_TIMEOUT_MS: process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS || '10000',
         DEPLOYMENT_WEBHOOK_RETRIES: process.env.DEPLOYMENT_WEBHOOK_RETRIES || '2',
         DEPLOYMENT_ROLLBACK_WEBHOOK_URL: process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL || '',
@@ -328,6 +332,7 @@ export class WebhookStack extends cdk.Stack {
     // Deployment orchestrator permissions
     executionsTable.grantReadWriteData(deploymentOrchestrator);
     this.eventBus.grantPutEventsTo(deploymentOrchestrator);
+    deploymentWebhookSecret.grantRead(deploymentOrchestrator);
 
     // Dashboard permissions
     executionsTable.grantReadData(dashboardApi);

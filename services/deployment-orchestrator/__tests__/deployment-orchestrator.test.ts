@@ -1,6 +1,7 @@
 import { handler } from '../index';
 import { publishEvent } from '../../shared/eventbridge';
 import { updateItem } from '../../shared/dynamodb';
+import { getSecret } from '../../shared/secrets';
 import { DeploymentApprovedEvent } from '../../shared/types';
 import { Context, Callback } from 'aws-lambda';
 
@@ -10,6 +11,10 @@ jest.mock('../../shared/eventbridge', () => ({
 
 jest.mock('../../shared/dynamodb', () => ({
   updateItem: jest.fn(),
+}));
+
+jest.mock('../../shared/secrets', () => ({
+  getSecret: jest.fn(),
 }));
 
 describe('Deployment Orchestrator', () => {
@@ -35,11 +40,16 @@ describe('Deployment Orchestrator', () => {
     process.env.EVENT_BUS_NAME = 'test-bus';
     process.env.EXECUTIONS_TABLE_NAME = 'test-table';
     process.env.DEPLOYMENT_DELAY_MS = '0';
-    process.env.DEPLOYMENT_WEBHOOK_URL = 'https://deploy.example.com';
+    process.env.DEPLOYMENT_WEBHOOK_SECRET_ARN = 'arn:aws:secretsmanager:us-east-1:123:secret:test';
     process.env.DEPLOYMENT_WEBHOOK_RETRIES = '0';
     process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS = '1000';
-    process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN = 'test-auth-token';
+    delete process.env.DEPLOYMENT_WEBHOOK_URL;
+    delete process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN;
     delete process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL;
+
+    (getSecret as jest.Mock).mockResolvedValue(
+      JSON.stringify({ url: 'https://deploy.example.com', token: 'test-auth-token' })
+    );
 
     (globalThis as { fetch?: unknown }).fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -171,8 +181,10 @@ describe('Deployment Orchestrator', () => {
     );
   });
 
-  it('fails when deployment webhook URL is missing', async () => {
-    delete process.env.DEPLOYMENT_WEBHOOK_URL;
+  it('fails when deployment webhook URL is missing from secret', async () => {
+    (getSecret as jest.Mock).mockResolvedValue(
+      JSON.stringify({ url: '', token: 'test-auth-token' })
+    );
 
     await handler(
       {
@@ -343,8 +355,10 @@ describe('Deployment Orchestrator', () => {
     );
   });
 
-  it('sends webhook auth header when configured', async () => {
-    process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN = 'token';
+  it('sends webhook auth header from secret', async () => {
+    (getSecret as jest.Mock).mockResolvedValue(
+      JSON.stringify({ url: 'https://deploy.example.com', token: 'secret-token' })
+    );
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -362,7 +376,7 @@ describe('Deployment Orchestrator', () => {
     );
 
     const call = fetchMock.mock.calls[0][1];
-    expect(call.headers.Authorization).toBe('Bearer token');
+    expect(call.headers.Authorization).toBe('Bearer secret-token');
   });
 
   it('fails when fetch is unavailable', async () => {
@@ -478,8 +492,8 @@ describe('Deployment Orchestrator', () => {
     ).rejects.toThrow('EXECUTIONS_TABLE_NAME is required');
   });
 
-  it('throws when DEPLOYMENT_WEBHOOK_AUTH_TOKEN is missing', async () => {
-    delete process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN;
+  it('throws when DEPLOYMENT_WEBHOOK_SECRET_ARN is missing', async () => {
+    delete process.env.DEPLOYMENT_WEBHOOK_SECRET_ARN;
 
     await expect(
       handler(
@@ -490,21 +504,6 @@ describe('Deployment Orchestrator', () => {
         mockContext,
         mockCallback
       )
-    ).rejects.toThrow('DEPLOYMENT_WEBHOOK_AUTH_TOKEN is required but not set');
-  });
-
-  it('throws when DEPLOYMENT_WEBHOOK_AUTH_TOKEN is empty string', async () => {
-    process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN = '';
-
-    await expect(
-      handler(
-        {
-          'detail-type': 'deployment_approved',
-          detail: baseDetail,
-        } as any,
-        mockContext,
-        mockCallback
-      )
-    ).rejects.toThrow('DEPLOYMENT_WEBHOOK_AUTH_TOKEN is required but not set');
+    ).rejects.toThrow('DEPLOYMENT_WEBHOOK_SECRET_ARN is required but not set');
   });
 });
