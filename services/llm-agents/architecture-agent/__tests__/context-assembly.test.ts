@@ -45,9 +45,21 @@ describe('assembleContext', () => {
       .on(GetCommand, { TableName: 'registry-table' })
       .resolves({ Item: { repoFullName: 'org/repo', contextVersion: 3 } });
 
-    ddbMock
-      .on(BatchGetCommand)
-      .resolves({ Responses: { 'file-table': [{ pk: 'org/repo#src/auth.ts', churnRate30d: 5 }] } });
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: {
+        'file-table': [
+          {
+            repoFullName: 'org/repo',
+            filePath: 'src/auth.ts',
+            churnRate30d: 5,
+            churnRate90d: 12,
+            bugFixCommitCount30d: 1,
+            ownerLogins: ['alice'],
+            lastModifiedSha: 'abc',
+          },
+        ],
+      },
+    });
 
     ddbMock.on(GetCommand, { TableName: 'author-table' }).resolves({
       Item: {

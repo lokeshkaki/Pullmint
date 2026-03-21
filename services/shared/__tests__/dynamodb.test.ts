@@ -204,9 +204,7 @@ describe('DynamoDB Client', () => {
         Item: { id: 'test-1', name: 'Test', count: 'not-a-number' },
       });
 
-      await expect(
-        getValidatedItem('test-table', { id: 'test-1' }, TestSchema)
-      ).rejects.toThrow();
+      await expect(getValidatedItem('test-table', { id: 'test-1' }, TestSchema)).rejects.toThrow();
     });
 
     it('should log validation error details', async () => {
@@ -215,9 +213,7 @@ describe('DynamoDB Client', () => {
         Item: { id: 'test-1' },
       });
 
-      await expect(
-        getValidatedItem('test-table', { id: 'test-1' }, TestSchema)
-      ).rejects.toThrow();
+      await expect(getValidatedItem('test-table', { id: 'test-1' }, TestSchema)).rejects.toThrow();
 
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('[dynamodb] Validation failed'),

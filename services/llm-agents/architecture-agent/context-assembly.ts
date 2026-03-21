@@ -146,11 +146,7 @@ async function fetchAuthorProfile(
   author: string,
   table: string
 ): Promise<AuthorProfile | null> {
-  return getValidatedItem(
-    table,
-    { pk: `${repoFullName}#${author}` },
-    AuthorProfileSchema
-  );
+  return getValidatedItem(table, { pk: `${repoFullName}#${author}` }, AuthorProfileSchema);
 }
 
 // Inline Bedrock embedding call to avoid cross-Lambda-bundle imports.

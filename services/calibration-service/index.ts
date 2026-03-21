@@ -6,10 +6,7 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import type {
-  ExecutionConfirmedEvent,
-  ExecutionRolledBackEvent,
-} from '../shared/types';
+import type { ExecutionConfirmedEvent, ExecutionRolledBackEvent } from '../shared/types';
 import { CheckpointRecordSchema } from '../shared/schemas';
 
 const CALIBRATION_TABLE_NAME = process.env.CALIBRATION_TABLE_NAME!;

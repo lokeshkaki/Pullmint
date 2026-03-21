@@ -366,7 +366,11 @@ async function getExecution(
   executionId: string,
   headers: Record<string, string>
 ): Promise<APIGatewayProxyResult> {
-  const execution = await getValidatedItem(getExecutionsTableName(), { executionId }, PRExecutionSchema);
+  const execution = await getValidatedItem(
+    getExecutionsTableName(),
+    { executionId },
+    PRExecutionSchema
+  );
 
   if (!execution) {
     return {
