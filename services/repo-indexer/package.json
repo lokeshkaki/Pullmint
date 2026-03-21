@@ -14,12 +14,9 @@
     "@aws-sdk/client-bedrock-runtime": "^3.490.0",
     "@aws-sdk/client-dynamodb": "^3.490.0",
     "@aws-sdk/client-sqs": "^3.490.0",
-    "@aws-sdk/credential-provider-node": "^3.972.24",
     "@aws-sdk/lib-dynamodb": "^3.490.0",
     "@octokit/rest": "^20.0.2",
-    "@opensearch-project/opensearch": "^3.5.1",
-    "@pullmint/shared": "*",
-    "aws4": "^1.13.2"
+    "@pullmint/shared": "*"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.161",

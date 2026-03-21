@@ -27,7 +27,6 @@ describe('assembleContext', () => {
     fileKnowledgeTable: 'file-table',
     authorProfilesTable: 'author-table',
     moduleNarrativesTable: 'narratives-table',
-    opensearchEndpoint: 'https://os.example.com',
   };
 
   const basePrEvent = {

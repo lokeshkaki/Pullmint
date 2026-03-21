@@ -1256,7 +1256,6 @@ describe('architecture-agent handler', () => {
     process.env.FILE_KNOWLEDGE_TABLE_NAME = 'file-table';
     process.env.AUTHOR_PROFILES_TABLE_NAME = 'author-table';
     process.env.MODULE_NARRATIVES_TABLE_NAME = 'narratives-table';
-    process.env.OPENSEARCH_ENDPOINT = 'https://os.example.com';
     const handler = await loadHandler();
 
     const anthropicCreate = jest.fn().mockResolvedValue({
@@ -1372,7 +1371,6 @@ describe('architecture-agent handler', () => {
     delete process.env.FILE_KNOWLEDGE_TABLE_NAME;
     delete process.env.AUTHOR_PROFILES_TABLE_NAME;
     delete process.env.MODULE_NARRATIVES_TABLE_NAME;
-    delete process.env.OPENSEARCH_ENDPOINT;
   });
 
   it('proceeds without context when assembly fails', async () => {

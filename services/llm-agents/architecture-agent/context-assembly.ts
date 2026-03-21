@@ -32,7 +32,6 @@ export interface ContextConfig {
   fileKnowledgeTable: string;
   authorProfilesTable: string;
   moduleNarrativesTable: string;
-  opensearchEndpoint: string;
 }
 
 /**
