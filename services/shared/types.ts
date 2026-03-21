@@ -227,10 +227,11 @@ export interface ModuleNarrative {
 
 export interface RepoRegistryRecord {
   repoFullName: string;
-  indexingStatus: 'pending' | 'indexing' | 'indexed';
+  indexingStatus: 'pending' | 'indexing' | 'indexed' | 'failed';
   contextVersion: number;
   pendingBatches: number;
   queuedExecutionIds: string[];
+  lastError?: string;
 }
 
 export interface PRMergedEvent {
