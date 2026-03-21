@@ -7,10 +7,10 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import type {
-  CheckpointRecord,
   ExecutionConfirmedEvent,
   ExecutionRolledBackEvent,
 } from '../shared/types';
+import { CheckpointRecordSchema } from '../shared/schemas';
 
 const CALIBRATION_TABLE_NAME = process.env.CALIBRATION_TABLE_NAME!;
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
@@ -19,6 +19,7 @@ const MIN_OBSERVATIONS = 10;
 const ALPHA = 0.05;
 const MAX_FACTOR = 2.0;
 const MIN_FACTOR = 0.5;
+const AnalysisCheckpointSchema = CheckpointRecordSchema.pick({ type: true, decision: true });
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -35,7 +36,11 @@ export const handler = async (
   );
   if (!execution) return;
 
-  const checkpoints = (execution.checkpoints as CheckpointRecord[] | undefined) ?? [];
+  const rawCheckpoints = (execution.checkpoints as unknown[]) ?? [];
+  const checkpoints = rawCheckpoints
+    .map((checkpoint) => AnalysisCheckpointSchema.safeParse(checkpoint))
+    .filter((parsed) => parsed.success)
+    .map((parsed) => parsed.data);
   const analysisCheckpoint = checkpoints.find((c) => c.type === 'analysis');
   const decision = analysisCheckpoint?.decision as 'approved' | 'held' | undefined;
 
