@@ -537,7 +537,7 @@ function parseAnalysis(analysisText: string): { findings: Finding[]; riskScore: 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       findings: parsed.findings || [],
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-      riskScore: parsed.riskScore || 0,
+      riskScore: typeof parsed.riskScore === 'number' ? parsed.riskScore : 50,
     };
   } catch (error) {
     console.error('Failed to parse LLM response:', error);

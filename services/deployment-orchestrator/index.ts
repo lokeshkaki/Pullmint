@@ -41,6 +41,17 @@ export const handler: EventBridgeHandler<
   let deployingStatusSet = false;
 
   try {
+    // Idempotency guard: if a prior invocation already started deploying, skip to avoid double-deployment
+    const existing = await getItem<{ deploymentStartedAt?: number }>(config.executionsTableName, {
+      executionId: detail.executionId,
+    });
+    if (existing?.deploymentStartedAt) {
+      console.warn(
+        `Deployment already started for ${detail.executionId} — skipping duplicate invocation`
+      );
+      return;
+    }
+
     await updateItem(
       config.executionsTableName,
       { executionId: detail.executionId },

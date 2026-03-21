@@ -785,6 +785,32 @@ describe('Deployment Orchestrator', () => {
     expect(getItem).toHaveBeenCalledWith('cal-table', { repoFullName: 'owner/repo' });
   });
 
+  it('should skip webhook call if execution already has deploymentStartedAt', async () => {
+    // Execution already marked as deploying from a prior Lambda invocation
+    (getItem as jest.Mock).mockResolvedValue({
+      executionId: 'exec-123',
+      status: 'deploying',
+      deploymentStartedAt: Date.now() - 5000,
+      riskScore: 20,
+      repoFullName: 'owner/repo',
+      prNumber: 42,
+    });
+
+    await handler(
+      {
+        'detail-type': 'deployment_approved',
+        detail: baseDetail,
+      } as any,
+      mockContext,
+      mockCallback
+    );
+
+    // Webhook should NOT have been called — this is a duplicate invocation
+    expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
+    // Should not update status or publish events
+    expect(publishEvent).not.toHaveBeenCalled();
+  });
+
   it('merges prior checkpoint1 with checkpoint2 in the terminal updateItem call', async () => {
     const priorCheckpoint = {
       type: 'analysis',
@@ -796,8 +822,11 @@ describe('Deployment Orchestrator', () => {
       reason: 'ok',
       evaluatedAt: 0,
     };
-    // First getItem call (execution record) returns checkpoint1; no calibration table set
-    (getItem as jest.Mock).mockResolvedValueOnce({ checkpoints: [priorCheckpoint] });
+    // First getItem call: idempotency guard (no deploymentStartedAt → proceed)
+    // Second getItem call: runCheckpoint2 fetches prior checkpoints
+    (getItem as jest.Mock)
+      .mockResolvedValueOnce({ checkpoints: [priorCheckpoint] })
+      .mockResolvedValueOnce({ checkpoints: [priorCheckpoint] });
 
     await handler(
       { 'detail-type': 'deployment_approved', detail: baseDetail } as any,
