@@ -21,8 +21,15 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   return {
     statusCode: 200,
     headers: {
-      'Content-Type': 'text/html',
+      'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      'X-Frame-Options': 'DENY',
+      'X-Content-Type-Options': 'nosniff',
+      'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'X-XSS-Protection': '1; mode=block',
     },
     body: html,
   };
@@ -764,6 +771,12 @@ function getDashboardHTML(): string {
   </div><!-- /.container -->
 
   <script>
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+
     const dashboardPath = '/dashboard';
     const dashboardIndex = window.location.pathname.indexOf(dashboardPath);
     const apiBase =
@@ -1119,7 +1132,7 @@ function getDashboardHTML(): string {
         renderBoard(data.board);
         updateBoardStats(data.board);
       } catch (error) {
-        container.innerHTML = '<div class="error">Failed to load board: ' + (error instanceof Error ? error.message : 'Unknown error') + '</div>';
+        container.innerHTML = '<div class="error">Failed to load board: ' + escapeHtml(error instanceof Error ? error.message : 'Unknown error') + '</div>';
       }
     }
 
@@ -1297,11 +1310,11 @@ function getDashboardHTML(): string {
       if (!cp) { detailEl.style.display = 'none'; return; }
       detailEl.style.display = '';
       detailEl.innerHTML =
-        '<strong>' + (CHECKPOINT_LABELS[cp.type] || cp.type) + '</strong>' +
-        '<p style="margin-top:8px;color:#333;">' + (cp.reason || 'No reason provided.') + '</p>' +
-        '<p style="margin-top:6px;color:#888;font-size:12px;">Score: ' + cp.score +
+        '<strong>' + escapeHtml(CHECKPOINT_LABELS[cp.type] || cp.type) + '</strong>' +
+        '<p style="margin-top:8px;color:#333;">' + escapeHtml(cp.reason || 'No reason provided.') + '</p>' +
+        '<p style="margin-top:6px;color:#888;font-size:12px;">Score: ' + escapeHtml(cp.score) +
         ' &nbsp;|&nbsp; Confidence: ' + (cp.confidence != null ? Math.round(cp.confidence * 100) + '%' : 'N/A') +
-        ' &nbsp;|&nbsp; Decision: <strong>' + cp.decision + '</strong></p>';
+        ' &nbsp;|&nbsp; Decision: <strong>' + escapeHtml(cp.decision) + '</strong></p>';
     }
 
     function renderRepoContext(repoContext) {
@@ -1392,7 +1405,7 @@ function getDashboardHTML(): string {
         const data = await response.json();
         renderCalibration(data.repos);
       } catch (error) {
-        container.innerHTML = '<div class="error">Failed to load calibration: ' + (error instanceof Error ? error.message : 'Unknown error') + '</div>';
+        container.innerHTML = '<div class="error">Failed to load calibration: ' + escapeHtml(error instanceof Error ? error.message : 'Unknown error') + '</div>';
       }
     }
 
@@ -1429,10 +1442,10 @@ function getDashboardHTML(): string {
           : repo.calibrationFactor.toFixed(2) + 'x';
 
         tr.innerHTML =
-          '<td>' + repo.repoFullName + '</td>' +
-          '<td>' + (repo.totalDeployments || 0) + '</td>' +
-          '<td>' + successRate + '</td>' +
-          '<td class="' + factorClass + '">' + factorText + '</td>';
+          '<td>' + escapeHtml(repo.repoFullName) + '</td>' +
+          '<td>' + escapeHtml(repo.totalDeployments || 0) + '</td>' +
+          '<td>' + escapeHtml(successRate) + '</td>' +
+          '<td class="' + escapeHtml(factorClass) + '">' + escapeHtml(factorText) + '</td>';
 
         tbody.appendChild(tr);
       });
