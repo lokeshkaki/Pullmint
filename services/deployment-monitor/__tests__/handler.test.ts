@@ -247,7 +247,8 @@ describe('deployment-monitor handler', () => {
     expect(
       errorMessages.some(
         (message) =>
-          message.includes('checkpoint_evaluation_failed') && message.includes('"executionId":"exec-2"')
+          message.includes('checkpoint_evaluation_failed') &&
+          message.includes('"executionId":"exec-2"')
       )
     ).toBe(true);
   });

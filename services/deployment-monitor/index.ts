@@ -47,10 +47,12 @@ export const handler = async (): Promise<void> => {
     } catch (err) {
       failedCount += 1;
       const error = err instanceof Error ? err : new Error(String(err));
+      const executionId =
+        typeof execution.executionId === 'string' ? execution.executionId : 'unknown-execution-id';
       console.error(
         JSON.stringify({
           error: 'checkpoint_evaluation_failed',
-          executionId: execution.executionId,
+          executionId,
           message: error.message,
           stack: error.stack,
         })
