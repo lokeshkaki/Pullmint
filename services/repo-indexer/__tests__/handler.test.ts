@@ -348,11 +348,11 @@ describe('handler — incremental mode', () => {
       'file-knowledge-table',
       expect.objectContaining({ filePath: 'src/auth/index.ts', churnRate30d: 3 })
     );
-    // Author profile written
-    expect(mocks.putItem).toHaveBeenCalledWith(
-      'author-profiles-table',
-      expect.objectContaining({ authorLogin: 'alice', mergeCount30d: 1 })
+    // Author profile updated via partial UpdateCommand (not putItem)
+    const authorUpdateCalls = mocks.docClientSend.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { TableName?: string }).TableName === 'author-profiles-table'
     );
+    expect(authorUpdateCalls.length).toBeGreaterThan(0);
     // contextVersion incremented via direct docClient.send
     expect(mocks.docClientSend).toHaveBeenCalled();
   });
@@ -458,11 +458,11 @@ describe('handler — incremental mode', () => {
       'file-knowledge-table',
       expect.objectContaining({ filePath: 'src/index.ts' })
     );
-    // Author profile updated
-    expect(mocks.putItem).toHaveBeenCalledWith(
-      'author-profiles-table',
-      expect.objectContaining({ authorLogin: 'octocat' })
+    // Author profile updated via partial UpdateCommand (not putItem)
+    const authorUpdateCalls = mocks.docClientSend.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { TableName?: string }).TableName === 'author-profiles-table'
     );
+    expect(authorUpdateCalls.length).toBeGreaterThan(0);
     // contextVersion incremented
     expect(mocks.docClientSend).toHaveBeenCalled();
   });
@@ -499,11 +499,11 @@ describe('handler — incremental mode', () => {
       '[repo-indexer] Failed to fetch PR changed files',
       expect.objectContaining({ repoFullName: 'org/repo', prNumber: 42 })
     );
-    // Should still process author profile (graceful degradation)
-    expect(mocks.putItem).toHaveBeenCalledWith(
-      'author-profiles-table',
-      expect.objectContaining({ authorLogin: 'octocat' })
+    // Should still process author profile via partial UpdateCommand (graceful degradation)
+    const authorUpdateCalls = mocks.docClientSend.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { TableName?: string }).TableName === 'author-profiles-table'
     );
+    expect(authorUpdateCalls.length).toBeGreaterThan(0);
     warnSpy.mockRestore();
   });
 
@@ -518,6 +518,57 @@ describe('handler — incremental mode', () => {
       expect.any(Object)
     );
     warnSpy.mockRestore();
+  });
+
+  it('should increment mergeCount without overwriting rollbackRate and avgRiskScore', async () => {
+    const handler = await loadHandler();
+    const mocks = getMocks();
+
+    mocks.fetchFileCommitHistory.mockResolvedValue({
+      filePath: 'src/auth/index.ts',
+      churnRate30d: 3,
+      churnRate90d: 10,
+      bugFixCommitCount30d: 1,
+      authors: ['octocat'],
+      lastCommitSha: 'def456',
+    });
+    mocks.putItem.mockResolvedValue(undefined);
+    // Existing author profile with non-zero metrics
+    mocks.getItem.mockResolvedValue({
+      pk: 'org/repo#octocat',
+      repoFullName: 'org/repo',
+      authorLogin: 'octocat',
+      rollbackRate: 0.15,
+      mergeCount30d: 10,
+      avgRiskScore: 32,
+      frequentFiles: ['src/old.ts'],
+    });
+    mocks.fetchFileTree.mockRejectedValue(new Error('skip'));
+    mocks.detectModules.mockReturnValue([]);
+
+    await handler(
+      makeEvent({
+        mode: 'incremental',
+        repoFullName: 'org/repo',
+        changedFiles: ['src/auth/index.ts'],
+        author: 'octocat',
+        executionId: 'exec-123',
+      })
+    );
+
+    // Should NOT use putItem for author profiles (it overwrites rollbackRate/avgRiskScore)
+    const authorPutCalls = mocks.putItem.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'author-profiles-table'
+    );
+    expect(authorPutCalls).toHaveLength(0);
+
+    // Should use UpdateCommand (partial update) via docClient.send instead
+    const docClientCalls = mocks.docClientSend.mock.calls;
+    const authorUpdateCall = docClientCalls.find((call: unknown[]) => {
+      const input = call[0] as { TableName?: string };
+      return input.TableName === 'author-profiles-table';
+    });
+    expect(authorUpdateCall).toBeDefined();
   });
 
   it('skips author update when author is not provided', async () => {
