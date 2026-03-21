@@ -126,92 +126,110 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
 
 async function handleFullIndex(msg: FullIndexMessage): Promise<void> {
   const { repoFullName } = msg;
-  console.info('[repo-indexer] full-index start', { repoFullName });
-  const [owner, repo] = repoFullName.split('/');
+  try {
+    console.info('[repo-indexer] full-index start', { repoFullName });
+    const [owner, repo] = repoFullName.split('/');
 
-  // Mark as indexing
-  await updateItem(
-    REPO_REGISTRY_TABLE_NAME,
-    { repoFullName },
-    { indexingStatus: 'indexing', pendingBatches: 0 }
-  );
-
-  const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as Octokit;
-  const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
-  const defaultBranch = repoData.default_branch;
-
-  const filePaths = await fetchFileTree(octokit, owner, repo, defaultBranch);
-  const modules = detectModules(filePaths);
-
-  // Fetch commit history once per file — reuse for both metrics and author profiles
-  const fileHistories: Awaited<ReturnType<typeof fetchFileCommitHistory>>[] = [];
-  for (const filePath of filePaths.slice(0, 200)) {
-    // cap to avoid API rate limits
-    try {
-      const history = await fetchFileCommitHistory(octokit, owner, repo, filePath, 90);
-      fileHistories.push(history);
-      const metrics: FileMetrics = {
-        repoFullName,
-        filePath,
-        churnRate30d: history.churnRate30d,
-        churnRate90d: history.churnRate90d,
-        bugFixCommitCount30d: history.bugFixCommitCount30d,
-        ownerLogins: history.authors.slice(0, 5),
-        lastModifiedSha: history.lastCommitSha ?? defaultBranch,
-      };
-      await putItem(FILE_KNOWLEDGE_TABLE_NAME, { ...metrics, pk: `${repoFullName}#${filePath}` });
-    } catch {
-      // skip individual file failures
-    }
-  }
-
-  // Bootstrap author profiles from the already-fetched commit histories
-  const authorProfiles = aggregateAuthorProfiles(repoFullName, fileHistories);
-  for (const profile of authorProfiles) {
-    await putItem(AUTHOR_PROFILES_TABLE_NAME, {
-      ...profile,
-      pk: `${repoFullName}#${profile.authorLogin}`,
-    });
-  }
-
-  // Split modules into batches of 5 and publish to SQS
-  const batches: BatchMessage[] = [];
-  for (let i = 0; i < modules.length; i += 5) {
-    batches.push({
-      mode: 'batch',
-      repoFullName,
-      modules: modules.slice(i, i + 5),
-      headSha: defaultBranch,
-    });
-  }
-
-  // Write pendingBatches count before publishing
-  await updateItem(REPO_REGISTRY_TABLE_NAME, { repoFullName }, { pendingBatches: batches.length });
-
-  for (const batch of batches) {
-    await sqsClient.send(
-      new SendMessageCommand({
-        QueueUrl: ONBOARDING_QUEUE_URL,
-        MessageBody: JSON.stringify(batch),
-      })
-    );
-  }
-
-  console.info('[repo-indexer] full-index complete', {
-    repoFullName,
-    filesIndexed: fileHistories.length,
-    modulesDetected: modules.length,
-    batchesPublished: batches.length,
-  });
-
-  // If no modules, mark indexed immediately
-  if (batches.length === 0) {
+    // Mark as indexing
     await updateItem(
       REPO_REGISTRY_TABLE_NAME,
       { repoFullName },
-      { indexingStatus: 'indexed', contextVersion: 1 }
+      { indexingStatus: 'indexing', pendingBatches: 0 }
     );
-    await releaseQueuedPRs(repoFullName);
+
+    const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as Octokit;
+    const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
+    const defaultBranch = repoData.default_branch;
+
+    const filePaths = await fetchFileTree(octokit, owner, repo, defaultBranch);
+    const modules = detectModules(filePaths);
+
+    // Fetch commit history once per file — reuse for both metrics and author profiles
+    const fileHistories: Awaited<ReturnType<typeof fetchFileCommitHistory>>[] = [];
+    for (const filePath of filePaths.slice(0, 200)) {
+      // cap to avoid API rate limits
+      try {
+        const history = await fetchFileCommitHistory(octokit, owner, repo, filePath, 90);
+        fileHistories.push(history);
+        const metrics: FileMetrics = {
+          repoFullName,
+          filePath,
+          churnRate30d: history.churnRate30d,
+          churnRate90d: history.churnRate90d,
+          bugFixCommitCount30d: history.bugFixCommitCount30d,
+          ownerLogins: history.authors.slice(0, 5),
+          lastModifiedSha: history.lastCommitSha ?? defaultBranch,
+        };
+        await putItem(FILE_KNOWLEDGE_TABLE_NAME, { ...metrics, pk: `${repoFullName}#${filePath}` });
+      } catch {
+        // skip individual file failures
+      }
+    }
+
+    // Bootstrap author profiles from the already-fetched commit histories
+    const authorProfiles = aggregateAuthorProfiles(repoFullName, fileHistories);
+    for (const profile of authorProfiles) {
+      await putItem(AUTHOR_PROFILES_TABLE_NAME, {
+        ...profile,
+        pk: `${repoFullName}#${profile.authorLogin}`,
+      });
+    }
+
+    // Split modules into batches of 5 and publish to SQS
+    const batches: BatchMessage[] = [];
+    for (let i = 0; i < modules.length; i += 5) {
+      batches.push({
+        mode: 'batch',
+        repoFullName,
+        modules: modules.slice(i, i + 5),
+        headSha: defaultBranch,
+      });
+    }
+
+    // Write pendingBatches count before publishing
+    await updateItem(
+      REPO_REGISTRY_TABLE_NAME,
+      { repoFullName },
+      { pendingBatches: batches.length }
+    );
+
+    for (const batch of batches) {
+      await sqsClient.send(
+        new SendMessageCommand({
+          QueueUrl: ONBOARDING_QUEUE_URL,
+          MessageBody: JSON.stringify(batch),
+        })
+      );
+    }
+
+    console.info('[repo-indexer] full-index complete', {
+      repoFullName,
+      filesIndexed: fileHistories.length,
+      modulesDetected: modules.length,
+      batchesPublished: batches.length,
+    });
+
+    // If no modules, mark indexed immediately
+    if (batches.length === 0) {
+      await updateItem(
+        REPO_REGISTRY_TABLE_NAME,
+        { repoFullName },
+        { indexingStatus: 'indexed', contextVersion: 1 }
+      );
+      await releaseQueuedPRs(repoFullName);
+    }
+  } catch (error) {
+    console.error('[repo-indexer] full-index failed', { repoFullName, error });
+    await updateItem(
+      REPO_REGISTRY_TABLE_NAME,
+      { repoFullName },
+      {
+        indexingStatus: 'failed',
+        lastError: error instanceof Error ? error.message : 'Unknown error',
+        updatedAt: Date.now(),
+      }
+    );
+    throw error; // re-throw for SQS retry
   }
 }
 
