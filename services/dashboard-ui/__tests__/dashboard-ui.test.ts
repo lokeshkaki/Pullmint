@@ -31,7 +31,7 @@ describe('Dashboard UI redirect handler', () => {
     process.env.DASHBOARD_URL = 'https://d111111abcdef8.cloudfront.net';
     const { handler } = await import('../index');
 
-    const result = await handler(createMockEvent('GET'));
+    const result = handler(createMockEvent('GET'));
 
     expect(result.statusCode).toBe(302);
     expect(result.headers).toEqual({
@@ -45,7 +45,7 @@ describe('Dashboard UI redirect handler', () => {
     delete process.env.DASHBOARD_URL;
     const { handler } = await import('../index');
 
-    const result = await handler(createMockEvent('GET'));
+    const result = handler(createMockEvent('GET'));
 
     expect(result.statusCode).toBe(503);
     expect(result.headers).toEqual({ 'Content-Type': 'text/plain' });
@@ -56,7 +56,7 @@ describe('Dashboard UI redirect handler', () => {
     process.env.DASHBOARD_URL = 'https://d111111abcdef8.cloudfront.net';
     const { handler } = await import('../index');
 
-    const result = await handler(createMockEvent('POST'));
+    const result = handler(createMockEvent('POST'));
 
     expect(result.statusCode).toBe(302);
     expect(result.headers?.Location).toBe('https://d111111abcdef8.cloudfront.net');

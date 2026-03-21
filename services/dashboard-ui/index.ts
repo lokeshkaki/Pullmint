@@ -2,7 +2,7 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL;
 
-export async function handler(_event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+export function handler(_event: APIGatewayProxyEvent): APIGatewayProxyResult {
   if (!DASHBOARD_URL) {
     return {
       statusCode: 503,
