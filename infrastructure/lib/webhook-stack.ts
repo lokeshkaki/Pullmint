@@ -209,6 +209,12 @@ export class WebhookStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    moduleNarrativesTable.addGlobalSecondaryIndex({
+      indexName: 'repoFullName-index',
+      partitionKey: { name: 'repoFullName', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // ===========================
     // S3
     // ===========================
