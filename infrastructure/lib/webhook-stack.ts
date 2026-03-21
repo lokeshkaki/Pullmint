@@ -964,11 +964,48 @@ export class WebhookStack extends cdk.Stack {
     reindexResource.addCorsPreflight(dashboardCors);
     prNumberResource.addCorsPreflight(dashboardCors);
 
+    const securityHeadersPolicy = new cloudfront.ResponseHeadersPolicy(
+      this,
+      'DashboardSecurityHeaders',
+      {
+        responseHeadersPolicyName: 'pullmint-dashboard-security',
+        securityHeadersBehavior: {
+          contentSecurityPolicy: {
+            contentSecurityPolicy:
+              "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+            override: true,
+          },
+          frameOptions: {
+            frameOption: cloudfront.HeadersFrameOption.DENY,
+            override: true,
+          },
+          contentTypeOptions: { override: true },
+          strictTransportSecurity: {
+            accessControlMaxAge: cdk.Duration.days(730),
+            includeSubdomains: true,
+            preload: true,
+            override: true,
+          },
+          referrerPolicy: {
+            referrerPolicy:
+              cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+            override: true,
+          },
+          xssProtection: {
+            protection: true,
+            modeBlock: true,
+            override: true,
+          },
+        },
+      }
+    );
+
     const dashboardDistribution = new cloudfront.Distribution(this, 'DashboardDistribution', {
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(dashboardBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: securityHeadersPolicy,
       },
       defaultRootObject: 'index.html',
       errorResponses: [
