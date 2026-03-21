@@ -82,6 +82,57 @@ describe('fetchFileCommitHistory with missing author fields', () => {
   });
 });
 
+describe('fetchFileCommitHistory author identity', () => {
+  it('should use commit.author.login (GitHub username) not commit.commit.author.name', async () => {
+    const now = Date.now();
+    const recent = new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString();
+    mockOctokit.rest.repos.listCommits.mockResolvedValue({
+      data: [
+        {
+          sha: 'abc123',
+          commit: { author: { name: 'John Doe', date: recent }, message: 'feat: add feature' },
+          author: { login: 'johndoe' },
+        },
+      ],
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await fetchFileCommitHistory(
+      mockOctokit as any,
+      'org',
+      'repo',
+      'src/index.ts',
+      90
+    );
+    expect(result.authors).toContain('johndoe');
+    expect(result.authors).not.toContain('John Doe');
+  });
+
+  it('should fall back to commit.commit.author.name when login is unavailable', async () => {
+    const now = Date.now();
+    const recent = new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString();
+    mockOctokit.rest.repos.listCommits.mockResolvedValue({
+      data: [
+        {
+          sha: 'abc123',
+          commit: { author: { name: 'John Doe', date: recent }, message: 'feat: add feature' },
+          author: null, // No linked GitHub account
+        },
+      ],
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await fetchFileCommitHistory(
+      mockOctokit as any,
+      'org',
+      'repo',
+      'src/index.ts',
+      90
+    );
+    expect(result.authors).toContain('John Doe');
+  });
+});
+
 describe('aggregateAuthorProfiles', () => {
   it('groups commit counts by author across multiple files', () => {
     const fileHistories = [

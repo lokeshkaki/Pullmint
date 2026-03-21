@@ -62,7 +62,7 @@ export async function fetchFileCommitHistory(
       ? new Date(commit.commit.author.date).getTime()
       : 0;
     const msg = commit.commit.message.toLowerCase();
-    const authorName = commit.commit.author?.name ?? 'unknown';
+    const authorName = commit.author?.login ?? commit.commit.author?.name ?? 'unknown';
     authorSet.add(authorName);
 
     if (authorDate >= thirtyDaysAgo) {
