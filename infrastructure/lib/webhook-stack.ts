@@ -1004,7 +1004,7 @@ export class WebhookStack extends cdk.Stack {
         securityHeadersBehavior: {
           contentSecurityPolicy: {
             contentSecurityPolicy:
-              "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+              "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'",
             override: true,
           },
           frameOptions: {
