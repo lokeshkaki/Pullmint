@@ -2,7 +2,12 @@ import { SQSHandler, SQSEvent } from 'aws-lambda';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSecret } from '../../shared/secrets';
 import { publishEvent } from '../../shared/eventbridge';
-import { getItem, updateItem, putItem, atomicIncrementCounter } from '../../shared/dynamodb';
+import {
+  getValidatedItem,
+  updateItem,
+  putItem,
+  atomicIncrementCounter,
+} from '../../shared/dynamodb';
 import { hashContent } from '../../shared/utils';
 import { getGitHubInstallationClient } from '../../shared/github-app';
 import { createStructuredError, retryWithBackoff } from '../../shared/error-handling';
@@ -16,6 +21,7 @@ import {
 } from '../../shared/types';
 import { addTraceAnnotations } from '../../shared/tracer';
 import { evaluateRisk } from '../../shared/risk-evaluator';
+import { AnalysisCacheRecordSchema, CalibrationRecordSchema } from '../../shared/schemas';
 
 type AnthropicMessageInput = {
   model: string;
@@ -163,13 +169,11 @@ export const handler: SQSHandler = async (event: SQSEvent): Promise<void> => {
       const cacheKey = hashContent(
         diff + '\n---model---\n' + selectedModel + '\n---cv---\n' + String(contextVersion)
       );
-      const cached = await getItem<{
-        findings: Finding[];
-        riskScore: number;
-        contextQuality?: 'full' | 'partial' | 'none';
-      }>(CACHE_TABLE_NAME, {
-        cacheKey,
-      });
+      const cached = await getValidatedItem(
+        CACHE_TABLE_NAME,
+        { cacheKey },
+        AnalysisCacheRecordSchema
+      );
 
       let findings: Finding[];
       let riskScore: number;
@@ -446,9 +450,11 @@ async function buildCheckpoint1(
   // Calibration factor
   let calibrationFactor = 1.0;
   if (CALIBRATION_TABLE_NAME) {
-    const calRecord = await getItem<{ calibrationFactor: number }>(CALIBRATION_TABLE_NAME, {
-      repoFullName: prEvent.repoFullName,
-    });
+    const calRecord = await getValidatedItem(
+      CALIBRATION_TABLE_NAME,
+      { repoFullName: prEvent.repoFullName },
+      CalibrationRecordSchema
+    );
     calibrationFactor = calRecord?.calibrationFactor ?? 1.0;
   }
 
