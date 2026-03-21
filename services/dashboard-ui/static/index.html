@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Pullmint Dashboard</title>
   <style>
     * {
@@ -739,13 +741,7 @@
       return div.innerHTML;
     }
 
-    const dashboardPath = '/dashboard';
-    const dashboardIndex = window.location.pathname.indexOf(dashboardPath);
-    const apiBase =
-      window.location.origin +
-      (dashboardIndex >= 0
-        ? window.location.pathname.slice(0, dashboardIndex + dashboardPath.length)
-        : dashboardPath);
+    const apiBase = '/dashboard';
     let currentFilters = {};
     let nextToken = null;
     let pollingInterval = null;
