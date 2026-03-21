@@ -223,6 +223,7 @@ export interface ModuleNarrative {
   narrativeText: string;
   generatedAtSha: string;
   version: number;
+  embedding?: number[];
 }
 
 export interface RepoRegistryRecord {
