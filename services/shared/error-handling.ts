@@ -278,14 +278,28 @@ export async function retryWithBackoff<T>(
  * const result = await safeFetchPR();
  * ```
  */
+type WithErrorHandlingOptions = {
+  context?: Record<string, unknown>;
+  retryConfig?: Partial<RetryConfig>;
+  throwOnError?: boolean;
+};
+
 export function withErrorHandling<T>(
   fn: () => Promise<T>,
-  options: {
-    context?: Record<string, unknown>;
-    retryConfig?: Partial<RetryConfig>;
-    throwOnError?: boolean;
-  } = {}
-): () => Promise<T> {
+  options: WithErrorHandlingOptions & { throwOnError: true }
+): () => Promise<T>;
+export function withErrorHandling<T>(
+  fn: () => Promise<T>,
+  options: WithErrorHandlingOptions & { throwOnError: false }
+): () => Promise<T | undefined>;
+export function withErrorHandling<T>(
+  fn: () => Promise<T>,
+  options?: WithErrorHandlingOptions
+): () => Promise<T | undefined>;
+export function withErrorHandling<T>(
+  fn: () => Promise<T>,
+  options: WithErrorHandlingOptions = {}
+): () => Promise<T | undefined> {
   return async () => {
     try {
       if (options.retryConfig) {
@@ -297,7 +311,7 @@ export function withErrorHandling<T>(
       if (options.throwOnError !== false) {
         throw error;
       }
-      return undefined as unknown as T;
+      return undefined;
     }
   };
 }

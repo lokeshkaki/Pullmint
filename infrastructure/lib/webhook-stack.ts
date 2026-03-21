@@ -99,23 +99,28 @@ export class WebhookStack extends cdk.Stack {
       partitionKey: { name: 'executionId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
 
     const gsiStage = this.node.tryGetContext('gsiStage') as string | undefined;
     const normalizedGsiStage = gsiStage?.trim();
-    const allowedGsiStages = new Set(['ByRepo', 'ByRepoPr', 'ByTimestamp', 'all']);
-    const gsiStageOrder = ['ByRepo', 'ByRepoPr', 'ByTimestamp'];
+    const allowedGsiStages = new Set([
+      'ByRepo',
+      'ByRepoPr',
+      'ByTimestamp',
+      'StatusDeployedAtIndex',
+      'all',
+    ]);
+    const gsiStageOrder = ['ByRepo', 'ByRepoPr', 'ByTimestamp', 'StatusDeployedAtIndex'];
 
     if (normalizedGsiStage && !allowedGsiStages.has(normalizedGsiStage)) {
       cdk.Annotations.of(this).addWarning(
-        `Unknown gsiStage "${normalizedGsiStage}". Expected one of: ByRepo, ByRepoPr, ByTimestamp, all.`
+        `Unknown gsiStage "${normalizedGsiStage}". Expected one of: ByRepo, ByRepoPr, ByTimestamp, StatusDeployedAtIndex, all.`
       );
     }
 
     if (!normalizedGsiStage) {
       cdk.Annotations.of(this).addWarning(
-        'No gsiStage specified. Deploying with all GSIs. For tables with existing GSIs, use -c gsiStage=all. For new table initial deployment with incremental GSI creation, deploy 3 times with gsiStage=ByRepo, then ByRepoPr, then ByTimestamp.'
+        'No gsiStage specified. Deploying with all GSIs. For tables with existing GSIs, use -c gsiStage=all. For new table initial deployment with incremental GSI creation, deploy 4 times with gsiStage=ByRepo, then ByRepoPr, then ByTimestamp, then StatusDeployedAtIndex.'
       );
     }
 
