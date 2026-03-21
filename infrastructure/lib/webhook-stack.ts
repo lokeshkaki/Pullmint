@@ -489,6 +489,7 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(60),
+      memorySize: 256,
       logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
@@ -509,6 +510,7 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
       logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
@@ -528,6 +530,7 @@ export class WebhookStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
       logRetention: logs.RetentionDays.ONE_MONTH,
       tracing: lambda.Tracing.ACTIVE,
       environment: {
