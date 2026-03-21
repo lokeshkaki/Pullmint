@@ -60,6 +60,8 @@ export const PRExecutionSchema = z.object({
   repoPrKey: z.string().optional(),
   prNumber: z.number(),
   headSha: z.string(),
+  title: z.string().optional(),
+  author: z.string().optional(),
   status: z.enum([
     'pending',
     'analyzing',
@@ -76,6 +78,7 @@ export const PRExecutionSchema = z.object({
   entityType: z.literal('execution').optional(),
   findings: z.array(FindingSchema).optional(),
   riskScore: z.number().optional(),
+  confidenceScore: z.number().optional(),
   error: z.string().optional(),
   updatedAt: z.number().optional(),
   deploymentStatus: z.enum(['deploying', 'deployed', 'failed']).optional(),
@@ -140,6 +143,19 @@ export const RepoRegistryRecordSchema = z.object({
   lastError: z.string().optional(),
 });
 
+// --- Calibration Record ---
+
+export const CalibrationRecordSchema = z.object({
+  repoFullName: z.string(),
+  observationsCount: z.number(),
+  successCount: z.number(),
+  rollbackCount: z.number(),
+  falsePositiveCount: z.number(),
+  falseNegativeCount: z.number(),
+  calibrationFactor: z.number(),
+  lastUpdatedAt: z.number(),
+});
+
 // --- Inferred types ---
 
 export type ValidatedPRExecution = z.infer<typeof PRExecutionSchema>;
@@ -148,3 +164,4 @@ export type ValidatedFileMetrics = z.infer<typeof FileMetricsSchema>;
 export type ValidatedAuthorProfile = z.infer<typeof AuthorProfileSchema>;
 export type ValidatedModuleNarrative = z.infer<typeof ModuleNarrativeSchema>;
 export type ValidatedRepoRegistryRecord = z.infer<typeof RepoRegistryRecordSchema>;
+export type ValidatedCalibrationRecord = z.infer<typeof CalibrationRecordSchema>;

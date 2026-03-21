@@ -877,6 +877,18 @@ describe('Dashboard API Handler', () => {
       expect(JSON.parse(result.body)).toHaveProperty('error', 'Repo not registered');
     });
 
+    it('returns 500 when registry record fails schema validation', async () => {
+      // Missing required fields: contextVersion, pendingBatches, queuedExecutionIds
+      ddbMock.on(GetCommand).resolves({
+        Item: { repoFullName: 'org/corrupt', indexingStatus: 'indexed' },
+      });
+
+      const event = createMockEvent('/dashboard/repos/org/corrupt');
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(500);
+    });
+
     it('should require auth', async () => {
       const event = createMockEvent('/dashboard/repos/org/repo', 'GET', null, {});
       const result = await handler(event);
@@ -887,7 +899,13 @@ describe('Dashboard API Handler', () => {
   describe('POST /dashboard/repos/:owner/:repo/reindex', () => {
     it('resets registry status and publishes onboarding event', async () => {
       ddbMock.on(GetCommand).resolves({
-        Item: { repoFullName: 'org/repo', indexingStatus: 'indexed' },
+        Item: {
+          repoFullName: 'org/repo',
+          indexingStatus: 'indexed',
+          contextVersion: 1,
+          pendingBatches: 0,
+          queuedExecutionIds: [],
+        },
       });
       ddbMock.on(UpdateCommand).resolves({});
 
@@ -919,6 +937,21 @@ describe('Dashboard API Handler', () => {
       expect(result.statusCode).toBe(404);
       expect(JSON.parse(result.body)).toHaveProperty('error', 'Repo not registered');
       expect(mockPublishEvent).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when registry record fails schema validation', async () => {
+      // Missing required fields: contextVersion, pendingBatches, queuedExecutionIds
+      ddbMock.on(GetCommand).resolves({
+        Item: { repoFullName: 'org/repo', indexingStatus: 'indexed' },
+      });
+      ddbMock.on(UpdateCommand).resolves({});
+
+      const event = createMockEvent('/dashboard/repos/org/repo/reindex', 'POST', null, {
+        Authorization: 'Bearer test-token',
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(500);
     });
 
     it('should require auth', async () => {

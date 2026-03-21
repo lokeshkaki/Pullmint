@@ -3,7 +3,8 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getSecret } from '../shared/secrets';
 import { publishEvent } from '../shared/eventbridge';
-import { getItem, appendToList } from '../shared/dynamodb';
+import { getItem, getValidatedItem, appendToList } from '../shared/dynamodb';
+import { RepoRegistryRecordSchema } from '../shared/schemas';
 import { verifyGitHubSignature, generateExecutionId, calculateTTL } from '../shared/utils';
 import { createStructuredError } from '../shared/error-handling';
 import { addTraceAnnotations } from '../shared/tracer';
@@ -14,7 +15,7 @@ import {
   PRExecution,
   DeploymentStatusEvent,
 } from '../shared/types';
-import type { RepoRegistryRecord, PRMergedEvent } from '../shared/types';
+import type { PRMergedEvent } from '../shared/types';
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -209,9 +210,13 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       // Check if repo is indexed; queue execution if not
       const repoRegistryTable = process.env.REPO_REGISTRY_TABLE_NAME ?? '';
       if (repoRegistryTable) {
-        const registry = await getItem<RepoRegistryRecord>(repoRegistryTable, {
-          repoFullName: prEvent.repoFullName,
-        });
+        const registry = await getValidatedItem(
+          repoRegistryTable,
+          {
+            repoFullName: prEvent.repoFullName,
+          },
+          RepoRegistryRecordSchema
+        );
         if (registry && registry.indexingStatus !== 'indexed') {
           const queuedExecutionId = generateExecutionId(
             prEvent.repoFullName,
