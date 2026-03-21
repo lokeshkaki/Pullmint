@@ -25,6 +25,27 @@ const DEDUP_TABLE_NAME = process.env.DEDUP_TABLE_NAME!;
 const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
 
 /**
+ * Write dedup record after successful processing (non-critical).
+ * The execution record's ConditionExpression provides the true idempotency guard.
+ */
+async function writeDedupRecord(deliveryId: string): Promise<void> {
+  try {
+    await docClient.send(
+      new PutCommand({
+        TableName: DEDUP_TABLE_NAME,
+        Item: {
+          deliveryId,
+          processedAt: Date.now(),
+          ttl: calculateTTL(86400), // 24 hours
+        },
+      })
+    );
+  } catch {
+    console.warn(`Dedup write failed for ${deliveryId} — execution record provides idempotency`);
+  }
+}
+
+/**
  * GitHub Webhook Handler
  * Receives webhook events, validates signatures, and routes to EventBridge
  */
@@ -72,27 +93,14 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       };
     }
 
-    try {
-      await docClient.send(
-        new PutCommand({
-          TableName: DEDUP_TABLE_NAME,
-          Item: {
-            deliveryId,
-            processedAt: Date.now(),
-            ttl: calculateTTL(86400), // 24 hours
-          },
-          ConditionExpression: 'attribute_not_exists(deliveryId)',
-        })
-      );
-    } catch (error: unknown) {
-      if ((error as { name?: string }).name === 'ConditionalCheckFailedException') {
-        console.log(`Duplicate delivery: ${deliveryId}`);
-        return {
-          statusCode: 200,
-          body: JSON.stringify({ message: 'Already processed' }),
-        };
-      }
-      throw error;
+    // Check if already processed (read-only — dedup record written after success)
+    const existingDedup = await getItem(DEDUP_TABLE_NAME, { deliveryId });
+    if (existingDedup) {
+      console.log(`Duplicate delivery: ${deliveryId}`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ message: 'Already processed' }),
+      };
     }
 
     // Handle installation events (GitHub App install / repo added)
@@ -130,6 +138,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
           })
         )
       );
+      await writeDedupRecord(deliveryId);
       return { statusCode: 202, body: JSON.stringify({ message: 'Onboarding triggered' }) };
     }
 
@@ -182,6 +191,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
           'pr.merged',
           mergedEvent as unknown as Record<string, unknown>
         );
+        await writeDedupRecord(deliveryId);
         return { statusCode: 202, body: JSON.stringify({ message: 'Merge event published' }) };
       }
 
@@ -241,6 +251,7 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
             'queuedExecutionIds',
             queuedExecutionId
           );
+          await writeDedupRecord(deliveryId);
           return {
             statusCode: 202,
             body: JSON.stringify({
@@ -296,6 +307,8 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
 
       console.log(`Published event for PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
 
+      await writeDedupRecord(deliveryId);
+
       return {
         statusCode: 202,
         body: JSON.stringify({
@@ -321,6 +334,8 @@ export const handler: APIGatewayProxyHandler = async (event): Promise<APIGateway
       'deployment.status',
       deploymentDetail as unknown as Record<string, unknown>
     );
+
+    await writeDedupRecord(deliveryId);
 
     return {
       statusCode: 202,

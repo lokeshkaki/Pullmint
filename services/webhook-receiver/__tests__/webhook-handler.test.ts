@@ -38,6 +38,7 @@ describe('Webhook Handler', () => {
     secretsManagerMock.on(GetSecretValueCommand).resolves({
       SecretString: WEBHOOK_SECRET,
     });
+    ddbMock.on(GetCommand).resolves({ Item: undefined }); // dedup read-only check: no existing record
     ddbMock.on(PutCommand).resolves({});
     eventBridgeMock.on(PutEventsCommand).resolves({
       FailedEntryCount: 0,
@@ -176,7 +177,8 @@ describe('Webhook Handler', () => {
       const result = await handler(event);
 
       expect(result.statusCode).toBe(202);
-      expect(ddbMock.commandCalls(PutCommand)).toHaveLength(2); // dedup + execution
+      // GetCommand for dedup check + PutCommand for execution + PutCommand for dedup write
+      expect(ddbMock.commandCalls(PutCommand)).toHaveLength(2); // execution + dedup write
     });
 
     it('should reject duplicate delivery', async () => {
@@ -193,17 +195,11 @@ describe('Webhook Handler', () => {
         SecretString: WEBHOOK_SECRET,
       });
 
-      // First call to dedup table throws error
-      let putCallCount = 0;
-      ddbMock.on(PutCommand).callsFake((_input) => {
-        putCallCount++;
-        if (putCallCount === 1) {
-          const error: any = new Error('Item already exists');
-          error.name = 'ConditionalCheckFailedException';
-          throw error;
-        }
-        return {};
+      // Dedup read-only check returns existing record
+      ddbMock.on(GetCommand).resolves({
+        Item: { deliveryId, processedAt: Date.now(), ttl: 123456 },
       });
+      ddbMock.on(PutCommand).resolves({});
 
       const result = await handler(event);
 
@@ -234,11 +230,14 @@ describe('Webhook Handler', () => {
       secretsManagerMock.reset();
       secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: WEBHOOK_SECRET });
 
-      // 1st PutCommand (dedup) succeeds; 2nd (execution record) throws duplicate error
+      // Dedup read-only check returns no existing record
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+      // 1st PutCommand (execution record) throws duplicate error
       let putCallCount = 0;
       ddbMock.on(PutCommand).callsFake(() => {
         putCallCount++;
-        if (putCallCount === 2) {
+        if (putCallCount === 1) {
           const error: any = new Error('Item already exists');
           error.name = 'ConditionalCheckFailedException';
           throw error;
@@ -252,11 +251,11 @@ describe('Webhook Handler', () => {
       expect(JSON.parse(result.body)).toEqual({ message: 'Already processing' });
     });
 
-    it('should throw error on non-ConditionalCheckFailedException during dedup', async () => {
+    it('should throw error on DynamoDB error during dedup check', async () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload, 'pull_request', 'error-delivery');
 
-      // Reset and setup generic error for first put (dedup table)
+      // Reset and setup generic error for dedup read check
       ddbMock.reset();
       secretsManagerMock.reset();
 
@@ -264,17 +263,15 @@ describe('Webhook Handler', () => {
         SecretString: WEBHOOK_SECRET,
       });
 
-      // First call to dedup table throws generic DynamoDB error
-      let putCallCount = 0;
-      ddbMock.on(PutCommand).callsFake(() => {
-        putCallCount++;
-        if (putCallCount === 1) {
+      // getItem (GetCommand) throws generic DynamoDB error
+      ddbMock.on(GetCommand).rejects(
+        (() => {
           const error: any = new Error('DynamoDB service error');
           error.name = 'ServiceUnavailableException';
-          throw error;
-        }
-        return {};
-      });
+          return error;
+        })()
+      );
+      ddbMock.on(PutCommand).resolves({});
 
       const result = await handler(event);
 
@@ -480,9 +477,9 @@ describe('Webhook Handler', () => {
       // Verify successful response
       expect(result.statusCode).toBe(202);
 
-      // Verify DynamoDB was called at least twice (dedup + execution)
+      // Verify DynamoDB was called at least 3 times (dedup check + execution + dedup write)
       const putCalls = ddbMock.calls();
-      expect(putCalls.length).toBeGreaterThanOrEqual(2);
+      expect(putCalls.length).toBeGreaterThanOrEqual(3);
 
       // Verify response includes execution ID
       const responseBody = JSON.parse(result.body);
@@ -530,7 +527,7 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload);
 
-      // Reset and setup error for second put (executions table)
+      // Reset and setup error for execution record put
       ddbMock.reset();
       secretsManagerMock.reset();
 
@@ -538,10 +535,14 @@ describe('Webhook Handler', () => {
         SecretString: WEBHOOK_SECRET,
       });
 
+      // Dedup read-only check passes
+      ddbMock.on(GetCommand).resolves({ Item: undefined });
+
+      // 1st PutCommand (execution record) throws error
       let putCallCount = 0;
       ddbMock.on(PutCommand).callsFake(() => {
         putCallCount++;
-        if (putCallCount === 2) {
+        if (putCallCount === 1) {
           throw new Error('DynamoDB error');
         }
         return {};
@@ -583,6 +584,38 @@ describe('Webhook Handler', () => {
       expect([202, 500]).toContain(result.statusCode);
     });
 
+    it('should not block retries if EventBridge publish fails after dedup check', async () => {
+      const payload = createPRPayload('opened');
+
+      // First call: dedup check passes (no existing record), EventBridge fails
+      ddbMock.reset();
+      secretsManagerMock.reset();
+      secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: WEBHOOK_SECRET });
+      ddbMock.on(GetCommand).resolves({ Item: undefined }); // No dedup record
+      ddbMock.on(PutCommand).resolves({}); // execution record succeeds
+      eventBridgeMock.reset();
+      eventBridgeMock.on(PutEventsCommand).rejectsOnce(new Error('EventBridge unavailable'));
+
+      const event1 = createMockEvent(payload, 'pull_request', 'retry-test-delivery');
+      const result1 = await handler(event1);
+      expect(result1.statusCode).toBe(500); // Error returned to GitHub
+
+      // Second call (GitHub retry with same deliveryId): should NOT be blocked by dedup
+      ddbMock.reset();
+      secretsManagerMock.reset();
+      secretsManagerMock.on(GetSecretValueCommand).resolves({ SecretString: WEBHOOK_SECRET });
+      ddbMock.on(GetCommand).resolves({ Item: undefined }); // No dedup record (wasn't written because EB failed)
+      ddbMock.on(PutCommand).resolves({});
+      eventBridgeMock.reset();
+      eventBridgeMock
+        .on(PutEventsCommand)
+        .resolves({ FailedEntryCount: 0, Entries: [{ EventId: 'test' }] });
+
+      const event2 = createMockEvent(payload, 'pull_request', 'retry-test-delivery');
+      const result2 = await handler(event2);
+      expect(result2.statusCode).toBe(202); // Should succeed on retry
+    });
+
     it('should handle malformed JSON payload', async () => {
       const payload = 'invalid-json{';
       const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
@@ -612,17 +645,20 @@ describe('Webhook Handler', () => {
       expect(responseBody.message).toBe('Event accepted');
       expect(responseBody.executionId).toBeDefined();
 
-      // Verify dedup and execution records created
-      const putCalls = ddbMock.calls();
-      expect(putCalls.length).toBeGreaterThanOrEqual(2); // At least dedup + execution
+      // Verify dedup check (GetCommand) + execution record + dedup write
+      const getCalls = ddbMock.commandCalls(GetCommand);
+      expect(getCalls.length).toBeGreaterThanOrEqual(1); // dedup read-only check
 
-      // First call should be dedup
-      const dedupInput: any = putCalls[0].args[0].input;
-      expect(dedupInput.Item.deliveryId).toBe('integration-test');
+      const putCalls = ddbMock.commandCalls(PutCommand);
+      expect(putCalls.length).toBeGreaterThanOrEqual(2); // execution + dedup write
 
-      // Second call should be execution
-      const executionInput: any = putCalls[1].args[0].input;
+      // First PutCommand should be execution record
+      const executionInput: any = putCalls[0].args[0].input;
       expect(executionInput.Item.executionId).toBeDefined();
+
+      // Second PutCommand should be dedup write (after EventBridge success)
+      const dedupInput: any = putCalls[1].args[0].input;
+      expect(dedupInput.Item.deliveryId).toBe('integration-test');
 
       // Verify event published
       const eventCalls = eventBridgeMock.calls();
@@ -749,9 +785,14 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened');
       const event = createMockEvent(payload);
 
-      // Mock GetCommand for repo-registry lookup (via shared getItem)
-      ddbMock.on(GetCommand).resolves({
-        Item: { repoFullName: 'owner/repo', indexingStatus: 'indexing' },
+      // First GetCommand = dedup check (no record), second = repo-registry lookup
+      let getCallCount = 0;
+      ddbMock.on(GetCommand).callsFake(() => {
+        getCallCount++;
+        if (getCallCount === 1) {
+          return { Item: undefined }; // dedup check: not processed
+        }
+        return { Item: { repoFullName: 'owner/repo', indexingStatus: 'indexing' } };
       });
       ddbMock.on(UpdateCommand).resolves({});
 
@@ -771,8 +812,14 @@ describe('Webhook Handler', () => {
       const payload = createPRPayload('opened');
       const event = createMockEvent(payload);
 
-      ddbMock.on(GetCommand).resolves({
-        Item: { repoFullName: 'owner/repo', indexingStatus: 'indexed' },
+      // First GetCommand = dedup check (no record), second = repo-registry lookup
+      let getCallCount = 0;
+      ddbMock.on(GetCommand).callsFake(() => {
+        getCallCount++;
+        if (getCallCount === 1) {
+          return { Item: undefined }; // dedup check: not processed
+        }
+        return { Item: { repoFullName: 'owner/repo', indexingStatus: 'indexed' } };
       });
 
       const result = await handler(event);
