@@ -45,7 +45,10 @@ describe('Dashboard API Handler', () => {
     path: string,
     method: string = 'GET',
     queryParams: Record<string, string> | null = null,
-    headers: Record<string, string> = { Authorization: 'Bearer test-token', origin: 'https://dashboard.pullmint.io' },
+    headers: Record<string, string> = {
+      Authorization: 'Bearer test-token',
+      origin: 'https://dashboard.pullmint.io',
+    },
     body: string | null = null
   ): APIGatewayProxyEvent => ({
     path,
