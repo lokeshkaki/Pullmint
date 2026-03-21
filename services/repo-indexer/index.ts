@@ -279,12 +279,14 @@ async function handleBatch(msg: BatchMessage): Promise<void> {
         version: 1,
       };
 
+      const embedding = await generateEmbedding(narrativeText);
+
       await putItem(MODULE_NARRATIVES_TABLE_NAME, {
         ...narrative,
+        embedding,
         pk: `${repoFullName}#${mod.modulePath}`,
       });
 
-      const embedding = await generateEmbedding(narrativeText);
       await upsertNarrative(OPENSEARCH_ENDPOINT, narrative, embedding);
     } catch {
       // skip individual module failures — batch continues
@@ -403,11 +405,15 @@ async function handleIncremental(msg: IncrementalMessage): Promise<void> {
           generatedAtSha: 'HEAD',
           version: Date.now(),
         };
+
+        const embedding = await generateEmbedding(narrativeText);
+
         await putItem(MODULE_NARRATIVES_TABLE_NAME, {
           ...narrative,
+          embedding,
           pk: `${repoFullName}#${mod.modulePath}`,
         });
-        const embedding = await generateEmbedding(narrativeText);
+
         await upsertNarrative(OPENSEARCH_ENDPOINT, narrative, embedding);
       } catch {
         /* skip */
