@@ -78,6 +78,7 @@ temp/
 # Generated JS files in source directories
 services/**/*.js
 !services/**/jest.config.js
+!services/dashboard-ui/static/*.js
 infrastructure/**/*.js
 !infrastructure/bin/*.js
 !infrastructure/lib/*.js
