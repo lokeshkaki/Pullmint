@@ -243,7 +243,7 @@ export class WebhookStack extends cdk.Stack {
     // Queue for LLM agent processing
     const llmQueue = new sqs.Queue(this, 'LLMQueue', {
       queueName: 'pullmint-llm-queue',
-      visibilityTimeout: cdk.Duration.minutes(5),
+      visibilityTimeout: cdk.Duration.minutes(12),
       deadLetterQueue: {
         queue: webhookDLQ,
         maxReceiveCount: 3,
@@ -262,7 +262,7 @@ export class WebhookStack extends cdk.Stack {
 
     const onboardingQueue = new sqs.Queue(this, 'OnboardingQueue', {
       queueName: 'pullmint-onboarding-queue',
-      visibilityTimeout: cdk.Duration.minutes(16),
+      visibilityTimeout: cdk.Duration.minutes(90),
       deadLetterQueue: { queue: onboardingDlq, maxReceiveCount: 3 },
     });
 
@@ -273,7 +273,7 @@ export class WebhookStack extends cdk.Stack {
 
     const knowledgeUpdateQueue = new sqs.Queue(this, 'KnowledgeUpdateQueue', {
       queueName: 'pullmint-knowledge-update-queue',
-      visibilityTimeout: cdk.Duration.minutes(16),
+      visibilityTimeout: cdk.Duration.minutes(90),
       deadLetterQueue: { queue: knowledgeUpdateDlq, maxReceiveCount: 3 },
     });
 
