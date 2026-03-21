@@ -5,6 +5,9 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
@@ -232,6 +235,23 @@ export class WebhookStack extends cdk.Stack {
           expiration: cdk.Duration.days(90),
           id: 'expire-after-90-days',
         },
+      ],
+    });
+
+    const dashboardBucket = new s3.Bucket(this, 'DashboardBucket', {
+      bucketName: `pullmint-dashboard-${cdk.Stack.of(this).account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    new s3deploy.BucketDeployment(this, 'DashboardDeployment', {
+      sources: [s3deploy.Source.asset(path.join(__dirname, '../../services/dashboard-ui/static'))],
+      destinationBucket: dashboardBucket,
+      cacheControl: [
+        s3deploy.CacheControl.setPublic(),
+        s3deploy.CacheControl.maxAge(cdk.Duration.hours(1)),
       ],
     });
 
@@ -944,6 +964,84 @@ export class WebhookStack extends cdk.Stack {
     reindexResource.addCorsPreflight(dashboardCors);
     prNumberResource.addCorsPreflight(dashboardCors);
 
+    const securityHeadersPolicy = new cloudfront.ResponseHeadersPolicy(
+      this,
+      'DashboardSecurityHeaders',
+      {
+        responseHeadersPolicyName: 'pullmint-dashboard-security',
+        securityHeadersBehavior: {
+          contentSecurityPolicy: {
+            contentSecurityPolicy:
+              "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+            override: true,
+          },
+          frameOptions: {
+            frameOption: cloudfront.HeadersFrameOption.DENY,
+            override: true,
+          },
+          contentTypeOptions: { override: true },
+          strictTransportSecurity: {
+            accessControlMaxAge: cdk.Duration.days(730),
+            includeSubdomains: true,
+            preload: true,
+            override: true,
+          },
+          referrerPolicy: {
+            referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+            override: true,
+          },
+          xssProtection: {
+            protection: true,
+            modeBlock: true,
+            override: true,
+          },
+        },
+      }
+    );
+
+    const dashboardDistribution = new cloudfront.Distribution(this, 'DashboardDistribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(dashboardBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: securityHeadersPolicy,
+      },
+      defaultRootObject: 'index.html',
+      errorResponses: [
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(5),
+        },
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(5),
+        },
+      ],
+    });
+
+    dashboardDistribution.addBehavior(
+      '/dashboard/*',
+      new origins.HttpOrigin(
+        `${api.restApiId}.execute-api.${cdk.Stack.of(this).region}.amazonaws.com`,
+        { originPath: `/${api.deploymentStage.stageName}` }
+      ),
+      {
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+      }
+    );
+
+    dashboardUi.addEnvironment(
+      'DASHBOARD_URL',
+      `https://${dashboardDistribution.distributionDomainName}`
+    );
+
     // ===========================
     // CloudWatch Alarms
     // ===========================
@@ -1334,7 +1432,7 @@ export class WebhookStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'DashboardURL', {
-      value: api.url + 'dashboard',
+      value: `https://${dashboardDistribution.distributionDomainName}`,
       description: 'Dashboard UI URL',
       exportName: 'PullmintDashboardURL',
     });
