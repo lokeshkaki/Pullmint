@@ -71,7 +71,13 @@ export function isTransientError(error: unknown): boolean {
 
   // Anthropic SDK rate limit errors and HTTP 429
   if (errorName === 'RateLimitError') return true;
-  if (error && typeof error === 'object' && 'status' in error && (error as { status: number }).status === 429) return true;
+  if (
+    error &&
+    typeof error === 'object' &&
+    'status' in error &&
+    (error as { status: number }).status === 429
+  )
+    return true;
   if (errorMessage.includes('rate_limit') || errorMessage.includes('rate limit')) return true;
 
   return false;

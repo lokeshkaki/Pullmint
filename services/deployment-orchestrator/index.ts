@@ -175,7 +175,7 @@ async function getWebhookConfig(): Promise<{ url: string; token: string }> {
   }
 
   const secretValue = await getSecret(secretArn);
-  const parsed = JSON.parse(secretValue);
+  const parsed = JSON.parse(secretValue) as { url: string; token: string };
   return { url: parsed.url, token: parsed.token };
 }
 

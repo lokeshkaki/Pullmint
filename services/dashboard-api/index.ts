@@ -75,9 +75,7 @@ function isAuthorized(event: APIGatewayProxyEvent): boolean {
 }
 
 function getCorsOrigin(requestOrigin: string | undefined): string {
-  const allowedOrigins = (process.env.DASHBOARD_ALLOWED_ORIGINS ?? '')
-    .split(',')
-    .filter(Boolean);
+  const allowedOrigins = (process.env.DASHBOARD_ALLOWED_ORIGINS ?? '').split(',').filter(Boolean);
   if (!requestOrigin || allowedOrigins.length === 0) return '';
   return allowedOrigins.includes(requestOrigin) ? requestOrigin : '';
 }
