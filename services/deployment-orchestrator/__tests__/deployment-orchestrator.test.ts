@@ -788,7 +788,8 @@ describe('Deployment Orchestrator', () => {
     // With old hardcoded blastRadius=1.0: score = 10 → well below threshold → would have proceeded
     (getItem as jest.Mock)
       .mockResolvedValueOnce(null) // idempotency: no prior deployment started
-      .mockResolvedValueOnce({    // runCheckpoint2 execution record: high blast radius
+      .mockResolvedValueOnce({
+        // runCheckpoint2 execution record: high blast radius
         checkpoints: [],
         repoContext: { blastRadiusMultiplier: 5.0 },
         signalsReceived: {},
@@ -817,11 +818,17 @@ describe('Deployment Orchestrator', () => {
     // Without using signalsReceived: score = 25 + time_signal < 40 → would have proceeded
     (getItem as jest.Mock)
       .mockResolvedValueOnce(null) // idempotency
-      .mockResolvedValueOnce({    // execution record with CI failure signal
+      .mockResolvedValueOnce({
+        // execution record with CI failure signal
         checkpoints: [],
         repoContext: { blastRadiusMultiplier: 1.0 },
         signalsReceived: {
-          'ci.result': { signalType: 'ci.result', value: false, timestamp: Date.now(), source: 'ci' },
+          'ci.result': {
+            signalType: 'ci.result',
+            value: false,
+            timestamp: Date.now(),
+            source: 'ci',
+          },
         },
       });
 

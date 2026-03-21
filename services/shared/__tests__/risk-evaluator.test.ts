@@ -153,7 +153,12 @@ describe('evaluateRisk', () => {
       // Friday noon UTC = Friday morning US Pacific — included in extended window
       const fridayNoonUTC = new Date('2026-03-13T12:00:00Z').getTime();
       const signals: Signal[] = [
-        { signalType: 'time_of_day', value: fridayNoonUTC, source: 'system', timestamp: fridayNoonUTC },
+        {
+          signalType: 'time_of_day',
+          value: fridayNoonUTC,
+          source: 'system',
+          timestamp: fridayNoonUTC,
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(35);
     });
@@ -162,7 +167,12 @@ describe('evaluateRisk', () => {
       // Saturday 03:00 UTC = Friday 8pm US Pacific — still in extended window
       const saturdayEarlyUTC = new Date('2026-03-14T03:00:00Z').getTime();
       const signals: Signal[] = [
-        { signalType: 'time_of_day', value: saturdayEarlyUTC, source: 'system', timestamp: saturdayEarlyUTC },
+        {
+          signalType: 'time_of_day',
+          value: saturdayEarlyUTC,
+          source: 'system',
+          timestamp: saturdayEarlyUTC,
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(35);
     });
@@ -170,7 +180,12 @@ describe('evaluateRisk', () => {
     it('adds 0 for Saturday 07:00 UTC (past the extended window)', () => {
       const saturdayMorningUTC = new Date('2026-03-14T07:00:00Z').getTime();
       const signals: Signal[] = [
-        { signalType: 'time_of_day', value: saturdayMorningUTC, source: 'system', timestamp: saturdayMorningUTC },
+        {
+          signalType: 'time_of_day',
+          value: saturdayMorningUTC,
+          source: 'system',
+          timestamp: saturdayMorningUTC,
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals }).score).toBe(30);
     });
@@ -308,9 +323,7 @@ describe('evaluateRisk', () => {
       // Old formula would have produced: (20 + 15) * 1.5 * 1.5 = 78.75 → 79
       const result = evaluateRisk({
         llmBaseScore: 20,
-        signals: [
-          { signalType: 'ci.result', value: false, timestamp: Date.now(), source: 'ci' },
-        ],
+        signals: [{ signalType: 'ci.result', value: false, timestamp: Date.now(), source: 'ci' }],
         calibrationFactor: 1.5,
         blastRadiusMultiplier: 1.5,
       });
@@ -327,7 +340,12 @@ describe('evaluateRisk', () => {
         { signalType: 'production.error_rate', value: 0, source: 'datadog', timestamp: Date.now() },
         { signalType: 'production.latency', value: 0, source: 'datadog', timestamp: Date.now() },
         { signalType: 'time_of_day', value: Date.now(), source: 'system', timestamp: Date.now() },
-        { signalType: 'simultaneous_deploy', value: false, source: 'pullmint', timestamp: Date.now() },
+        {
+          signalType: 'simultaneous_deploy',
+          value: false,
+          source: 'pullmint',
+          timestamp: Date.now(),
+        },
       ];
       expect(evaluateRisk({ ...baseInput, signals: allSignals }).confidence).toBe(1.0);
     });
@@ -363,7 +381,12 @@ describe('evaluateRisk', () => {
 
     it('includes simultaneous_deploy in expected signals for confidence calculation', () => {
       const signals: Signal[] = [
-        { signalType: 'simultaneous_deploy', value: true, source: 'pullmint', timestamp: Date.now() },
+        {
+          signalType: 'simultaneous_deploy',
+          value: true,
+          source: 'pullmint',
+          timestamp: Date.now(),
+        },
       ];
       const result = evaluateRisk({ ...baseInput, signals });
       expect(result.confidence).toBeGreaterThan(0);

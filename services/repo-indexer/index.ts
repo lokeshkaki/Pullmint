@@ -187,7 +187,11 @@ async function handleFullIndex(msg: FullIndexMessage): Promise<void> {
     }
 
     // Write pendingBatches count before publishing
-    await updateItem(REPO_REGISTRY_TABLE_NAME, { repoFullName }, { pendingBatches: batches.length });
+    await updateItem(
+      REPO_REGISTRY_TABLE_NAME,
+      { repoFullName },
+      { pendingBatches: batches.length }
+    );
 
     for (const batch of batches) {
       await sqsClient.send(
@@ -216,11 +220,15 @@ async function handleFullIndex(msg: FullIndexMessage): Promise<void> {
     }
   } catch (error) {
     console.error('[repo-indexer] full-index failed', { repoFullName, error });
-    await updateItem(REPO_REGISTRY_TABLE_NAME, { repoFullName }, {
-      indexingStatus: 'failed',
-      lastError: error instanceof Error ? error.message : 'Unknown error',
-      updatedAt: Date.now(),
-    });
+    await updateItem(
+      REPO_REGISTRY_TABLE_NAME,
+      { repoFullName },
+      {
+        indexingStatus: 'failed',
+        lastError: error instanceof Error ? error.message : 'Unknown error',
+        updatedAt: Date.now(),
+      }
+    );
     throw error; // re-throw for SQS retry
   }
 }

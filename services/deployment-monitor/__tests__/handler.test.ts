@@ -92,9 +92,10 @@ describe('deployment-monitor handler', () => {
       riskScore: 35,
       signalsReceived: {
         // ci.result (no delta) + error_rate spike (+20) → 35+20=55 > threshold 50
-        // 2 of 6 expected signals → confidence 0.33 ≥ 0.3 (avoids low-confidence deferral)
+        // 3 of 7 expected signals → confidence 0.43 ≥ 0.3 (avoids low-confidence deferral)
         'ci.result:1699999990000': { value: true, source: 'github', receivedAt: T5_AGO },
         'production.error_rate:1699999995000': { value: 50, source: 'datadog', receivedAt: T5_AGO },
+        'production.latency:1699999997000': { value: 5, source: 'datadog', receivedAt: T5_AGO },
       },
     };
     ddbMock.on(QueryCommand).resolves({ Items: [highRiskExecution] });
@@ -116,6 +117,7 @@ describe('deployment-monitor handler', () => {
       signalsReceived: {
         'ci.result:1699999990000': { value: true, source: 'github', receivedAt: T5_AGO },
         'production.error_rate:1699999995000': { value: 50, source: 'datadog', receivedAt: T5_AGO },
+        'production.latency:1699999997000': { value: 5, source: 'datadog', receivedAt: T5_AGO },
       },
     };
     ddbMock.on(QueryCommand).resolves({ Items: [highRiskExecution] });
@@ -141,6 +143,7 @@ describe('deployment-monitor handler', () => {
       signalsReceived: {
         'ci.result:1699999990000': { value: true, source: 'github', receivedAt: T5_AGO },
         'production.error_rate:1699999995000': { value: 50, source: 'datadog', receivedAt: T5_AGO },
+        'production.latency:1699999997000': { value: 5, source: 'datadog', receivedAt: T5_AGO },
       },
     };
     ddbMock.on(QueryCommand).resolves({ Items: [highRiskExecution] });

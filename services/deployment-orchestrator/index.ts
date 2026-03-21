@@ -296,10 +296,7 @@ async function runCheckpoint2(
     checkpoints?: CheckpointRecord[];
     repoContext?: { blastRadiusMultiplier?: number };
     signalsReceived?: Record<string, Signal>;
-  }>(
-    config.executionsTableName,
-    { executionId: detail.executionId }
-  );
+  }>(config.executionsTableName, { executionId: detail.executionId });
   const priorCheckpoints = execution?.checkpoints ?? [];
   const blastRadiusMultiplier = execution?.repoContext?.blastRadiusMultiplier ?? 1.0;
   const ingestedSignals: Signal[] = execution?.signalsReceived
