@@ -42,27 +42,43 @@ export const handler = async (
   const decision = analysisCheckpoint?.decision as 'approved' | 'held' | undefined;
 
   // 2. Get or create calibration record
-  const { Item: calRecord } = await ddb.send(
+  let { Item: calRecord } = await ddb.send(
     new GetCommand({ TableName: CALIBRATION_TABLE_NAME, Key: { repoFullName } })
   );
 
   if (!calRecord) {
-    await ddb.send(
-      new PutCommand({
-        TableName: CALIBRATION_TABLE_NAME,
-        Item: {
-          repoFullName,
-          observationsCount: 0,
-          successCount: 0,
-          rollbackCount: 0,
-          falsePositiveCount: 0,
-          falseNegativeCount: 0,
-          calibrationFactor: 1.0,
-          lastUpdatedAt: Date.now(),
-        },
-        ConditionExpression: 'attribute_not_exists(repoFullName)',
-      })
-    );
+    const initialRecord = {
+      repoFullName,
+      observationsCount: 0,
+      successCount: 0,
+      rollbackCount: 0,
+      falsePositiveCount: 0,
+      falseNegativeCount: 0,
+      calibrationFactor: 1.0,
+      lastUpdatedAt: Date.now(),
+    };
+
+    try {
+      await ddb.send(
+        new PutCommand({
+          TableName: CALIBRATION_TABLE_NAME,
+          Item: initialRecord,
+          ConditionExpression: 'attribute_not_exists(repoFullName)',
+        })
+      );
+
+      calRecord = initialRecord;
+    } catch (error) {
+      if ((error as { name?: string }).name !== 'ConditionalCheckFailedException') {
+        throw error;
+      }
+
+      // Another concurrent invocation created the record first.
+      const { Item: concurrentRecord } = await ddb.send(
+        new GetCommand({ TableName: CALIBRATION_TABLE_NAME, Key: { repoFullName } })
+      );
+      calRecord = concurrentRecord;
+    }
   }
 
   const observationsCount = (calRecord?.observationsCount as number) ?? 0;
