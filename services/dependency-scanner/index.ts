@@ -3,7 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { getGitHubInstallationClient } from '../shared/github-app';
 import { retryWithBackoff } from '../shared/error-handling';
 
-const EXECUTIONS_TABLE_NAME = process.env.EXECUTIONS_TABLE_NAME!;
+const REPO_REGISTRY_TABLE_NAME = process.env.REPO_REGISTRY_TABLE_NAME!;
 const DEPENDENCY_GRAPH_TABLE_NAME = process.env.DEPENDENCY_GRAPH_TABLE_NAME!;
 
 const TTL_48H_SECONDS = 48 * 60 * 60;
@@ -18,18 +18,18 @@ type GitHubContentClient = {
 };
 
 export const handler = async (): Promise<void> => {
-  // 1. Scan executions table for distinct repos
-  const { Items: executions = [] } = await ddb.send(
+  // 1. Scan repo registry table for distinct repos
+  const { Items: registryItems = [] } = await ddb.send(
     new ScanCommand({
-      TableName: EXECUTIONS_TABLE_NAME,
+      TableName: REPO_REGISTRY_TABLE_NAME,
       ProjectionExpression: 'repoFullName',
     })
   );
 
-  // Deduplicate
+  // Deduplicate (registry items should already be unique, but filter for safety)
   const distinctRepos = [
     ...new Set(
-      executions
+      registryItems
         .map((e) => e.repoFullName as string | undefined)
         .filter((r): r is string => Boolean(r))
     ),
@@ -71,11 +71,8 @@ async function scanRepoForDependencies(repoFullName: string, knownRepos: string[
     throw error;
   }
 
-  // 4. Parse all declared dependencies
-  const allDeps = {
-    ...((packageJson.dependencies as Record<string, string> | undefined) ?? {}),
-    ...((packageJson.devDependencies as Record<string, string> | undefined) ?? {}),
-  };
+  // 4. Parse production dependencies only (exclude devDependencies)
+  const allDeps = (packageJson.dependencies as Record<string, string> | undefined) ?? {};
 
   const ttl = Math.floor(Date.now() / 1000) + TTL_48H_SECONDS;
   const orgPrefix = repoFullName.split('/')[0];
@@ -119,9 +116,7 @@ function resolveRepoFromPackageName(
   }
 
   // Unscoped: check if any known repo's name part matches
-  const match = knownRepos.find(
-    (r) => r === `${orgPrefix}/${packageName}` || r.split('/')[1] === packageName
-  );
+  const match = knownRepos.find((r) => r === `${orgPrefix}/${packageName}`);
   return match;
 }
 

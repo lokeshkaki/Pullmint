@@ -15,26 +15,34 @@ import { retryWithBackoff } from '../../shared/error-handling';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
-const EXECUTIONS_TABLE = 'test-executions';
+const REPO_REGISTRY_TABLE = 'test-repo-registry';
 const DEP_GRAPH_TABLE = 'test-dep-graph';
 
 const getGitHubMock = getGitHubInstallationClient as jest.Mock;
 const retryMock = retryWithBackoff as jest.Mock;
 
-function makePackageJsonContent(deps: Record<string, string>): string {
-  const pkg = { name: 'some-package', version: '1.0.0', dependencies: deps };
+function makePackageJsonContent(
+  deps: Record<string, string>,
+  devDeps?: Record<string, string>
+): string {
+  const pkg: Record<string, unknown> = {
+    name: 'some-package',
+    version: '1.0.0',
+    dependencies: deps,
+  };
+  if (devDeps) pkg.devDependencies = devDeps;
   return Buffer.from(JSON.stringify(pkg)).toString('base64');
 }
 
 beforeAll(() => {
-  process.env.EXECUTIONS_TABLE_NAME = EXECUTIONS_TABLE;
+  process.env.REPO_REGISTRY_TABLE_NAME = REPO_REGISTRY_TABLE;
   process.env.DEPENDENCY_GRAPH_TABLE_NAME = DEP_GRAPH_TABLE;
   process.env.GITHUB_APP_ID = 'test-app-id';
   process.env.GITHUB_APP_PRIVATE_KEY_ARN = 'arn:aws:secretsmanager:us-east-1:123:secret:test';
 });
 
 afterAll(() => {
-  delete process.env.EXECUTIONS_TABLE_NAME;
+  delete process.env.REPO_REGISTRY_TABLE_NAME;
   delete process.env.DEPENDENCY_GRAPH_TABLE_NAME;
   delete process.env.GITHUB_APP_ID;
   delete process.env.GITHUB_APP_PRIVATE_KEY_ARN;
@@ -48,7 +56,7 @@ describe('dependency-scanner handler', () => {
     retryMock.mockImplementation(async (fn: () => Promise<unknown>) => await fn());
   });
 
-  it('scans executions table and writes dependency edges for known inter-repo dependencies', async () => {
+  it('scans repo registry table and writes dependency edges for known inter-repo dependencies', async () => {
     // Two repos: org/repo-a depends on org/repo-b (via '@org/repo-b')
     ddbMock.on(ScanCommand).resolves({
       Items: [{ repoFullName: 'org/repo-a' }, { repoFullName: 'org/repo-b' }],
@@ -114,8 +122,12 @@ describe('dependency-scanner handler', () => {
     getGitHubMock.mockResolvedValue({
       request: jest.fn().mockResolvedValue({
         data: {
-          // axios and lodash are not known repos in this org
-          content: makePackageJsonContent({ axios: '^1.0.0', lodash: '^4.0.0' }),
+          // axios, lodash, and @org/unknown are not known repos in this org
+          content: makePackageJsonContent({
+            axios: '^1.0.0',
+            lodash: '^4.0.0',
+            '@org/unknown-pkg': '^2.0.0',
+          }),
           encoding: 'base64',
         },
       }),
@@ -123,7 +135,7 @@ describe('dependency-scanner handler', () => {
 
     await handler({} as never, {} as never, {} as never);
 
-    // No edges written for external packages
+    // No edges written for external packages (including scoped packages not in known repos)
     expect(ddbMock.commandCalls(PutCommand).length).toBe(0);
   });
 
@@ -158,7 +170,7 @@ describe('dependency-scanner handler', () => {
     expect(requestMock).toHaveBeenCalledTimes(2);
   });
 
-  it('handles empty executions table gracefully — no GitHub calls', async () => {
+  it('handles empty repo registry table gracefully — no GitHub calls', async () => {
     ddbMock.on(ScanCommand).resolves({ Items: [] });
 
     await handler({} as never, {} as never, {} as never);
@@ -207,7 +219,118 @@ describe('dependency-scanner handler', () => {
 
     await handler({} as never, {} as never, {} as never);
 
-    // Only one GitHub API call despite 3 execution records for same repo
+    // Only one GitHub API call despite 3 registry records for same repo
     expect(getGitHubMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not include devDependencies in the dependency graph', async () => {
+    // org/repo-a has @org/repo-b as a devDependency only
+    ddbMock.on(ScanCommand).resolves({
+      Items: [{ repoFullName: 'org/repo-a' }, { repoFullName: 'org/repo-b' }],
+    });
+    ddbMock.on(PutCommand).resolves({});
+
+    getGitHubMock.mockResolvedValue({
+      request: jest.fn().mockResolvedValue({
+        data: {
+          content: makePackageJsonContent({}, { '@org/repo-b': '^1.0.0' }),
+          encoding: 'base64',
+        },
+      }),
+    });
+
+    await handler({} as never, {} as never, {} as never);
+
+    // No edges written — @org/repo-b is only a devDependency
+    expect(ddbMock.commandCalls(PutCommand).length).toBe(0);
+  });
+
+  it('handles package.json with no dependencies key gracefully', async () => {
+    ddbMock.on(ScanCommand).resolves({ Items: [{ repoFullName: 'org/repo' }] });
+    ddbMock.on(PutCommand).resolves({});
+
+    // package.json has no dependencies key at all
+    const content = Buffer.from(JSON.stringify({ name: 'pkg', version: '1.0.0' })).toString(
+      'base64'
+    );
+    getGitHubMock.mockResolvedValue({
+      request: jest.fn().mockResolvedValue({
+        data: { content, encoding: 'base64' },
+      }),
+    });
+
+    await handler({} as never, {} as never, {} as never);
+
+    expect(ddbMock.commandCalls(PutCommand).length).toBe(0);
+  });
+
+  it('skips repo when GitHub returns error with 404 in message but no status', async () => {
+    ddbMock.on(ScanCommand).resolves({ Items: [{ repoFullName: 'org/repo' }] });
+
+    const notFoundError = new Error('Resource returned 404');
+    getGitHubMock.mockResolvedValue({
+      request: jest.fn().mockRejectedValue(notFoundError),
+    });
+
+    await expect(handler({} as never, {} as never, {} as never)).resolves.toBeUndefined();
+    expect(ddbMock.commandCalls(PutCommand).length).toBe(0);
+  });
+
+  it('scans repo registry with missing content field and treats as empty', async () => {
+    ddbMock.on(ScanCommand).resolves({ Items: [{ repoFullName: 'org/repo' }] });
+    ddbMock.on(PutCommand).resolves({});
+
+    // Response with no content field — should default to empty string
+    getGitHubMock.mockResolvedValue({
+      request: jest.fn().mockResolvedValue({
+        data: { encoding: 'base64' },
+      }),
+    });
+
+    // Empty content → empty JSON parse attempt → may throw, caught by handler
+    // Actually empty string base64 decoded is empty, JSON.parse('') throws
+    // This should be caught by the try/catch and continue
+    await expect(handler({} as never, {} as never, {} as never)).resolves.toBeUndefined();
+  });
+
+  it('only matches exact org/packageName — no loose suffix matching', async () => {
+    // Known repos: org/utils and org/my-utils
+    // repo-a depends on unscoped "utils" — should match org/utils exactly, not org/my-utils
+    ddbMock.on(ScanCommand).resolves({
+      Items: [
+        { repoFullName: 'org/repo-a' },
+        { repoFullName: 'org/utils' },
+        { repoFullName: 'org/my-utils' },
+      ],
+    });
+    ddbMock.on(PutCommand).resolves({});
+
+    const requestMock = jest
+      .fn()
+      .mockImplementation((_route: string, params: Record<string, string>) => {
+        if (params.repo === 'repo-a') {
+          // repo-a depends on unscoped "utils"
+          return Promise.resolve({
+            data: {
+              content: makePackageJsonContent({ utils: '^1.0.0' }),
+              encoding: 'base64',
+            },
+          });
+        }
+        return Promise.resolve({
+          data: { content: makePackageJsonContent({}), encoding: 'base64' },
+        });
+      });
+
+    getGitHubMock.mockResolvedValue({ request: requestMock });
+
+    await handler({} as never, {} as never, {} as never);
+
+    const putCalls = ddbMock.commandCalls(PutCommand);
+    // Should write exactly one edge: org/utils (upstream) → org/repo-a (dependent)
+    expect(putCalls.length).toBe(1);
+    const item = putCalls[0].args[0].input.Item as Record<string, unknown>;
+    expect(item.repoFullName).toBe('org/utils');
+    expect(item.dependentRepo).toBe('org/repo-a');
   });
 });
