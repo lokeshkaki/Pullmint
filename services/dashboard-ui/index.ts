@@ -21,8 +21,15 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   return {
     statusCode: 200,
     headers: {
-      'Content-Type': 'text/html',
+      'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      'X-Frame-Options': 'DENY',
+      'X-Content-Type-Options': 'nosniff',
+      'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'X-XSS-Protection': '1; mode=block',
     },
     body: html,
   };
@@ -396,6 +403,12 @@ function getDashboardHTML(): string {
   </div>
 
   <script>
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     const dashboardPath = '/dashboard';
     const dashboardIndex = window.location.pathname.indexOf(dashboardPath);
     const apiBase =
