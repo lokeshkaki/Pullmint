@@ -5,6 +5,7 @@ import {
   GetCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import type { ZodSchema } from 'zod';
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -36,6 +37,43 @@ export async function getItem<T>(
   );
 
   return (result.Item as T) || null;
+}
+
+/**
+ * Get an item from DynamoDB with Zod runtime validation.
+ * Throws if the item exists but fails schema validation.
+ */
+export async function getValidatedItem<T>(
+  tableName: string,
+  key: Record<string, unknown>,
+  schema: ZodSchema<T>
+): Promise<T | null> {
+  const result = await docClient.send(
+    new GetCommand({
+      TableName: tableName,
+      Key: key,
+    })
+  );
+
+  if (!result.Item) {
+    return null;
+  }
+
+  const parsed = schema.safeParse(result.Item);
+  if (!parsed.success) {
+    console.error('[dynamodb] Validation failed for item from table', {
+      tableName,
+      key,
+      errors: parsed.error.issues,
+    });
+    throw new Error(
+      `DynamoDB item validation failed for ${tableName}: ${parsed.error.issues
+        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        .join(', ')}`
+    );
+  }
+
+  return parsed.data;
 }
 
 /**

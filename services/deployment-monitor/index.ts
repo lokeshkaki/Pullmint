@@ -2,6 +2,7 @@ import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from '@aws-sdk/li
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { evaluateRisk } from '../shared/risk-evaluator';
+import { CheckpointRecordSchema } from '../shared/schemas';
 import type {
   Signal,
   CheckpointRecord,
@@ -19,6 +20,7 @@ const MAX_BATCH = 20;
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const eb = new EventBridgeClient({});
+const CheckpointTypeSchema = CheckpointRecordSchema.pick({ type: true });
 
 export const handler = async (): Promise<void> => {
   const now = Date.now();
@@ -49,7 +51,11 @@ async function evaluateCheckpoint(execution: Record<string, unknown>, now: numbe
   const checkpointType = isPastT30 ? 'post-deploy-30' : 'post-deploy-5';
 
   // Idempotency: skip if this checkpoint type already exists
-  const existing = (execution.checkpoints as CheckpointRecord[] | undefined) ?? [];
+  const rawCheckpoints = (execution.checkpoints as unknown[]) ?? [];
+  const existing = rawCheckpoints
+    .map((checkpoint) => CheckpointTypeSchema.safeParse(checkpoint))
+    .filter((parsed) => parsed.success)
+    .map((parsed) => parsed.data);
   if (existing.some((c) => c.type === checkpointType)) return;
 
   // Build signals from signalsReceived map
