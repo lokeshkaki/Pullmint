@@ -1442,4 +1442,52 @@ describe('architecture-agent handler', () => {
       expect.objectContaining({ riskScore: 50 })
     );
   });
+
+  it('should not throw from catch block when record.body is malformed', async () => {
+    const handler = await loadHandler();
+    const { updateItem } = getSharedMocks();
+    const malformedEvent: SQSEvent = {
+      Records: [{ body: 'not-valid-json{{{' } as SQSRecord],
+    };
+
+    // Handler throws for SQS retry, but the catch block should not crash on double-parse
+    await expect(handler(malformedEvent)).rejects.toThrow(SyntaxError);
+
+    // updateItem should NOT have been called (no executionId available from malformed body)
+    expect(updateItem).not.toHaveBeenCalled();
+  });
+
+  it('should update execution status to failed using already-parsed executionId when error occurs', async () => {
+    const handler = await loadHandler();
+    const { getItem, updateItem, getGitHubInstallationClient, getSecret } = getSharedMocks();
+
+    // Setup: valid event body but make processing fail
+    getItem.mockResolvedValue({ executionId: 'exec-err', status: 'analyzing' });
+    getSecret.mockResolvedValue('fake-api-key');
+    getGitHubInstallationClient.mockRejectedValue(new Error('GitHub API down'));
+
+    const event: SQSEvent = {
+      Records: [
+        {
+          body: JSON.stringify({
+            detail: {
+              executionId: 'exec-err',
+              repoFullName: 'org/repo',
+              prNumber: 99,
+              installationId: 123,
+            },
+          }),
+        } as SQSRecord,
+      ],
+    };
+
+    // Handler should throw (for SQS retry), but the catch block should have called updateItem
+    await expect(handler(event)).rejects.toThrow();
+
+    expect(updateItem).toHaveBeenCalledWith(
+      'executions-table',
+      { executionId: 'exec-err' },
+      expect.objectContaining({ status: 'failed' })
+    );
+  });
 });
