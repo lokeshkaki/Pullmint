@@ -223,6 +223,41 @@ describe('calibration-service handler', () => {
     expect(ddbMock.commandCalls(UpdateCommand).length).toBe(1);
   });
 
+  it('handles concurrent initialization gracefully', async () => {
+    ddbMock
+      .on(GetCommand)
+      .resolvesOnce({
+        Item: {
+          executionId: 'exec-1',
+          riskScore: 25,
+          checkpoints: [{ type: 'analysis', decision: 'approved' }],
+        },
+      })
+      .resolvesOnce({ Item: undefined })
+      .resolvesOnce({
+        Item: {
+          repoFullName: 'org/repo',
+          observationsCount: 0,
+          successCount: 0,
+          rollbackCount: 0,
+          falsePositiveCount: 0,
+          falseNegativeCount: 0,
+          calibrationFactor: 1.0,
+        },
+      });
+
+    const conditionalError = new Error('The conditional request failed');
+    conditionalError.name = 'ConditionalCheckFailedException';
+    ddbMock.on(PutCommand).rejects(conditionalError);
+    ddbMock.on(UpdateCommand).resolves({});
+
+    await expect(handler(confirmedEvent('exec-1'), {} as never, {} as never)).resolves.toBeUndefined();
+
+    expect(ddbMock.commandCalls(GetCommand).length).toBe(3);
+    expect(ddbMock.commandCalls(PutCommand).length).toBe(1);
+    expect(ddbMock.commandCalls(UpdateCommand).length).toBe(1);
+  });
+
   it('does nothing when execution record is not found', async () => {
     ddbMock.on(GetCommand).resolvesOnce({ Item: undefined });
 
