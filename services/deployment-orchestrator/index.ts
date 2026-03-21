@@ -2,6 +2,7 @@ import { EventBridgeHandler } from 'aws-lambda';
 import { publishEvent } from '../shared/eventbridge';
 import { getItem, updateItem } from '../shared/dynamodb';
 import { createStructuredError } from '../shared/error-handling';
+import { getSecret } from '../shared/secrets';
 import { addTraceAnnotations } from '../shared/tracer';
 import { evaluateRisk } from '../shared/risk-evaluator';
 import {
@@ -37,7 +38,7 @@ export const handler: EventBridgeHandler<
 > = async (event): Promise<void> => {
   const detail = event.detail;
   addTraceAnnotations({ executionId: detail.executionId, prNumber: detail.prNumber });
-  const config = getDeploymentConfig();
+  const config = await getDeploymentConfig();
   let deployingStatusSet = false;
 
   try {
@@ -244,10 +245,19 @@ type DeploymentConfig = {
   checkpoint2WaitMs: number;
 };
 
-function getDeploymentConfig(): DeploymentConfig {
+async function getWebhookConfig(): Promise<{ url: string; token: string }> {
+  const secretArn = process.env.DEPLOYMENT_WEBHOOK_SECRET_ARN;
+  if (!secretArn) {
+    throw new Error('DEPLOYMENT_WEBHOOK_SECRET_ARN is required but not set');
+  }
+  const secretValue = await getSecret(secretArn);
+  const parsed = JSON.parse(secretValue) as { url: string; token: string };
+  return { url: parsed.url, token: parsed.token };
+}
+
+async function getDeploymentConfig(): Promise<DeploymentConfig> {
   const eventBusName = process.env.EVENT_BUS_NAME;
   const executionsTableName = process.env.EXECUTIONS_TABLE_NAME;
-  const deploymentWebhookAuthToken = process.env.DEPLOYMENT_WEBHOOK_AUTH_TOKEN;
 
   if (!eventBusName) {
     throw new Error('EVENT_BUS_NAME is required');
@@ -257,16 +267,14 @@ function getDeploymentConfig(): DeploymentConfig {
     throw new Error('EXECUTIONS_TABLE_NAME is required');
   }
 
-  if (!deploymentWebhookAuthToken) {
-    throw new Error('DEPLOYMENT_WEBHOOK_AUTH_TOKEN is required but not set');
-  }
+  const webhookConfig = await getWebhookConfig();
 
   return {
     eventBusName,
     executionsTableName,
     deploymentDelayMs: Number(process.env.DEPLOYMENT_DELAY_MS || '0'),
-    deploymentWebhookUrl: process.env.DEPLOYMENT_WEBHOOK_URL,
-    deploymentWebhookAuthToken,
+    deploymentWebhookUrl: webhookConfig.url || process.env.DEPLOYMENT_WEBHOOK_URL,
+    deploymentWebhookAuthToken: webhookConfig.token,
     deploymentWebhookTimeoutMs: Number(process.env.DEPLOYMENT_WEBHOOK_TIMEOUT_MS || '10000'),
     deploymentWebhookRetries: Number(process.env.DEPLOYMENT_WEBHOOK_RETRIES || '2'),
     rollbackWebhookUrl: process.env.DEPLOYMENT_ROLLBACK_WEBHOOK_URL,

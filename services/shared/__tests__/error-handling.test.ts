@@ -4,6 +4,7 @@ import {
   getErrorName,
   createStructuredError,
   retryWithBackoff,
+  withErrorHandling,
 } from '../error-handling';
 
 describe('Error Handling Utilities', () => {
@@ -56,6 +57,24 @@ describe('Error Handling Utilities', () => {
         message: 'Conditional check failed',
       };
       expect(isTransientError(conditionalError)).toBe(true);
+    });
+
+    it('should classify Anthropic RateLimitError as transient', () => {
+      const error = new Error('rate_limit_error: Rate limit exceeded');
+      error.name = 'RateLimitError';
+      (error as any).status = 429;
+      expect(isTransientError(error)).toBe(true);
+    });
+
+    it('should classify errors with status 429 as transient', () => {
+      const error = new Error('Too many requests');
+      (error as any).status = 429;
+      expect(isTransientError(error)).toBe(true);
+    });
+
+    it('should classify rate limit message errors as transient', () => {
+      expect(isTransientError(new Error('rate_limit exceeded'))).toBe(true);
+      expect(isTransientError(new Error('rate limit reached'))).toBe(true);
     });
 
     it('should identify permanent errors correctly', () => {
@@ -315,6 +334,21 @@ describe('Error Handling Utilities', () => {
 
       expect(result.data).toBe('test');
       expect(result.count).toBe(42);
+    });
+  });
+
+  describe('withErrorHandling', () => {
+    it('should return undefined when throwOnError is false', async () => {
+      const failFn = jest.fn().mockRejectedValue(new Error('test error'));
+      const safeFn = withErrorHandling(failFn, { throwOnError: false });
+      const result = await safeFn();
+      expect(result).toBeUndefined();
+    });
+
+    it('should throw when throwOnError is not false', async () => {
+      const failFn = jest.fn().mockRejectedValue(new Error('test error'));
+      const safeFn = withErrorHandling(failFn);
+      await expect(safeFn()).rejects.toThrow('test error');
     });
   });
 });

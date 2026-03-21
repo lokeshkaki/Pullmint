@@ -101,6 +101,12 @@ function isAuthorized(event: APIGatewayProxyEvent): boolean {
   return token === authToken;
 }
 
+function getCorsOrigin(requestOrigin: string | undefined): string {
+  const allowedOrigins = (process.env.DASHBOARD_ALLOWED_ORIGINS ?? '').split(',').filter(Boolean);
+  if (!requestOrigin || allowedOrigins.length === 0) return '';
+  return allowedOrigins.includes(requestOrigin) ? requestOrigin : '';
+}
+
 /**
  * Dashboard API Handler
  * Provides REST endpoints for querying PR execution history
@@ -113,11 +119,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   });
   addTraceAnnotations({ path: event.path });
 
+  const requestOrigin = event.headers?.origin || event.headers?.Origin;
   const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(requestOrigin),
     'Access-Control-Allow-Headers': 'Content-Type,Authorization',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Content-Type': 'application/json',
+    Vary: 'Origin',
   };
 
   try {
