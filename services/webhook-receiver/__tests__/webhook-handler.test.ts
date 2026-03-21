@@ -570,18 +570,13 @@ describe('Webhook Handler', () => {
       });
     });
 
-    it('should handle Secrets Manager errors', async () => {
-      // Note: This test is challenging because the secret is cached from previous tests
-      // In a real scenario, secret fetch failures would occur on first handler invocation
-      // For now, we'll verify the handler completes even if secrets are problematic
+    it('should accept webhook when secret retrieval succeeds', async () => {
       const payload = createPRPayload();
       const event = createMockEvent(payload);
 
       const result = await handler(event);
 
-      // If secret was cached from beforeEach, test will succeed (202)
-      // This is acceptable as it tests the caching behavior
-      expect([202, 500]).toContain(result.statusCode);
+      expect(result.statusCode).toBe(202);
     });
 
     it('should not block retries if EventBridge publish fails after dedup check', async () => {
