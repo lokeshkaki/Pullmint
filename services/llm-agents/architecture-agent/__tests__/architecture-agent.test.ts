@@ -1490,4 +1490,32 @@ describe('architecture-agent handler', () => {
       expect.objectContaining({ status: 'failed' })
     );
   });
+
+  it('should still rethrow original error when updateItem fails in catch block', async () => {
+    const handler = await loadHandler();
+    const { getItem, updateItem, getGitHubInstallationClient, getSecret } = getSharedMocks();
+
+    getItem.mockResolvedValue({ executionId: 'exec-err2', status: 'analyzing' });
+    getSecret.mockResolvedValue('fake-api-key');
+    getGitHubInstallationClient.mockRejectedValue(new Error('GitHub API down'));
+    updateItem.mockRejectedValue(new Error('DynamoDB unavailable'));
+
+    const event: SQSEvent = {
+      Records: [
+        {
+          body: JSON.stringify({
+            detail: {
+              executionId: 'exec-err2',
+              repoFullName: 'org/repo',
+              prNumber: 100,
+              installationId: 123,
+            },
+          }),
+        } as SQSRecord,
+      ],
+    };
+
+    // Should throw the original error, not the updateItem error
+    await expect(handler(event)).rejects.toThrow('GitHub API down');
+  });
 });
