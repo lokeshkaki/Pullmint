@@ -1059,7 +1059,7 @@ export class WebhookStack extends cdk.Stack {
       '/dashboard/*',
       new origins.HttpOrigin(
         `${api.restApiId}.execute-api.${cdk.Stack.of(this).region}.amazonaws.com`,
-        { originPath: `/${api.deploymentStage.stageName}` }
+        { originPath: `/${stage}` }
       ),
       {
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
