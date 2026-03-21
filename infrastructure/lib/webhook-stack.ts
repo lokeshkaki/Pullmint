@@ -641,6 +641,7 @@ export class WebhookStack extends cdk.Stack {
     dashboardApi.addEnvironment('REPO_REGISTRY_TABLE_NAME', repoRegistryTable.tableName);
     repoRegistryTable.grantReadWriteData(dashboardApi);
     this.eventBus.grantPutEventsTo(dashboardApi);
+    dashboardApi.addEnvironment('EVENT_BUS_NAME', this.eventBus.eventBusName);
     dashboardAuthSecret.grantRead(dashboardApi);
 
     // Signal ingestion permissions
