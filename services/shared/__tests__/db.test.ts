@@ -26,14 +26,16 @@ describe('db', () => {
     process.env.DATABASE_URL = 'postgresql://custom:custom@myhost:5432/mydb';
     const { getDb } = await import('../db');
     getDb();
-    const postgres = require('postgres');
+    const postgresModule = await import('postgres');
+    const postgres = postgresModule.default as jest.Mock;
     expect(postgres).toHaveBeenCalledWith('postgresql://custom:custom@myhost:5432/mydb');
   });
 
   it('should use default connection string when DATABASE_URL not set', async () => {
     const { getDb } = await import('../db');
     getDb();
-    const postgres = require('postgres');
+    const postgresModule = await import('postgres');
+    const postgres = postgresModule.default as jest.Mock;
     expect(postgres).toHaveBeenCalledWith('postgresql://pullmint:pullmint@localhost:5432/pullmint');
   });
 
@@ -42,7 +44,8 @@ describe('db', () => {
     getDb();
     await closeDb();
 
-    const postgres = require('postgres');
+    const postgresModule = await import('postgres');
+    const postgres = postgresModule.default as jest.Mock;
     const sqlInstance = postgres.mock.results[0].value;
     expect(sqlInstance.end).toHaveBeenCalledTimes(1);
   });

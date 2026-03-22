@@ -23,7 +23,8 @@ describe('storage', () => {
     const client = getStorageClient();
     expect(client).toBeDefined();
 
-    const { S3Client } = require('@aws-sdk/client-s3');
+    const s3Module = await import('@aws-sdk/client-s3');
+    const S3Client = s3Module.S3Client as jest.Mock;
     expect(S3Client).toHaveBeenCalledWith(expect.objectContaining({ forcePathStyle: true }));
   });
 

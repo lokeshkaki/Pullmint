@@ -20,7 +20,8 @@ describe('queue', () => {
   it('should add a job to a queue', async () => {
     const { addJob, QUEUE_NAMES } = await import('../queue');
     await addJob(QUEUE_NAMES.ANALYSIS, 'pr.opened', { executionId: '123' });
-    const { Queue } = require('bullmq');
+    const bullmqModule = await import('bullmq');
+    const Queue = bullmqModule.Queue as jest.Mock;
     const queueInstance = Queue.mock.results[0].value;
     expect(queueInstance.add).toHaveBeenCalledWith(
       'pr.opened',
@@ -50,11 +51,13 @@ describe('queue', () => {
 
     await closeQueues();
 
-    const { Queue } = require('bullmq');
+    const bullmqModule = await import('bullmq');
+    const Queue = bullmqModule.Queue as jest.Mock;
     const queueInstance = Queue.mock.results[0].value;
     expect(queueInstance.close).toHaveBeenCalledTimes(1);
 
-    const IORedis = require('ioredis');
+    const ioredisModule = await import('ioredis');
+    const IORedis = ioredisModule.default as jest.Mock;
     const redisInstance = IORedis.mock.results[0].value;
     expect(redisInstance.quit).toHaveBeenCalledTimes(1);
   });
