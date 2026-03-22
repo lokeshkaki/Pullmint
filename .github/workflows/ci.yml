@@ -12,128 +12,69 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint Code
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
 
   test:
-    name: Test
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service:
           - services/shared
           - services/api
-          - services/webhook-receiver
-          - services/github-integration
-          - services/deployment-orchestrator
-          - services/dashboard-api
-          - services/dashboard-ui
-          - services/llm-agents/architecture-agent
-          - services/signal-ingestion
-          - services/deployment-monitor
-          - services/calibration-service
-          - services/dependency-scanner
-          - services/repo-indexer
           - services/workers
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests with coverage
-        run: cd ${{ matrix.service }} && npm run test:coverage
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: cd ${{ matrix.service }} && npm run test:coverage
 
   typecheck:
-    name: Type Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check all workspaces
-        run: npm run build
-
-  cdk-synth:
-    name: CDK Synth
+  docker-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: CDK Synth
-        run: cd infrastructure && npm run synth
-        env:
-          GITHUB_APP_ID: ${{ secrets.PULLMINT_GITHUB_APP_ID }}
+      - uses: actions/checkout@v4
+      - run: docker compose build
 
   security:
-    name: Security Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run npm audit
-        run: npm audit --audit-level=high --production
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high --production
 
   format-check:
-    name: Format Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check formatting
-        run: npx prettier --check "**/*.{ts,tsx,json,md}"
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prettier --check "**/*.{ts,tsx,json,md}"

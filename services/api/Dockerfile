@@ -34,4 +34,4 @@ COPY --from=builder /app/services/shared/drizzle services/shared/drizzle
 
 EXPOSE 3000
 
-CMD ["node", "services/api/dist/server.js"]
+CMD ["node", "services/api/dist/src/server.js"]

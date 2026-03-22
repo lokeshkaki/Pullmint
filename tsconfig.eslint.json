@@ -4,5 +4,5 @@
     "noEmit": true
   },
   "include": ["**/*.ts", "**/*.tsx", "**/*.test.ts", "**/*.spec.ts"],
-  "exclude": ["node_modules", "dist", "cdk.out"]
+  "exclude": ["node_modules", "dist"]
 }
