@@ -1,0 +1,25 @@
+{
+  "name": "@pullmint/api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "test": "jest --coverage",
+    "test:coverage": "jest --coverage"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/rate-limit": "^10.0.0",
+    "@pullmint/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.0.0",
+    "typescript": "^5.3.3"
+  }
+}

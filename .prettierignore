@@ -3,6 +3,11 @@ dist/
 build/
 *.tsbuildinfo
 
+# TypeScript build artifacts in shared
+services/shared/*.d.ts
+services/shared/*.d.ts.map
+services/shared/*.js.map
+
 # Coverage reports
 coverage/
 .nyc_output/

@@ -83,3 +83,8 @@ services/**/*.js
 infrastructure/**/*.js
 !infrastructure/bin/*.js
 !infrastructure/lib/*.js
+
+# TypeScript build artifacts in shared (inline outputs from npm run build)
+services/shared/*.d.ts
+services/shared/*.d.ts.map
+services/shared/*.js.map
