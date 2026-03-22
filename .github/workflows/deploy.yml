@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set lowercase repository name
+        run: echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -31,8 +34,8 @@ jobs:
           file: services/api/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/api:latest
-            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LC }}/api:latest
+            ghcr.io/${{ env.REPO_LC }}/api:${{ github.sha }}
 
       - name: Build and push Workers image
         uses: docker/build-push-action@v5
@@ -41,8 +44,8 @@ jobs:
           file: services/workers/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/workers:latest
-            ghcr.io/${{ github.repository }}/workers:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LC }}/workers:latest
+            ghcr.io/${{ env.REPO_LC }}/workers:${{ github.sha }}
 
       - name: Build and push Dashboard image
         uses: docker/build-push-action@v5
@@ -51,5 +54,5 @@ jobs:
           file: services/dashboard/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/dashboard:latest
-            ghcr.io/${{ github.repository }}/dashboard:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LC }}/dashboard:latest
+            ghcr.io/${{ env.REPO_LC }}/dashboard:${{ github.sha }}
