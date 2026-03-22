@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { registerDashboardRoutes } from '../src/routes/dashboard';
 
 // Mock shared modules
-jest.mock('../../shared/db', () => ({
+jest.mock('@pullmint/shared/db', () => ({
   getDb: jest.fn(),
   schema: {
     executions: {
@@ -23,23 +23,23 @@ jest.mock('../../shared/db', () => ({
   },
 }));
 
-jest.mock('../../shared/queue', () => ({
+jest.mock('@pullmint/shared/queue', () => ({
   addJob: jest.fn().mockResolvedValue(undefined),
   QUEUE_NAMES: { REPO_INDEXING: 'repo-indexing' },
 }));
 
-jest.mock('../../shared/config', () => ({
+jest.mock('@pullmint/shared/config', () => ({
   getConfig: jest.fn((key: string) => {
     if (key === 'DASHBOARD_AUTH_TOKEN') return 'test-token';
     return 'test-value';
   }),
 }));
 
-jest.mock('../../shared/tracing', () => ({
+jest.mock('@pullmint/shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
 }));
 
-jest.mock('../../shared/dynamodb', () => ({
+jest.mock('@pullmint/shared/dynamodb', () => ({
   updateItem: jest.fn().mockResolvedValue(undefined),
 }));
 

@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { registerWebhookRoutes } from '../src/routes/webhook';
 
 // Mock shared modules
-jest.mock('../../shared/db', () => {
+jest.mock('@pullmint/shared/db', () => {
   const mockInsert = jest.fn();
   const mockSelect = jest.fn();
   return {
@@ -24,7 +24,7 @@ jest.mock('../../shared/db', () => {
   };
 });
 
-jest.mock('../../shared/queue', () => ({
+jest.mock('@pullmint/shared/queue', () => ({
   addJob: jest.fn().mockResolvedValue(undefined),
   QUEUE_NAMES: {
     ANALYSIS: 'analysis',
@@ -33,22 +33,22 @@ jest.mock('../../shared/queue', () => ({
   },
 }));
 
-jest.mock('../../shared/config', () => ({
+jest.mock('@pullmint/shared/config', () => ({
   getConfig: jest.fn((key: string) => {
     if (key === 'GITHUB_WEBHOOK_SECRET') return 'test-secret';
     return 'test-value';
   }),
 }));
 
-jest.mock('../../shared/tracing', () => ({
+jest.mock('@pullmint/shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
 }));
 
-jest.mock('../../shared/error-handling', () => ({
+jest.mock('@pullmint/shared/error-handling', () => ({
   createStructuredError: jest.fn((err: Error) => ({ message: err.message })),
 }));
 
-jest.mock('../../shared/utils', () => ({
+jest.mock('@pullmint/shared/utils', () => ({
   verifyGitHubSignature: jest.fn().mockReturnValue(true),
   generateExecutionId: jest.fn().mockReturnValue('test-repo#1#abc1234'),
   calculateTTL: jest.fn().mockReturnValue(86400),

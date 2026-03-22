@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import * as crypto from 'crypto';
 import { registerSignalRoutes } from '../src/routes/signals';
 
-jest.mock('@pullmint/shared/db', () => ({
+jest.mock('../../shared/db', () => ({
   getDb: jest.fn(),
   schema: {
     executions: {
@@ -12,19 +12,19 @@ jest.mock('@pullmint/shared/db', () => ({
   },
 }));
 
-jest.mock('@pullmint/shared/queue', () => ({
+jest.mock('../../shared/queue', () => ({
   addJob: jest.fn().mockResolvedValue(undefined),
   QUEUE_NAMES: { DEPLOYMENT_STATUS: 'deployment-status' },
 }));
 
-jest.mock('@pullmint/shared/config', () => ({
+jest.mock('../../shared/config', () => ({
   getConfig: jest.fn((key: string) => {
     if (key === 'SIGNAL_INGESTION_HMAC_SECRET') return 'test-hmac-secret';
     return 'test-value';
   }),
 }));
 
-jest.mock('@pullmint/shared/tracing', () => ({
+jest.mock('../../shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
 }));
 
@@ -44,7 +44,7 @@ async function buildApp() {
       done(err as Error, undefined);
     }
   });
-  registerSignalRoutes(app);
+  await registerSignalRoutes(app);
   return app;
 }
 
@@ -116,12 +116,7 @@ describe('Signal Routes', () => {
 
     it('returns 400 when signalType is invalid', async () => {
       // Include ALL required fields so the signalType check branch is reached
-      const badPayload = {
-        signalType: 'invalid.type',
-        value: 'ok',
-        source: 'test',
-        timestamp: Date.now(),
-      };
+      const badPayload = { signalType: 'invalid.type', value: 'ok', source: 'test', timestamp: Date.now() };
       const body = JSON.stringify(badPayload);
       const sig = signBody(body);
 
@@ -191,7 +186,7 @@ describe('Signal Routes', () => {
           body,
         });
         expect(response.statusCode).toBe(400);
-      }
+      },
     );
 
     it.each(ACTIVE_STATUSES)(
@@ -224,7 +219,7 @@ describe('Signal Routes', () => {
         expect(response.statusCode).toBe(200);
         const responseBody = JSON.parse(response.body) as { message: string };
         expect(responseBody.message).toBe('Signal recorded');
-      }
+      },
     );
 
     it('dispatches a job after recording a valid signal', async () => {
@@ -258,7 +253,7 @@ describe('Signal Routes', () => {
       expect(addJob).toHaveBeenCalledWith(
         expect.any(String),
         'signal.received',
-        expect.objectContaining({ executionId })
+        expect.objectContaining({ executionId }),
       );
     });
 
@@ -278,13 +273,11 @@ describe('Signal Routes', () => {
         select: jest.fn().mockReturnValue({
           from: jest.fn().mockReturnValue({
             where: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue([
-                {
-                  executionId,
-                  status: 'pending',
-                  signalsReceived: { [`ci.result:${ts}`]: { value: 'passed' } },
-                },
-              ]),
+              limit: jest.fn().mockResolvedValue([{
+                executionId,
+                status: 'pending',
+                signalsReceived: { [`ci.result:${ts}`]: { value: 'passed' } },
+              }]),
             }),
           }),
         }),

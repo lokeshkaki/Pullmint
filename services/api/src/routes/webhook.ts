@@ -12,8 +12,8 @@ import {
   PREvent,
   PRExecution,
   DeploymentStatusEvent,
-} from '../../../shared/types';
-import type { PRMergedEvent } from '../../../shared/types';
+} from '@pullmint/shared/types';
+import type { PRMergedEvent } from '@pullmint/shared/types';
 
 function mapDeploymentStatus(
   state: GitHubDeploymentStatusPayload['deployment_status']['state']

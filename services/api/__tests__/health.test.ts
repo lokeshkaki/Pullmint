@@ -1,14 +1,14 @@
 import Fastify from 'fastify';
 import { registerHealthRoutes } from '../src/routes/health';
 
-jest.mock('../../shared/db', () => ({
+jest.mock('@pullmint/shared/db', () => ({
   getDb: jest.fn(() => ({
     execute: jest.fn().mockResolvedValue(undefined),
   })),
   schema: {},
 }));
 
-jest.mock('../../shared/queue', () => ({
+jest.mock('@pullmint/shared/queue', () => ({
   getQueue: jest.fn(() => ({
     client: Promise.resolve({}),
   })),
