@@ -3,6 +3,7 @@ import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfigOptional } from '@pullmint/shared/config';
 import { evaluateRisk } from '@pullmint/shared/risk-evaluator';
+import { resolveSignalWeights } from '@pullmint/shared/signal-weights';
 import { CheckpointRecordSchema } from '@pullmint/shared/schemas';
 import type {
   Signal,
@@ -108,11 +109,15 @@ async function evaluateCheckpoint(execution: Record<string, unknown>, now: numbe
     (execution.repoContext as { blastRadiusMultiplier?: number })?.blastRadiusMultiplier ?? 1.0;
   const llmBaseScore = (execution.riskScore as number) ?? 50;
 
+  const db = getDb();
+  const signalWeights = await resolveSignalWeights(execution.repoFullName as string, db);
+
   const evaluation = evaluateRisk({
     llmBaseScore,
     signals,
     calibrationFactor,
     blastRadiusMultiplier,
+    signalWeights,
   });
 
   const checkpoint: CheckpointRecord = {

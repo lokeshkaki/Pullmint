@@ -393,4 +393,63 @@ describe('evaluateRisk', () => {
       expect(result.missingSignals).not.toContain('simultaneous_deploy');
     });
   });
+
+  describe('learned signal weights', () => {
+    it('uses hardcoded defaults when signalWeights is omitted (backward compatibility)', () => {
+      // ci.result: false (+15), production.error_rate: 15 (+20) → total delta = 35
+      const signals: Signal[] = [
+        { signalType: 'ci.result', value: false, source: 'github', timestamp: Date.now() },
+        { signalType: 'production.error_rate', value: 15, source: 'datadog', timestamp: Date.now() },
+      ];
+      // 30 + 15 + 20 = 65
+      expect(evaluateRisk({ ...baseInput, signals }).score).toBe(65);
+    });
+
+    it('uses learned weights when signalWeights is provided', () => {
+      const signals: Signal[] = [
+        { signalType: 'ci.result', value: false, source: 'github', timestamp: Date.now() },
+        { signalType: 'production.error_rate', value: 15, source: 'datadog', timestamp: Date.now() },
+      ];
+      // learned: ci.result=25, production.error_rate=30 → delta = 55 → 30 + 25 + 30 = 85
+      expect(
+        evaluateRisk({
+          ...baseInput,
+          signals,
+          signalWeights: { 'ci.result': 25, 'production.error_rate': 30 },
+        }).score
+      ).toBe(85);
+    });
+
+    it('learned weight of 0 effectively disables a signal', () => {
+      const signals: Signal[] = [
+        { signalType: 'ci.result', value: false, source: 'github', timestamp: Date.now() },
+      ];
+      // ci.result weight=0 → contributes 0 → score stays at 30
+      expect(
+        evaluateRisk({ ...baseInput, signals, signalWeights: { 'ci.result': 0 } }).score
+      ).toBe(30);
+    });
+
+    it('threshold-not-met signals contribute 0 regardless of learned weight', () => {
+      const signals: Signal[] = [
+        { signalType: 'ci.result', value: true, source: 'github', timestamp: Date.now() },
+      ];
+      // CI passed → threshold not met, weight irrelevant → score stays at 30
+      expect(
+        evaluateRisk({ ...baseInput, signals, signalWeights: { 'ci.result': 25 } }).score
+      ).toBe(30);
+    });
+
+    it('missing signal types in signalWeights fall back to hardcoded defaults', () => {
+      const signals: Signal[] = [
+        { signalType: 'ci.result', value: false, source: 'github', timestamp: Date.now() },
+        { signalType: 'production.error_rate', value: 15, source: 'datadog', timestamp: Date.now() },
+      ];
+      // ci.result uses learned weight 25, production.error_rate falls back to hardcoded 20
+      // 30 + 25 + 20 = 75
+      expect(
+        evaluateRisk({ ...baseInput, signals, signalWeights: { 'ci.result': 25 } }).score
+      ).toBe(75);
+    });
+  });
 });
