@@ -68,6 +68,28 @@ services:
       minio:
         condition: service_healthy
 
+  workers:
+    build:
+      context: .
+      dockerfile: services/workers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://pullmint:pullmint@postgres:5432/pullmint
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

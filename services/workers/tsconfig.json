@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "types": ["node", "jest"],
+    "paths": {
+      "@pullmint/shared": ["../shared/index"],
+      "@pullmint/shared/*": ["../shared/*"]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "../repo-indexer/git-history.ts",
+    "../repo-indexer/module-detector.ts",
+    "../repo-indexer/narrative-generator.ts",
+    "../repo-indexer/embeddings.ts",
+    "../llm-agents/architecture-agent/context-assembly.ts",
+    "../llm-agents/architecture-agent/vector-search.ts"
+  ],
+  "exclude": ["node_modules", "dist", "__tests__"]
+}
