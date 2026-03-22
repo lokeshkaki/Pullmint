@@ -15,12 +15,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@aws-lambda-powertools/tracer": "^2.31.0",
-    "@aws-sdk/client-dynamodb": "^3.490.0",
-    "@aws-sdk/client-eventbridge": "^3.490.0",
     "@aws-sdk/client-s3": "^3.1014.0",
-    "@aws-sdk/client-secrets-manager": "^3.490.0",
-    "@aws-sdk/lib-dynamodb": "^3.490.0",
     "bullmq": "^5.71.0",
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.10.1",

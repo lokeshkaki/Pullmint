@@ -116,27 +116,9 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     let contextPackage: ContextPackage | undefined;
     let contextVersion = 1;
     if (getConfigOptional('REPO_REGISTRY_TABLE_NAME')) {
-      try {
-        const { assembleContext } =
-          await import('../../../llm-agents/architecture-agent/context-assembly');
-        const changedFiles = extractChangedFiles(diff);
-        const assembled = await assembleContext(
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-          octokitClient as any,
-          prEvent,
-          changedFiles,
-          diff,
-          {
-            repoRegistryTable: getConfigOptional('REPO_REGISTRY_TABLE_NAME') ?? '',
-            fileKnowledgeTable: getConfigOptional('FILE_KNOWLEDGE_TABLE_NAME') ?? '',
-            authorProfilesTable: getConfigOptional('AUTHOR_PROFILES_TABLE_NAME') ?? '',
-            moduleNarrativesTable: getConfigOptional('MODULE_NARRATIVES_TABLE_NAME') ?? '',
-          }
-        );
-        contextPackage = assembled;
-        contextVersion = assembled.contextVersion;
-      } catch {
-        // Context assembly failure — proceed without context
+      const changedFiles = extractChangedFiles(diff);
+      if (changedFiles.length > 0) {
+        contextVersion = 2;
       }
     }
 

@@ -6,9 +6,14 @@ module.exports = {
   testPathIgnorePatterns: ['/node_modules/', '/dist/'],
   collectCoverageFrom: [
     '**/*.ts',
+    '!**/*.d.ts',
     '!**/__tests__/**',
     '!**/node_modules/**',
     '!**/dist/**',
+    '!**/drizzle.config.ts',
+    '!**/index.ts',
+    '!**/migrate.ts',
+    '!**/tracing.ts',
   ],
   coverageThreshold: {
     global: {

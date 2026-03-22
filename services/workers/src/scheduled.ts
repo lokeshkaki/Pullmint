@@ -26,7 +26,7 @@ export async function registerScheduledJobs(connection: IORedis): Promise<void> 
   );
 
   // Cleanup — hourly, deletes expired rows
-  // Replaces DynamoDB TTL auto-expiry
+  // Replaces managed TTL auto-expiry
   const cleanupQueue = new Queue(QUEUE_NAMES.CLEANUP, {
     connection: connection as QueueOptions['connection'],
   });

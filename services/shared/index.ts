@@ -1,14 +1,17 @@
-// Barrel file for shared utilities
-export * from './dynamodb';
-export * from './eventbridge';
-export * from './secrets';
-export * from './types';
-export * from './utils';
-export * from './error-handling';
-export * from './tracer';
-export * from './schemas';
+// Cloud-agnostic modules
 export * from './db';
 export * from './queue';
 export * from './config';
-export { initTracing, addTraceAnnotations as addOpenTelemetryTraceAnnotations } from './tracing';
+export * from './tracing';
 export * from './storage';
+
+// Domain modules (unchanged)
+export * from './types';
+export * from './utils';
+export * from './error-handling';
+export * from './schemas';
+export * from './github-app';
+export * from './risk-evaluator';
+
+// Schema exports
+export * from './schema';
