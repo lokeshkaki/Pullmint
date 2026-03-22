@@ -1,4 +1,5 @@
 import { FlowProducer, Job } from 'bullmq';
+import type { ConnectionOptions } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES, getRedisConnection } from '@pullmint/shared/queue';
@@ -24,8 +25,9 @@ function getAnalysisConfig() {
 
 function getFlowProducer(): FlowProducer {
   if (!flowProducer) {
-    const connection = getRedisConnection();
-    flowProducer = new FlowProducer({ connection: connection as any });
+    // BullMQ may resolve a different ioredis package instance; bridge types safely.
+    const connection = getRedisConnection() as unknown as ConnectionOptions;
+    flowProducer = new FlowProducer({ connection });
   }
   return flowProducer;
 }

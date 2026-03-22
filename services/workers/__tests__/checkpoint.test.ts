@@ -92,7 +92,9 @@ describe('buildAnalysisCheckpoint', () => {
     expect(result.checkpoint1.signals).toEqual(
       expect.arrayContaining([expect.objectContaining({ signalType: 'time_of_day' })])
     );
-    expect(result.checkpoint1.signals.find((s) => s.signalType === 'ci.result')).toBeUndefined();
+    expect(
+      result.checkpoint1.signals.find((s: { signalType: string }) => s.signalType === 'ci.result')
+    ).toBeUndefined();
   });
 
   it('uses default calibration factor of 1.0 when no record exists', async () => {
