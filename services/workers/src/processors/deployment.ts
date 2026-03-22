@@ -6,6 +6,7 @@ import { getConfigOptional } from '@pullmint/shared/config';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { createStructuredError } from '@pullmint/shared/error-handling';
 import { evaluateRisk } from '@pullmint/shared/risk-evaluator';
+import { resolveSignalWeights } from '@pullmint/shared/signal-weights';
 import type {
   DeploymentApprovedEvent,
   DeploymentStatusEvent,
@@ -210,11 +211,14 @@ async function runCheckpoint2(
     calibrationFactor = calRecord.calibrationFactor ?? 1.0;
   }
 
+  const signalWeights = await resolveSignalWeights(detail.repoFullName, db);
+
   const evaluation = evaluateRisk({
     llmBaseScore: detail.riskScore,
     signals,
     calibrationFactor,
     blastRadiusMultiplier,
+    signalWeights,
   });
 
   const checkpoint: CheckpointRecord = {
