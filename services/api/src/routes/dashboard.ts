@@ -1,11 +1,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { getDb, schema } from '../../../shared/db';
-import { addJob, QUEUE_NAMES } from '../../../shared/queue';
-import { getConfig } from '../../../shared/config';
-import { addTraceAnnotations } from '../../../shared/tracing';
+import { getDb, schema } from '@pullmint/shared/db';
+import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
+import { getConfig } from '@pullmint/shared/config';
+import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { PRExecutionSchema } from '../../../shared/schemas';
+import { PRExecutionSchema } from '@pullmint/shared/schemas';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;

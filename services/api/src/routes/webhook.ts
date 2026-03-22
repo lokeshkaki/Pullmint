@@ -1,10 +1,10 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { getDb, schema } from '../../../shared/db';
-import { addJob, QUEUE_NAMES } from '../../../shared/queue';
-import { getConfig } from '../../../shared/config';
-import { addTraceAnnotations } from '../../../shared/tracing';
-import { verifyGitHubSignature, generateExecutionId } from '../../../shared/utils';
-import { createStructuredError } from '../../../shared/error-handling';
+import { getDb, schema } from '@pullmint/shared/db';
+import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
+import { getConfig } from '@pullmint/shared/config';
+import { addTraceAnnotations } from '@pullmint/shared/tracing';
+import { verifyGitHubSignature, generateExecutionId } from '@pullmint/shared/utils';
+import { createStructuredError } from '@pullmint/shared/error-handling';
 import { eq } from 'drizzle-orm';
 import {
   GitHubPRPayload,

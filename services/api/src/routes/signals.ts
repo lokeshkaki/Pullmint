@@ -1,11 +1,11 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'crypto';
-import { getDb, schema } from '../../../shared/db';
-import { addJob, QUEUE_NAMES } from '../../../shared/queue';
-import { getConfig } from '../../../shared/config';
-import { addTraceAnnotations } from '../../../shared/tracing';
+import { getDb, schema } from '@pullmint/shared/db';
+import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
+import { getConfig } from '@pullmint/shared/config';
+import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { eq, sql } from 'drizzle-orm';
-import type { Signal, SignalType } from '../../../shared/types';
+import type { Signal, SignalType } from '@pullmint/shared/types';
 
 const ACTIVE_STATUSES = new Set(['pending', 'analyzing', 'completed', 'deploying', 'monitoring']);
 

@@ -1,9 +1,9 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import { initTracing } from '../../shared/tracing';
-import { runMigrations } from '../../shared/migrate';
-import { ensureBucket } from '../../shared/storage';
+import { initTracing } from '@pullmint/shared/tracing';
+import { runMigrations } from '@pullmint/shared/migrate';
+import { ensureBucket } from '@pullmint/shared/storage';
 import { registerWebhookRoutes } from './routes/webhook';
 import { registerDashboardRoutes } from './routes/dashboard';
 import { registerSignalRoutes } from './routes/signals';

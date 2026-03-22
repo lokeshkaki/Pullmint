@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { getDb } from '../../../shared/db';
+import { getDb } from '@pullmint/shared/db';
 import { sql } from 'drizzle-orm';
 import { getQueue } from '../../../shared/queue';
 
