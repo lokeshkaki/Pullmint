@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -9,6 +10,7 @@ import {
   timestamp,
   vector,
 } from 'drizzle-orm/pg-core';
+import type { SignalWeights, OutcomeLogEntry } from './types';
 
 export const webhookDedup = pgTable('webhook_dedup', {
   deliveryId: text('delivery_id').primaryKey(),
@@ -146,6 +148,18 @@ export const calibrations = pgTable('calibrations', {
   lastUpdatedAt: text('last_updated_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  signalWeights: jsonb('signal_weights').$type<SignalWeights | null>(),
+  outcomeLog: jsonb('outcome_log')
+    .$type<OutcomeLogEntry[]>()
+    .default(sql`'[]'::jsonb`),
+});
+
+export const signalWeightDefaults = pgTable('signal_weight_defaults', {
+  id: text('id').primaryKey().default('global'),
+  weights: jsonb('weights').notNull().$type<SignalWeights>(),
+  observationsCount: integer('observations_count').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const dependencyGraphs = pgTable(
