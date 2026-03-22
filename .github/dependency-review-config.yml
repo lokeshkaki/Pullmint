@@ -1,0 +1,30 @@
+# Dependency Review policy tuned for Pullmint.
+#
+# Notes:
+# - We still fail on high+ vulnerabilities.
+# - OpenSSF scorecard warnings are kept, but threshold is lowered to reduce
+#   transitive dependency noise.
+# - allow-dependencies-licenses excludes known noisy transitive packages from
+#   license checks when upstream metadata quality is incomplete.
+
+fail-on-severity: high
+fail-on-scopes:
+  - runtime
+
+vulnerability-check: true
+license-check: true
+
+show-openssf-scorecard: true
+warn-on-openssf-scorecard-level: 2
+
+allow-dependencies-licenses:
+  - pkg:npm/forwarded-parse
+  - pkg:npm/escalade
+  - pkg:npm/debug
+  - pkg:npm/data-uri-to-buffer
+  - pkg:npm/@msgpackr-extract/msgpackr-extract-win32-x64
+  - pkg:npm/@msgpackr-extract/msgpackr-extract-linux-x64
+  - pkg:npm/@msgpackr-extract/msgpackr-extract-linux-arm64
+  - pkg:npm/@msgpackr-extract/msgpackr-extract-linux-arm
+  - pkg:npm/@msgpackr-extract/msgpackr-extract-darwin-x64
+  - pkg:npm/@msgpackr-extract/msgpackr-extract-darwin-arm64
