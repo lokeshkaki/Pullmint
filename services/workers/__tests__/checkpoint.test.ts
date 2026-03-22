@@ -20,6 +20,19 @@ jest.mock('@pullmint/shared/risk-evaluator', () => ({
   }),
 }));
 
+jest.mock('@pullmint/shared/signal-weights', () => ({
+  resolveSignalWeights: jest.fn().mockResolvedValue({
+    'ci.result': 15,
+    'ci.coverage': 10,
+    'production.error_rate': 20,
+    'production.latency': 10,
+    time_of_day: 5,
+    author_history: 10,
+    simultaneous_deploy: 8,
+    'deployment.status': 0,
+  }),
+}));
+
 import { buildAnalysisCheckpoint } from '../src/checkpoint';
 
 const mockOctokit = {

@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { retryWithBackoff } from '@pullmint/shared/error-handling';
 import { evaluateRisk } from '@pullmint/shared/risk-evaluator';
+import { resolveSignalWeights } from '@pullmint/shared/signal-weights';
 import type { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import type { PREvent, Signal, CheckpointRecord } from '@pullmint/shared/types';
 
@@ -59,11 +60,15 @@ export async function buildAnalysisCheckpoint(
     calibrationFactor = calRecord.calibrationFactor ?? 1.0;
   }
 
+  // Resolve learned signal weights
+  const signalWeights = await resolveSignalWeights(prEvent.repoFullName, db);
+
   const evaluation = evaluateRisk({
     llmBaseScore,
     signals,
     calibrationFactor,
     blastRadiusMultiplier: 1.0,
+    signalWeights,
   });
 
   const checkpoint1: CheckpointRecord = {

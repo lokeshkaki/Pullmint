@@ -1,4 +1,4 @@
-import type { Signal, RiskEvaluationInput, RiskEvaluation } from './types';
+import type { Signal, RiskEvaluationInput, RiskEvaluation, SignalWeights } from './types';
 
 const EXPECTED_SIGNAL_TYPES = [
   'ci.result',
@@ -10,24 +10,37 @@ const EXPECTED_SIGNAL_TYPES = [
   'simultaneous_deploy',
 ] as const;
 
-function getSignalDelta(signal: Signal): number {
+function getSignalDelta(signal: Signal, signalWeights?: SignalWeights): number {
   const { signalType, value } = signal;
+
+  // Each case checks the threshold condition (unchanged).
+  // When met, the delta comes from learned weights if available, else hardcoded.
   switch (signalType) {
     case 'ci.result':
-      return value === false ? 15 : 0;
+      if (value === false) return signalWeights?.['ci.result'] ?? 15;
+      return 0;
     case 'ci.coverage':
-      return typeof value === 'number' && value < -10 ? 10 : 0;
+      if (typeof value === 'number' && value < -10) return signalWeights?.['ci.coverage'] ?? 10;
+      return 0;
     case 'production.error_rate':
-      return typeof value === 'number' && value > 10 ? 20 : 0;
+      if (typeof value === 'number' && value > 10)
+        return signalWeights?.['production.error_rate'] ?? 20;
+      return 0;
     case 'production.latency':
-      return typeof value === 'number' && value > 20 ? 10 : 0;
+      if (typeof value === 'number' && value > 20)
+        return signalWeights?.['production.latency'] ?? 10;
+      return 0;
     case 'time_of_day':
-      return typeof value === 'number' && isFridayAfternoon(value) ? 5 : 0;
+      if (typeof value === 'number' && isFridayAfternoon(value))
+        return signalWeights?.['time_of_day'] ?? 5;
+      return 0;
     case 'author_history':
       // value is rollback rate (0.0 - 1.0). High rollback rate increases risk.
-      return typeof value === 'number' && value > 0.2 ? 10 : 0;
+      if (typeof value === 'number' && value > 0.2) return signalWeights?.['author_history'] ?? 10;
+      return 0;
     case 'simultaneous_deploy':
-      return value === true ? 8 : 0;
+      if (value === true) return signalWeights?.['simultaneous_deploy'] ?? 8;
+      return 0;
     default:
       return 0;
   }
@@ -67,11 +80,15 @@ function deduplicateSignals(signals: Signal[]): Signal[] {
   return Array.from(latest.values());
 }
 
-export function evaluateRisk(input: RiskEvaluationInput): RiskEvaluation {
-  const { llmBaseScore, signals, calibrationFactor, blastRadiusMultiplier } = input;
+export function evaluateRisk(
+  input: RiskEvaluationInput & {
+    signalWeights?: SignalWeights;
+  }
+): RiskEvaluation {
+  const { llmBaseScore, signals, calibrationFactor, blastRadiusMultiplier, signalWeights } = input;
 
   const dedupedSignals = deduplicateSignals(signals);
-  const signalDelta = dedupedSignals.reduce((sum, s) => sum + getSignalDelta(s), 0);
+  const signalDelta = dedupedSignals.reduce((sum, s) => sum + getSignalDelta(s, signalWeights), 0);
   // Apply multipliers only to the LLM base score so signal deltas always contribute their face value
   const adjustedBase = llmBaseScore * blastRadiusMultiplier * calibrationFactor;
   const calibrationAdjusted = adjustedBase + signalDelta;
