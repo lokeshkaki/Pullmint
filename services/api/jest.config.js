@@ -13,6 +13,10 @@ module.exports = {
   transform: {
     '^.+\\.tsx?$': 'ts-jest',
   },
+  moduleNameMapper: {
+    '^@pullmint/shared/(.+)$': '<rootDir>/../shared/$1',
+    '^@pullmint/shared$': '<rootDir>/../shared/index',
+  },
   coverageThreshold: {
     global: {
       branches: 70,

@@ -4,6 +4,10 @@
   "description": "Shared utilities for Pullmint services",
   "private": true,
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "jest",
@@ -20,6 +24,7 @@
     "bullmq": "^5.71.0",
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.10.1",
+    "octokit": "^5.0.5",
     "postgres": "^3.4.8",
     "zod": "^4.3.6"
   },

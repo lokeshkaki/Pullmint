@@ -28,3 +28,6 @@ npm-debug.log*
 # IDE files
 .vscode/
 .idea/
+
+# Local-only planning/docs
+.local/
