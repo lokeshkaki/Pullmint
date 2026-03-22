@@ -1,10 +1,6 @@
 import { App } from 'octokit';
-import { getSecret } from './secrets';
+import { getConfig } from './config';
 
-if (!process.env.GITHUB_APP_PRIVATE_KEY_ARN) {
-  throw new Error('GITHUB_APP_PRIVATE_KEY_ARN environment variable is required');
-}
-const GITHUB_APP_PRIVATE_KEY_ARN: string = process.env.GITHUB_APP_PRIVATE_KEY_ARN;
 const GITHUB_APP_ID = process.env.GITHUB_APP_ID;
 const GITHUB_APP_INSTALLATION_ID = process.env.GITHUB_APP_INSTALLATION_ID;
 
@@ -95,7 +91,7 @@ export async function getGitHubInstallationClient(repoFullName: string): Promise
     throw new Error('GITHUB_APP_ID is required to authenticate the GitHub App');
   }
 
-  const privateKey = await getSecret(GITHUB_APP_PRIVATE_KEY_ARN);
+  const privateKey = getConfig('GITHUB_APP_PRIVATE_KEY');
   appClient = new App({ appId: GITHUB_APP_ID, privateKey }) as GitHubAppClient;
 
   let installationId = GITHUB_APP_INSTALLATION_ID ? Number(GITHUB_APP_INSTALLATION_ID) : undefined;
