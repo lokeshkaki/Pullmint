@@ -61,6 +61,7 @@ Thumbs.db
 *.key
 secrets.json
 credentials.json
+secrets/
 
 # Logs
 logs/
