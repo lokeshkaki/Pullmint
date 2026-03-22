@@ -1,0 +1,27 @@
+{
+  "name": "@pullmint/workers",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/services/workers/src/main.js",
+    "build": "tsc",
+    "test": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "dependencies": {
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.10.1",
+    "drizzle-orm": "^0.45.1",
+    "@anthropic-ai/sdk": "^0.56.0",
+    "@pullmint/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.0.0",
+    "typescript": "^5.3.3"
+  }
+}
