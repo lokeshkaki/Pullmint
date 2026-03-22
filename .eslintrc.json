@@ -31,5 +31,5 @@
       }
     }
   ],
-  "ignorePatterns": ["dist", "node_modules", "cdk.out", "*.js"]
+  "ignorePatterns": ["dist", "node_modules", "cdk.out", "*.js", "services/shared/*.d.ts", "services/shared/*.d.ts.map", "services/shared/*.js.map"]
 }
