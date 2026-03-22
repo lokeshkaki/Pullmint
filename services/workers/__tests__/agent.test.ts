@@ -33,6 +33,7 @@ jest.mock('@anthropic-ai/sdk', () => {
 
 import { processAgentJob, AgentJobData } from '../src/processors/agent';
 import { Job } from 'bullmq';
+import { getObject } from '@pullmint/shared/storage';
 
 const DEFAULT_ARCH_RESPONSE = {
   content: [
@@ -153,15 +154,14 @@ describe('processAgentJob', () => {
   });
 
   it('should fetch diff from MinIO using diffRef', async () => {
-    const { getObject } = require('@pullmint/shared/storage') as { getObject: jest.Mock };
     await processAgentJob(makeAgentJob('architecture'));
-    expect(getObject).toHaveBeenCalledWith(expect.any(String), 'diffs/test-diff.txt');
+    expect(getObject as jest.Mock).toHaveBeenCalledWith(expect.any(String), 'diffs/test-diff.txt');
   });
 
   it('should include repoKnowledge in user prompt when provided', async () => {
     // Capture what was passed to the LLM create call
     let capturedInput: { messages?: Array<{ content: string }> } | undefined;
-    mockCreate.mockImplementationOnce(async (input: { messages?: Array<{ content: string }> }) => {
+    mockCreate.mockImplementationOnce((input: { messages?: Array<{ content: string }> }) => {
       capturedInput = input;
       return {
         content: [
