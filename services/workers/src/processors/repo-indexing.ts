@@ -5,15 +5,7 @@ import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig } from '@pullmint/shared/config';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { retryWithBackoff } from '@pullmint/shared/error-handling';
-import {
-  fetchFileTree,
-  fetchFileCommitHistory,
-  aggregateAuthorProfiles,
-} from '../../../repo-indexer/git-history';
-import { detectModules } from '../../../repo-indexer/module-detector';
-import { generateModuleNarrative } from '../../../repo-indexer/narrative-generator';
-import { generateEmbedding } from '../../../repo-indexer/embeddings';
-import type { Octokit } from '@octokit/rest';
+import * as nodePath from 'path';
 
 type AnthropicConstructor = new (options: {
   apiKey: string;
@@ -21,12 +13,306 @@ type AnthropicConstructor = new (options: {
 
 type BatchModule = { modulePath: string; entryPoint: string; files: string[] };
 
+type OctokitClient = {
+  rest: {
+    git: {
+      getTree: (params: {
+        owner: string;
+        repo: string;
+        tree_sha: string;
+        recursive: 'true';
+      }) => Promise<{ data: { tree: Array<{ type?: string; path?: string }> } }>;
+    };
+    repos: {
+      get: (params: {
+        owner: string;
+        repo: string;
+      }) => Promise<{ data: { default_branch: string } }>;
+      listCommits: (params: {
+        owner: string;
+        repo: string;
+        path?: string;
+        since?: string;
+        per_page?: number;
+      }) => Promise<{
+        data: Array<{
+          sha: string;
+          commit: {
+            author?: { date?: string; name?: string };
+            message: string;
+          };
+          author?: { login?: string };
+        }>;
+      }>;
+      getContent: (params: {
+        owner: string;
+        repo: string;
+        path: string;
+      }) => Promise<{ data: unknown }>;
+    };
+    pulls: {
+      listFiles: (params: {
+        owner: string;
+        repo: string;
+        pull_number: number;
+        per_page?: number;
+      }) => Promise<{ data: Array<{ filename: string }> }>;
+    };
+  };
+};
+
 type GitHubContentClient = {
   request: (
     route: string,
     params: Record<string, string>
   ) => Promise<{ data: { content?: string; encoding?: string } }>;
 };
+
+type FileCommitHistory = {
+  filePath: string;
+  churnRate30d: number;
+  churnRate90d: number;
+  bugFixCommitCount30d: number;
+  authors: string[];
+  lastCommitSha?: string;
+};
+
+type ModuleBoundary = {
+  modulePath: string;
+  entryPoint: string;
+  files: string[];
+};
+
+type NarrativeInput = {
+  modulePath: string;
+  entryPoint: string;
+  files: string[];
+  entryPointContent: string;
+};
+
+type NarrativeClient = {
+  messages: {
+    create: (input: {
+      model: string;
+      max_tokens: number;
+      system: string;
+      messages: { role: 'user'; content: string }[];
+    }) => Promise<{ content: Array<{ type?: string; text?: string }> }>;
+  };
+};
+
+const BUG_FIX_KEYWORDS = ['fix:', 'bug', 'hotfix', 'patch'];
+const ENTRY_POINT_NAMES = new Set([
+  'index.ts',
+  'index.js',
+  'index.tsx',
+  '__init__.py',
+  'mod.rs',
+  'main.ts',
+  'main.go',
+]);
+const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.py', '.go', '.rs']);
+const MIN_FILES_PER_MODULE = 3;
+const NARRATIVE_MODEL = 'claude-haiku-4-5-20251001';
+const MAX_ENTRY_POINT_CHARS = 3000;
+
+async function fetchFileTree(
+  octokit: OctokitClient,
+  owner: string,
+  repo: string,
+  ref: string
+): Promise<string[]> {
+  const { data } = await octokit.rest.git.getTree({
+    owner,
+    repo,
+    tree_sha: ref,
+    recursive: 'true',
+  });
+
+  return data.tree
+    .filter((entry) => entry.type === 'blob' && entry.path)
+    .map((entry) => entry.path as string);
+}
+
+async function fetchFileCommitHistory(
+  octokit: OctokitClient,
+  owner: string,
+  repo: string,
+  filePath: string,
+  lookbackDays: number
+): Promise<FileCommitHistory> {
+  const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
+  const { data: commits } = await octokit.rest.repos.listCommits({
+    owner,
+    repo,
+    path: filePath,
+    since,
+    per_page: 100,
+  });
+
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const authorSet = new Set<string>();
+  let churnRate30d = 0;
+  let bugFixCommitCount30d = 0;
+
+  for (const commit of commits) {
+    const authorDate = commit.commit.author?.date
+      ? new Date(commit.commit.author.date).getTime()
+      : 0;
+    const message = commit.commit.message.toLowerCase();
+    const authorName = commit.author?.login ?? commit.commit.author?.name ?? 'unknown';
+    authorSet.add(authorName);
+
+    if (authorDate >= thirtyDaysAgo) {
+      churnRate30d += 1;
+      if (BUG_FIX_KEYWORDS.some((keyword) => message.includes(keyword))) {
+        bugFixCommitCount30d += 1;
+      }
+    }
+  }
+
+  return {
+    filePath,
+    churnRate30d,
+    churnRate90d: commits.length,
+    bugFixCommitCount30d,
+    authors: Array.from(authorSet),
+    lastCommitSha: commits[0]?.sha,
+  };
+}
+
+function aggregateAuthorProfiles(
+  repoFullName: string,
+  fileHistories: Pick<FileCommitHistory, 'filePath' | 'authors' | 'churnRate30d'>[]
+): Array<{
+  repoFullName: string;
+  authorLogin: string;
+  rollbackRate: number;
+  mergeCount30d: number;
+  avgRiskScore: number;
+  frequentFiles: string[];
+}> {
+  const authorMap = new Map<string, { files: Set<string>; commitCount: number }>();
+
+  for (const history of fileHistories) {
+    for (const author of history.authors) {
+      const existing = authorMap.get(author) ?? { files: new Set<string>(), commitCount: 0 };
+      existing.files.add(history.filePath);
+      existing.commitCount += history.churnRate30d;
+      authorMap.set(author, existing);
+    }
+  }
+
+  return Array.from(authorMap.entries()).map(([authorLogin, profile]) => ({
+    repoFullName,
+    authorLogin,
+    rollbackRate: 0,
+    mergeCount30d: profile.commitCount,
+    avgRiskScore: 0,
+    frequentFiles: Array.from(profile.files).slice(0, 20),
+  }));
+}
+
+function detectModules(filePaths: string[]): ModuleBoundary[] {
+  const byDirectory = new Map<string, string[]>();
+
+  for (const filePath of filePaths) {
+    const parts = filePath.split('/');
+    if (parts.length < 2) {
+      continue;
+    }
+    const directory = parts.slice(0, -1).join('/');
+    const existing = byDirectory.get(directory) ?? [];
+    existing.push(filePath);
+    byDirectory.set(directory, existing);
+  }
+
+  const modules: ModuleBoundary[] = [];
+
+  for (const [directory, files] of byDirectory.entries()) {
+    const sourceFiles = files.filter((filePath) => {
+      const fileName = filePath.split('/').pop() ?? '';
+      if (fileName.startsWith('.')) {
+        return false;
+      }
+      return SOURCE_EXTENSIONS.has(nodePath.extname(filePath));
+    });
+
+    if (sourceFiles.length < MIN_FILES_PER_MODULE) {
+      continue;
+    }
+
+    const entryPoint = sourceFiles.find((filePath) => {
+      const fileName = filePath.split('/').pop() ?? '';
+      return ENTRY_POINT_NAMES.has(fileName);
+    });
+
+    if (!entryPoint) {
+      continue;
+    }
+
+    modules.push({ modulePath: directory, entryPoint, files: sourceFiles });
+  }
+
+  return modules;
+}
+
+async function generateModuleNarrative(
+  client: NarrativeClient,
+  input: NarrativeInput
+): Promise<string> {
+  const entryPointContent =
+    input.entryPointContent.length > MAX_ENTRY_POINT_CHARS
+      ? `${input.entryPointContent.substring(0, MAX_ENTRY_POINT_CHARS)}\n// [truncated]`
+      : input.entryPointContent;
+
+  const userMessage = `Module path: ${input.modulePath}
+Files: ${input.files.join(', ')}
+
+Entry point content:
+\`\`\`
+${entryPointContent}
+\`\`\`
+
+Write a concise architecture narrative (150-200 words) covering: purpose, key responsibilities, known risk areas, and what breaks when this module changes.`;
+
+  try {
+    const response = await client.messages.create({
+      model: NARRATIVE_MODEL,
+      max_tokens: 400,
+      system:
+        'You are a senior software architect writing codebase documentation. Write concise, factual architecture narratives. Do not use bullet points. Write in prose.',
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    const text = response.content
+      .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text ?? '')
+      .join('')
+      .trim();
+
+    if (text) {
+      return text;
+    }
+  } catch {
+    // Fall back to deterministic narrative below.
+  }
+
+  return `Module at ${input.modulePath} containing ${input.files.length} files: ${input.files.join(', ')}.`;
+}
+
+function generateEmbedding(text: string): number[] {
+  const dimensions = 256;
+  const vector = new Array<number>(dimensions).fill(0);
+
+  for (let i = 0; i < text.length; i += 1) {
+    const codePoint = text.charCodeAt(i);
+    vector[i % dimensions] += codePoint / 255;
+  }
+
+  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return vector.map((value) => Number((value / magnitude).toFixed(6)));
+}
 
 export async function processRepoIndexingJob(job: Job): Promise<void> {
   const jobName = job.name;
@@ -76,7 +362,7 @@ async function handleFullIndex(msg: { repoFullName: string }): Promise<void> {
       .set({ indexingStatus: 'indexing', pendingBatches: 0, updatedAt: new Date() })
       .where(eq(schema.repoRegistry.repoFullName, repoFullName));
 
-    const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as Octokit;
+    const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as OctokitClient;
     const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
     const defaultBranch = repoData.default_branch;
 
@@ -190,7 +476,7 @@ async function handleBatch(msg: {
   const apiKey = getConfig('ANTHROPIC_API_KEY');
   const anthropicClient = new anthropicModule.default({ apiKey });
 
-  const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as Octokit;
+  const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as OctokitClient;
   const [owner, repo] = repoFullName.split('/');
   const db = getDb();
 
@@ -214,7 +500,7 @@ async function handleBatch(msg: {
         entryPointContent,
       });
 
-      const embedding = await generateEmbedding(narrativeText);
+      const embedding = generateEmbedding(narrativeText);
 
       await db
         .insert(schema.moduleNarratives)
@@ -275,7 +561,7 @@ async function handleIncremental(msg: {
 
   console.info('[repo-indexing] incremental start', { repoFullName, author });
   const [owner, repo] = repoFullName.split('/');
-  const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as Octokit;
+  const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as OctokitClient;
   const db = getDb();
 
   // Fetch changed files if not provided (pr.merged event)
@@ -386,7 +672,7 @@ async function handleIncremental(msg: {
           entryPointContent,
         });
 
-        const embedding = await generateEmbedding(narrativeText);
+        const embedding = generateEmbedding(narrativeText);
 
         await db
           .insert(schema.moduleNarratives)

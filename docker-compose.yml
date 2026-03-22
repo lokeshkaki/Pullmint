@@ -60,6 +60,7 @@ services:
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: http://minio:9000
       ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
+      DASHBOARD_AUTH_TOKEN: ${DASHBOARD_AUTH_TOKEN:-test-token}
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +90,15 @@ services:
       minio:
         condition: service_healthy
     restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: services/dashboard/Dockerfile
+    ports:
+      - "3001:80"
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

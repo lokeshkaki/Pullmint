@@ -4,17 +4,15 @@
   "description": "AI-powered pull request analysis and automation for GitHub workflows",
   "private": true,
   "workspaces": [
-    "infrastructure",
-    "services/*",
-    "services/llm-agents/*"
+    "services/shared",
+    "services/api",
+    "services/workers"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "lint": "eslint . --ext .ts,.tsx",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
-    "deploy": "cd infrastructure && npm run deploy",
-    "deploy:all": "cd infrastructure && npm run deploy:all"
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

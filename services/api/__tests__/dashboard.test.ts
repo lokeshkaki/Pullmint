@@ -39,10 +39,6 @@ jest.mock('@pullmint/shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
 }));
 
-jest.mock('@pullmint/shared/dynamodb', () => ({
-  updateItem: jest.fn().mockResolvedValue(undefined),
-}));
-
 const VALID_AUTH = 'Bearer test-token';
 
 const sampleExecution = {

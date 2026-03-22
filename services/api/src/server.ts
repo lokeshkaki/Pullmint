@@ -8,6 +8,7 @@ import { registerWebhookRoutes } from './routes/webhook';
 import { registerDashboardRoutes } from './routes/dashboard';
 import { registerSignalRoutes } from './routes/signals';
 import { registerHealthRoutes } from './routes/health';
+import { registerAdminRoutes } from './routes/admin';
 
 async function start() {
   // Optional tracing
@@ -41,6 +42,7 @@ async function start() {
   });
 
   // Register routes
+  await registerAdminRoutes(app);
   registerHealthRoutes(app);
   registerWebhookRoutes(app);
   registerDashboardRoutes(app);

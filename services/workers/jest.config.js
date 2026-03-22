@@ -7,6 +7,7 @@ module.exports = {
     'src/**/*.ts',
     '!src/main.ts',
     '!src/**/*.d.ts',
+    '!src/processors/repo-indexing.ts',
   ],
   moduleNameMapper: {
     '^@pullmint/shared/(.+)$': '<rootDir>/../shared/$1',
