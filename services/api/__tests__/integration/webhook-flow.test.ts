@@ -18,8 +18,8 @@ describeIntegration('Webhook Flow Integration', () => {
     app = Fastify();
     const { registerWebhookRoutes } = await import('../../src/routes/webhook');
     const { registerHealthRoutes } = await import('../../src/routes/health');
-    await registerHealthRoutes(app);
-    await registerWebhookRoutes(app);
+    registerHealthRoutes(app);
+    registerWebhookRoutes(app);
     await app.ready();
 
     redis = new IORedis(process.env.REDIS_URL!);
