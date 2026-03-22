@@ -67,7 +67,7 @@ export interface Finding {
 
 export interface AnalysisResult {
   executionId: string;
-  agentType: 'architecture' | 'security' | 'performance';
+  agentType: 'architecture' | 'security' | 'performance' | 'style';
   findings: Finding[];
   riskScore: number;
   testsPassed?: boolean;
@@ -79,6 +79,15 @@ export interface AnalysisResult {
     tokensUsed: number;
     cached: boolean;
   };
+}
+
+export interface AgentResultMeta {
+  findingsCount: number;
+  riskScore: number;
+  model: string;
+  tokens: number;
+  latencyMs: number;
+  status: 'completed' | 'failed';
 }
 
 export interface DeploymentApprovedEvent extends PREvent {
