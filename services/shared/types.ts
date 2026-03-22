@@ -295,3 +295,14 @@ export interface GitHubDeploymentStatusPayload {
     };
   };
 }
+
+// --- Signal Weight Learning ---
+
+export type SignalWeights = Record<string, number>;
+
+export interface OutcomeLogEntry {
+  signalsPresent: string[];
+  rollback: boolean;
+  analysisDecision: 'approved' | 'held';
+  timestamp: number;
+}
