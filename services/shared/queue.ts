@@ -5,7 +5,7 @@ const MAX_PAYLOAD_BYTES = 256 * 1024;
 
 let redisConnection: IORedis | null = null;
 
-function getRedisConnection(): IORedis {
+export function getRedisConnection(): IORedis {
   if (!redisConnection) {
     const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
     redisConnection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
@@ -31,6 +31,8 @@ export function getQueue(name: string, opts?: Partial<QueueOptions>): Queue {
 
 export const QUEUE_NAMES = {
   ANALYSIS: 'analysis',
+  AGENT: 'agent',
+  SYNTHESIS: 'synthesis',
   GITHUB_INTEGRATION: 'github-integration',
   DEPLOYMENT: 'deployment',
   DEPLOYMENT_STATUS: 'deployment-status',
