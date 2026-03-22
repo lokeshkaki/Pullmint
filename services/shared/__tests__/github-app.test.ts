@@ -1,4 +1,4 @@
-import { getSecret } from '../secrets';
+import { getConfig } from '../config';
 
 const mockRequest = jest.fn();
 const mockGetInstallationOctokit = jest.fn();
@@ -15,8 +15,8 @@ const mockClient = {
   },
 };
 
-jest.mock('../secrets', () => ({
-  getSecret: jest.fn(),
+jest.mock('../config', () => ({
+  getConfig: jest.fn(),
 }));
 
 jest.mock('octokit', () => ({
@@ -35,11 +35,15 @@ function loadModule() {
 describe('getGitHubInstallationClient', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.GITHUB_APP_PRIVATE_KEY_ARN = 'arn:aws:secretsmanager:us-east-1:123:secret:test';
+    process.env.GITHUB_APP_PRIVATE_KEY = 'test-private-key';
     process.env.GITHUB_APP_ID = '123456';
     delete process.env.GITHUB_APP_INSTALLATION_ID;
 
-    (getSecret as jest.Mock).mockResolvedValue('test-private-key');
+    (getConfig as jest.Mock).mockImplementation((key: string) => {
+      if (key === 'GITHUB_APP_PRIVATE_KEY') return 'test-private-key';
+      if (key === 'GITHUB_APP_ID') return '123456';
+      return 'test-value';
+    });
     mockRequest.mockResolvedValue({ data: { id: 999 } });
     mockGetInstallationOctokit.mockResolvedValue(mockClient);
     mockApp.mockImplementation(() => ({
@@ -48,10 +52,23 @@ describe('getGitHubInstallationClient', () => {
     }));
   });
 
-  it('throws when GITHUB_APP_PRIVATE_KEY_ARN is missing', () => {
-    delete process.env.GITHUB_APP_PRIVATE_KEY_ARN;
-    expect(() => loadModule()).toThrow(
-      'GITHUB_APP_PRIVATE_KEY_ARN environment variable is required'
+  afterEach(() => {
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+    delete process.env.GITHUB_APP_ID;
+  });
+
+  it('throws when GITHUB_APP_PRIVATE_KEY is missing', async () => {
+    (getConfig as jest.Mock).mockImplementation((key: string) => {
+      if (key === 'GITHUB_APP_PRIVATE_KEY') {
+        throw new Error(
+          'Configuration key "GITHUB_APP_PRIVATE_KEY" not found. Set GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_PATH environment variable.'
+        );
+      }
+      return 'test-value';
+    });
+    const { getGitHubInstallationClient } = loadModule();
+    await expect(getGitHubInstallationClient('owner/repo')).rejects.toThrow(
+      'Configuration key "GITHUB_APP_PRIVATE_KEY" not found'
     );
   });
 

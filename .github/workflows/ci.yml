@@ -36,6 +36,7 @@ jobs:
       matrix:
         service:
           - services/shared
+          - services/api
           - services/webhook-receiver
           - services/github-integration
           - services/deployment-orchestrator
