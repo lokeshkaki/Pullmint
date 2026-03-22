@@ -3,6 +3,8 @@ import IORedis from 'ioredis';
 import { initTracing } from '@pullmint/shared/tracing';
 import { QUEUE_NAMES } from '@pullmint/shared/queue';
 import { processAnalysisJob } from './processors/analysis.js';
+import { processAgentJob } from './processors/agent.js';
+import { processSynthesisJob } from './processors/synthesis.js';
 import { processGitHubIntegrationJob } from './processors/github-integration.js';
 import { processDeploymentJob } from './processors/deployment.js';
 import { processDeploymentStatusJob } from './processors/deployment-status.js';
@@ -22,7 +24,7 @@ async function start(): Promise<void> {
 
   const workers: Worker[] = [];
 
-  // Analysis queue (architecture-agent) — low concurrency for LLM rate limiting
+  // Analysis queue (now acts as dispatcher — creates BullMQ Flows)
   workers.push(
     new Worker(QUEUE_NAMES.ANALYSIS, processAnalysisJob, {
       connection: workerConnection,
@@ -75,6 +77,22 @@ async function start(): Promise<void> {
     new Worker(QUEUE_NAMES.CLEANUP, processCleanupJob, {
       connection: workerConnection,
       concurrency: 1,
+    })
+  );
+
+  // Agent queue — individual LLM analysis jobs (high concurrency for parallel agents)
+  workers.push(
+    new Worker(QUEUE_NAMES.AGENT, processAgentJob, {
+      connection: workerConnection,
+      concurrency: 4,
+    })
+  );
+
+  // Synthesis queue — merges agent results after all children complete
+  workers.push(
+    new Worker(QUEUE_NAMES.SYNTHESIS, processSynthesisJob, {
+      connection: workerConnection,
+      concurrency: 3,
     })
   );
 
