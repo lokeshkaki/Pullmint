@@ -121,7 +121,11 @@ describe('registerScheduledJobs', () => {
     await registerScheduledJobs(connection);
 
     const q4 = Queue.mock.results[3].value as { upsertJobScheduler: jest.Mock };
-    const [[_, pattern]] = q4.upsertJobScheduler.mock.calls as [string, { pattern: string }][];
+    const [[schedulerName, pattern]] = q4.upsertJobScheduler.mock.calls as [
+      string,
+      { pattern: string },
+    ][];
+    expect(schedulerName).toBe('signal-recalibration-schedule');
     expect(pattern).toEqual({ pattern: '15 4 * * 1' });
 
     delete process.env.SIGNAL_RECALIBRATION_CRON;
