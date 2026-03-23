@@ -20,3 +20,5 @@ jobs:
         with:
           config-file: ./.github/dependency-review-config.yml
           comment-summary-in-pr: always
+          retry-on-snapshot-warnings: true
+          retry-on-snapshot-warnings-timeout: 120
