@@ -42,6 +42,12 @@ jest.mock('@pullmint/shared/error-handling', () => ({
   retryWithBackoff: jest.fn((fn: () => unknown) => fn()),
 }));
 
+jest.mock('@pullmint/shared/execution-events', () => ({
+  publishExecutionUpdate: jest.fn().mockResolvedValue(undefined),
+  publishEvent: jest.fn().mockResolvedValue(undefined),
+  closePublisher: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('@pullmint/shared/schemas', () => {
   const z = jest.requireActual<typeof import('zod')>('zod');
   return {
@@ -202,6 +208,9 @@ describe('processGitHubIntegrationJob', () => {
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]); // approval succeeds
 
       const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishEvent: jest.Mock;
+      };
 
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 30 }));
 
@@ -210,18 +219,26 @@ describe('processGitHubIntegrationJob', () => {
         'deployment_approved',
         expect.objectContaining({ executionId: 'exec-1' })
       );
+      expect(publishEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ executionId: 'exec-1', status: 'deploying' })
+      );
     });
 
     it('blocks deployment when risk score exceeds threshold', async () => {
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
 
       const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishExecutionUpdate: jest.Mock;
+      };
 
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 80 }));
 
       expect(addJob).not.toHaveBeenCalled();
-      // Should update status to deployment-blocked
-      expect(mockDb.update).toHaveBeenCalled();
+      expect(publishExecutionUpdate).toHaveBeenCalledWith(
+        'exec-1',
+        expect.objectContaining({ status: 'deployment-blocked' })
+      );
     });
 
     it('skips deployment trigger if already approved (idempotency)', async () => {
@@ -229,12 +246,16 @@ describe('processGitHubIntegrationJob', () => {
       mockReturning.mockResolvedValue([]); // returning empty = already approved
 
       const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishEvent: jest.Mock;
+      };
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 30 }));
 
       consoleSpy.mockRestore();
       expect(addJob).not.toHaveBeenCalled();
+      expect(publishEvent).not.toHaveBeenCalled();
     });
 
     it('auto-approves via PR review when risk is very low', async () => {
@@ -416,12 +437,19 @@ describe('processGitHubIntegrationJob', () => {
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
 
       const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishExecutionUpdate: jest.Mock;
+      };
 
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 30 }));
 
       expect(addJob).not.toHaveBeenCalled();
       expect(mockOctokit.rest.repos.createDeployment).not.toHaveBeenCalled();
       expect(mockOctokit.rest.issues.addLabels).not.toHaveBeenCalled();
+      expect(publishExecutionUpdate).toHaveBeenCalledWith(
+        'exec-1',
+        expect.objectContaining({ status: 'deployment-blocked' })
+      );
     });
 
     it('uses label strategy to add deployment label', async () => {
@@ -481,12 +509,18 @@ describe('processGitHubIntegrationJob', () => {
       mockOctokit.rest.repos.createDeployment.mockRejectedValue(new Error('deployment api error'));
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+      const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishExecutionUpdate: jest.Mock;
+      };
 
       await expect(
         processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 30 }))
       ).rejects.toThrow('deployment api error');
 
-      expect(mockDb.update).toHaveBeenCalled();
+      expect(publishExecutionUpdate).toHaveBeenCalledWith(
+        'exec-1',
+        expect.objectContaining({ status: 'failed' })
+      );
     });
 
     it('falls back to individual env vars when DEPLOYMENT_CONFIG JSON is invalid', async () => {
@@ -516,22 +550,37 @@ describe('processGitHubIntegrationJob', () => {
   describe('deployment.status routing', () => {
     it('updates execution status and posts comment on deployed', async () => {
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+      const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishEvent: jest.Mock;
+      };
 
       await processGitHubIntegrationJob(makeDeploymentStatusJob('deployed'));
 
       expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
+      expect(publishEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ executionId: 'exec-1', status: 'monitoring' })
+      );
     });
 
     it('updates execution status and posts comment on failed', async () => {
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+      const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishEvent: jest.Mock;
+      };
 
       await processGitHubIntegrationJob(makeDeploymentStatusJob('failed'));
 
       expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
+      expect(publishEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ executionId: 'exec-1', status: 'failed' })
+      );
     });
 
     it('skips GitHub comment when status update is rejected (stale event)', async () => {
       mockReturning.mockResolvedValue([]); // update rejected (status already advanced)
+      const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishEvent: jest.Mock;
+      };
 
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -539,22 +588,33 @@ describe('processGitHubIntegrationJob', () => {
 
       consoleSpy.mockRestore();
       expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+      expect(publishEvent).not.toHaveBeenCalled();
     });
 
     it('handles deploying status update without posting comment', async () => {
       // For 'deploying' status, the validPriorStatuses branch is taken but no comment posted
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+      const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishEvent: jest.Mock;
+      };
 
       await processGitHubIntegrationJob(makeDeploymentStatusJob('deploying'));
 
       // 'deploying' doesn't trigger a comment
       expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+      expect(publishEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ executionId: 'exec-1', status: 'deploying' })
+      );
     });
 
     it('updates status for unrecognized deployment status without posting comment', async () => {
+      const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishExecutionUpdate: jest.Mock;
+      };
+
       await processGitHubIntegrationJob(makeDeploymentStatusJob('unknown-status'));
 
-      expect(mockDb.update).toHaveBeenCalled();
+      expect(publishExecutionUpdate).toHaveBeenCalled();
       expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
     });
   });
@@ -562,6 +622,9 @@ describe('processGitHubIntegrationJob', () => {
   describe('unknown job type', () => {
     it('logs a warning and does nothing for unrecognized job names', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishExecutionUpdate: jest.Mock;
+      };
 
       await processGitHubIntegrationJob({
         name: 'unknown.type',
@@ -569,7 +632,7 @@ describe('processGitHubIntegrationJob', () => {
       } as unknown as Job);
 
       consoleSpy.mockRestore();
-      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(publishExecutionUpdate).not.toHaveBeenCalled();
     });
   });
 

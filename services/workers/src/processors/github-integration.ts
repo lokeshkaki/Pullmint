@@ -7,8 +7,10 @@ import { getObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
+import { publishExecutionUpdate, publishEvent } from '@pullmint/shared/execution-events';
 import { FindingSchema } from '@pullmint/shared/schemas';
 import { z } from 'zod';
+import type { ExecutionUpdateEvent } from '@pullmint/shared/execution-events';
 import type {
   PREvent,
   Finding,
@@ -234,11 +236,23 @@ async function handleDeploymentStatus(detail: DeploymentStatusEvent): Promise<vo
       )
       .returning({ executionId: schema.executions.executionId });
     updated = result.length > 0;
+
+    if (updated) {
+      const eventStatus = baseSet.status;
+      if (typeof eventStatus === 'string') {
+        const event: ExecutionUpdateEvent = {
+          executionId: detail.executionId,
+          repoFullName: detail.repoFullName,
+          prNumber: detail.prNumber,
+          status: eventStatus,
+          riskScore: (detail as { riskScore?: number }).riskScore ?? null,
+          updatedAt: Date.now(),
+        };
+        await publishEvent(event);
+      }
+    }
   } else {
-    await db
-      .update(schema.executions)
-      .set(baseSet)
-      .where(eq(schema.executions.executionId, detail.executionId));
+    await publishExecutionUpdate(detail.executionId, baseSet);
     updated = true;
   }
 
@@ -275,16 +289,12 @@ async function maybeTriggerDeployment(
     console.log(
       `Deployment blocked: risk score ${detail.riskScore} >= ${config.deploymentRiskThreshold}`
     );
-    await db
-      .update(schema.executions)
-      .set({
-        status: 'deployment-blocked',
-        metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
-          deploymentMessage: `Risk score ${detail.riskScore} exceeds threshold ${config.deploymentRiskThreshold}`,
-        })}::jsonb`,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.executions.executionId, detail.executionId));
+    await publishExecutionUpdate(detail.executionId, {
+      status: 'deployment-blocked',
+      metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
+        deploymentMessage: `Risk score ${detail.riskScore} exceeds threshold ${config.deploymentRiskThreshold}`,
+      })}::jsonb`,
+    });
     return;
   }
 
@@ -306,16 +316,12 @@ async function maybeTriggerDeployment(
 
     if (!checksPassed) {
       console.log('Deployment blocked: tests required but not passing.');
-      await db
-        .update(schema.executions)
-        .set({
-          status: 'deployment-blocked',
-          metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
-            deploymentMessage: 'Tests required but not passing',
-          })}::jsonb`,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.executions.executionId, detail.executionId));
+      await publishExecutionUpdate(detail.executionId, {
+        status: 'deployment-blocked',
+        metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
+          deploymentMessage: 'Tests required but not passing',
+        })}::jsonb`,
+      });
       return;
     }
   }
@@ -345,6 +351,16 @@ async function maybeTriggerDeployment(
     console.log(`Deployment already approved for execution ${detail.executionId}, skipping.`);
     return;
   }
+
+  const deployingEvent: ExecutionUpdateEvent = {
+    executionId: detail.executionId,
+    repoFullName: detail.repoFullName,
+    prNumber: detail.prNumber,
+    status: 'deploying',
+    riskScore: detail.riskScore ?? null,
+    updatedAt: Date.now(),
+  };
+  await publishEvent(deployingEvent);
 
   try {
     if (config.deploymentStrategy === 'eventbridge') {
@@ -406,18 +422,14 @@ async function maybeTriggerDeployment(
     console.log('Deployment created via GitHub Deployments API');
   } catch (error) {
     console.error('Failed to trigger deployment:', error);
-    await db
-      .update(schema.executions)
-      .set({
-        status: 'failed',
-        metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
-          deploymentStatus: 'failed',
-          deploymentMessage: `Deployment trigger failed: ${error instanceof Error ? error.message : String(error)}`,
-        })}::jsonb`,
-        deploymentCompletedAt: new Date().toISOString(),
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.executions.executionId, detail.executionId));
+    await publishExecutionUpdate(detail.executionId, {
+      status: 'failed',
+      metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
+        deploymentStatus: 'failed',
+        deploymentMessage: `Deployment trigger failed: ${error instanceof Error ? error.message : String(error)}`,
+      })}::jsonb`,
+      deploymentCompletedAt: new Date().toISOString(),
+    });
     throw error;
   }
 }
