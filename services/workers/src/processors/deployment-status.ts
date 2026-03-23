@@ -4,7 +4,9 @@ import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfigOptional } from '@pullmint/shared/config';
 import { evaluateRisk } from '@pullmint/shared/risk-evaluator';
 import { resolveSignalWeights } from '@pullmint/shared/signal-weights';
+import { publishExecutionUpdate, publishEvent } from '@pullmint/shared/execution-events';
 import { CheckpointRecordSchema } from '@pullmint/shared/schemas';
+import type { ExecutionUpdateEvent } from '@pullmint/shared/execution-events';
 import type {
   Signal,
   CheckpointRecord,
@@ -214,7 +216,18 @@ async function triggerRollback(
     console.warn(
       `[deployment-status] Status already advanced past monitoring for ${executionId} — skipping rollback status write`
     );
+    return;
   }
+
+  const event: ExecutionUpdateEvent = {
+    executionId,
+    repoFullName: execution.repoFullName as string,
+    prNumber: execution.prNumber as number,
+    status: 'rolled-back',
+    riskScore: (execution.riskScore as number) ?? null,
+    updatedAt: Date.now(),
+  };
+  await publishEvent(event);
 }
 
 async function confirmExecution(
@@ -224,12 +237,8 @@ async function confirmExecution(
   now: number
 ): Promise<void> {
   const executionId = execution.executionId as string;
-  const db = getDb();
 
-  await db
-    .update(schema.executions)
-    .set({ status: 'confirmed', updatedAt: new Date() })
-    .where(eq(schema.executions.executionId, executionId));
+  await publishExecutionUpdate(executionId, { status: 'confirmed' });
 
   const payload: ExecutionConfirmedEvent = {
     executionId,

@@ -48,6 +48,12 @@ jest.mock('@pullmint/shared/error-handling', () => ({
   retryWithBackoff: jest.fn((fn: () => unknown) => fn()),
 }));
 
+jest.mock('@pullmint/shared/execution-events', () => ({
+  publishExecutionUpdate: jest.fn().mockResolvedValue(undefined),
+  publishEvent: jest.fn().mockResolvedValue(undefined),
+  closePublisher: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/checkpoint', () => ({
   buildAnalysisCheckpoint: jest.fn().mockResolvedValue({
     checkpoint1: {
@@ -180,6 +186,11 @@ describe('processAnalysisJob (dispatcher)', () => {
 
     await processAnalysisJob(makePRJob());
 
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    expect(publishExecutionUpdate).toHaveBeenCalledWith('exec-1', { status: 'analyzing' });
+
     // Should store diff in MinIO
     expect(putObject).toHaveBeenCalledWith(
       'test-value',
@@ -241,6 +252,17 @@ describe('processAnalysisJob (dispatcher)', () => {
 
     await processAnalysisJob(makePRJob());
 
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({
+        status: 'completed',
+        riskScore: 25,
+      })
+    );
+
     // Should NOT create Flow
     expect(mockFlowAdd).not.toHaveBeenCalled();
 
@@ -260,6 +282,17 @@ describe('processAnalysisJob (dispatcher)', () => {
     const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
 
     await processAnalysisJob(makePRJob());
+
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({
+        status: 'completed',
+        riskScore: 50,
+      })
+    );
 
     consoleSpy.mockRestore();
 
@@ -330,6 +363,12 @@ describe('processAnalysisJob (dispatcher)', () => {
     await expect(processAnalysisJob(makePRJob())).rejects.toThrow('GitHub API error');
 
     consoleSpy.mockRestore();
-    expect(mockDb.update).toHaveBeenCalled();
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({ status: 'failed' })
+    );
   });
 });

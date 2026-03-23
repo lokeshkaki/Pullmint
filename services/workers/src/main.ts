@@ -2,6 +2,7 @@ import { Worker, type WorkerOptions } from 'bullmq';
 import IORedis from 'ioredis';
 import { initTracing } from '@pullmint/shared/tracing';
 import { QUEUE_NAMES } from '@pullmint/shared/queue';
+import { closePublisher } from '@pullmint/shared/execution-events';
 import { processAnalysisJob } from './processors/analysis.js';
 import { processAgentJob } from './processors/agent.js';
 import { processSynthesisJob } from './processors/synthesis.js';
@@ -117,6 +118,7 @@ async function start(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     console.log('Shutting down workers...');
     await Promise.all(workers.map((w) => w.close()));
+    await closePublisher();
     await connection.quit();
     process.exit(0);
   };
