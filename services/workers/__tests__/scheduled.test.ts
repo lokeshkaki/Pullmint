@@ -11,6 +11,7 @@ jest.mock('@pullmint/shared/queue', () => ({
     DEPLOYMENT_STATUS: 'deployment-status',
     REPO_INDEXING: 'repo-indexing',
     CLEANUP: 'cleanup',
+    CALIBRATION: 'calibration',
   },
 }));
 
@@ -23,20 +24,21 @@ beforeEach(() => {
 });
 
 describe('registerScheduledJobs', () => {
-  it('creates 3 queues and calls upsertJobScheduler for each', async () => {
+  it('creates 4 queues and calls upsertJobScheduler for each', async () => {
     const { registerScheduledJobs } = await import('../src/scheduled');
     const { Queue } = jest.requireMock('bullmq') as { Queue: jest.Mock };
     const connection = {} as IORedis;
 
     await registerScheduledJobs(connection);
 
-    expect(Queue).toHaveBeenCalledTimes(3);
-    const [q1, q2, q3] = Queue.mock.results.map(
+    expect(Queue).toHaveBeenCalledTimes(4);
+    const [q1, q2, q3, q4] = Queue.mock.results.map(
       (r) => r.value as { upsertJobScheduler: jest.Mock }
     );
     expect(q1.upsertJobScheduler).toHaveBeenCalledTimes(1);
     expect(q2.upsertJobScheduler).toHaveBeenCalledTimes(1);
     expect(q3.upsertJobScheduler).toHaveBeenCalledTimes(1);
+    expect(q4.upsertJobScheduler).toHaveBeenCalledTimes(1);
   });
 
   it('schedules deployment-monitor every 5 minutes', async () => {
@@ -87,5 +89,45 @@ describe('registerScheduledJobs', () => {
     ][];
     expect(schedulerName).toBe('cleanup-schedule');
     expect(pattern).toEqual({ pattern: '0 * * * *' });
+  });
+
+  it('schedules signal recalibration as weekly cron using default', async () => {
+    delete process.env.SIGNAL_RECALIBRATION_CRON;
+
+    const { registerScheduledJobs } = await import('../src/scheduled');
+    const { Queue } = jest.requireMock('bullmq') as { Queue: jest.Mock };
+    const connection = {} as IORedis;
+
+    await registerScheduledJobs(connection);
+
+    const q4 = Queue.mock.results[3].value as { upsertJobScheduler: jest.Mock };
+    const [[schedulerName, pattern, jobOpts]] = q4.upsertJobScheduler.mock.calls as [
+      string,
+      { pattern: string },
+      { name: string },
+    ][];
+    expect(schedulerName).toBe('signal-recalibration-schedule');
+    expect(pattern).toEqual({ pattern: '0 3 * * 0' });
+    expect(jobOpts.name).toBe('signal.recalibration');
+  });
+
+  it('schedules signal recalibration using env override cron', async () => {
+    process.env.SIGNAL_RECALIBRATION_CRON = '15 4 * * 1';
+
+    const { registerScheduledJobs } = await import('../src/scheduled');
+    const { Queue } = jest.requireMock('bullmq') as { Queue: jest.Mock };
+    const connection = {} as IORedis;
+
+    await registerScheduledJobs(connection);
+
+    const q4 = Queue.mock.results[3].value as { upsertJobScheduler: jest.Mock };
+    const [[schedulerName, pattern]] = q4.upsertJobScheduler.mock.calls as [
+      string,
+      { pattern: string },
+    ][];
+    expect(schedulerName).toBe('signal-recalibration-schedule');
+    expect(pattern).toEqual({ pattern: '15 4 * * 1' });
+
+    delete process.env.SIGNAL_RECALIBRATION_CRON;
   });
 });

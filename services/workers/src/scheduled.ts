@@ -36,7 +36,18 @@ export async function registerScheduledJobs(connection: IORedis): Promise<void> 
     { name: 'cleanup', data: { scheduled: true } }
   );
 
+  // Signal recalibration — weekly (Sunday 3 AM UTC by default)
+  const signalRecalibrationCron = process.env.SIGNAL_RECALIBRATION_CRON ?? '0 3 * * 0';
+  const calibrationQueue = new Queue(QUEUE_NAMES.CALIBRATION, {
+    connection: connection as QueueOptions['connection'],
+  });
+  await calibrationQueue.upsertJobScheduler(
+    'signal-recalibration-schedule',
+    { pattern: signalRecalibrationCron },
+    { name: 'signal.recalibration', data: { scheduled: true } }
+  );
+
   console.log(
-    'Scheduled jobs registered: deployment-monitor (5min), dependency-scanner (daily 2AM), cleanup (hourly)'
+    'Scheduled jobs registered: deployment-monitor (5min), dependency-scanner (daily 2AM), cleanup (hourly), signal-recalibration (weekly)'
   );
 }
