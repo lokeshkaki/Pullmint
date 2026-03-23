@@ -1,5 +1,4 @@
 import { Job } from 'bullmq';
-import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig, getConfigOptional } from '@pullmint/shared/config';
@@ -7,6 +6,7 @@ import { putObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
+import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { deduplicateFindings } from '../dedup';
 import { buildAnalysisCheckpoint } from '../checkpoint';
 import type { Finding, AgentResultMeta, PREvent } from '@pullmint/shared/types';
@@ -125,14 +125,10 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
     if (agentResults.length === 0) {
       console.error(`All agents failed for execution ${executionId}`);
-      await db
-        .update(schema.executions)
-        .set({
-          status: 'failed',
-          metadata: { error: 'All analysis agents failed', agentResults: agentMeta },
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.executions.executionId, executionId));
+      await publishExecutionUpdate(executionId, {
+        status: 'failed',
+        metadata: { error: 'All analysis agents failed', agentResults: agentMeta },
+      });
       return;
     }
 
@@ -268,28 +264,24 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
     const skippedAgents = ALL_AGENT_TYPES.filter((agentType) => !agentTypes.includes(agentType));
 
-    await db
-      .update(schema.executions)
-      .set({
-        status: 'completed',
-        findings: dedupedFindings as unknown[],
-        riskScore: finalRiskScore,
-        s3Key,
-        checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
-        agentType: 'architecture',
-        metadata: {
-          agentResults: agentMeta,
-          synthesisTokens,
-          synthesisLatencyMs,
-          totalFindings: allFindings.length,
-          dedupedFindings: dedupedFindings.length,
-          skippedAgents,
-          calibrationApplied: calibrationFactor,
-          cached: false,
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.executions.executionId, executionId));
+    await publishExecutionUpdate(executionId, {
+      status: 'completed',
+      findings: dedupedFindings as unknown[],
+      riskScore: finalRiskScore,
+      s3Key,
+      checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
+      agentType: 'architecture',
+      metadata: {
+        agentResults: agentMeta,
+        synthesisTokens,
+        synthesisLatencyMs,
+        totalFindings: allFindings.length,
+        dedupedFindings: dedupedFindings.length,
+        skippedAgents,
+        calibrationApplied: calibrationFactor,
+        cached: false,
+      },
+    });
 
     await addJob(QUEUE_NAMES.GITHUB_INTEGRATION, 'analysis.complete', {
       ...prEvent,
@@ -318,14 +310,10 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
     console.error('Error in synthesizer:', JSON.stringify(structuredError));
 
     try {
-      await db
-        .update(schema.executions)
-        .set({
-          status: 'failed',
-          metadata: { error: structuredError.message },
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.executions.executionId, executionId));
+      await publishExecutionUpdate(executionId, {
+        status: 'failed',
+        metadata: { error: structuredError.message },
+      });
     } catch (updateError) {
       console.error('Failed to update execution status:', {
         updateError,

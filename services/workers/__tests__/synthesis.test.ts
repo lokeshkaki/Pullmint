@@ -47,6 +47,12 @@ jest.mock('@pullmint/shared/error-handling', () => ({
   retryWithBackoff: jest.fn((fn: () => unknown) => fn()),
 }));
 
+jest.mock('@pullmint/shared/execution-events', () => ({
+  publishExecutionUpdate: jest.fn().mockResolvedValue(undefined),
+  publishEvent: jest.fn().mockResolvedValue(undefined),
+  closePublisher: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/checkpoint', () => ({
   buildAnalysisCheckpoint: jest.fn().mockResolvedValue({
     checkpoint1: {
@@ -200,8 +206,14 @@ describe('processSynthesisJob', () => {
     await processSynthesisJob(job);
 
     const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
     expect(addJob).toHaveBeenCalled();
-    expect(mockDb.update).toHaveBeenCalled();
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({ status: 'completed' })
+    );
   });
 
   it('marks execution as failed when all agents fail', async () => {
@@ -216,10 +228,14 @@ describe('processSynthesisJob', () => {
     await processSynthesisJob(job);
 
     const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
     expect(addJob).not.toHaveBeenCalled();
-
-    const updateCalls = mockDb.update.mock.calls;
-    expect(updateCalls.length).toBeGreaterThan(0);
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({ status: 'failed' })
+    );
   });
 
   it('skips LLM summary when there are no findings', async () => {

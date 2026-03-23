@@ -54,6 +54,12 @@ jest.mock('@pullmint/shared/schemas', () => ({
   },
 }));
 
+jest.mock('@pullmint/shared/execution-events', () => ({
+  publishExecutionUpdate: jest.fn().mockResolvedValue(undefined),
+  publishEvent: jest.fn().mockResolvedValue(undefined),
+  closePublisher: jest.fn().mockResolvedValue(undefined),
+}));
+
 // ---- shared DB mock state ----
 let mockDb: { select: jest.Mock; update: jest.Mock };
 let mockLimit: jest.Mock;
@@ -176,8 +182,12 @@ describe('processDeploymentStatusJob', () => {
 
     const execution = makeExecution({ deploymentStartedAt: T35_AGO, checkpoints: [] });
     mockLimit.mockResolvedValue([execution]);
+    mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
 
     const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+    const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishEvent: jest.Mock;
+    };
     await processDeploymentStatusJob();
 
     expect(addJob).toHaveBeenCalledWith(
@@ -185,6 +195,33 @@ describe('processDeploymentStatusJob', () => {
       'deployment.rollback',
       expect.objectContaining({ executionId: 'exec-1' })
     );
+    expect(publishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ executionId: 'exec-1', status: 'rolled-back' })
+    );
+  });
+
+  it('skips rollback publish when conditional status update affects no rows', async () => {
+    const { evaluateRisk } = jest.requireMock('@pullmint/shared/risk-evaluator') as {
+      evaluateRisk: jest.Mock;
+    };
+    evaluateRisk.mockReturnValue({
+      score: 75,
+      confidence: 0.9,
+      missingSignals: [],
+      reason: 'high risk',
+    });
+
+    const execution = makeExecution({ deploymentStartedAt: T35_AGO, checkpoints: [] });
+    mockLimit.mockResolvedValue([execution]);
+    mockReturning.mockResolvedValue([]);
+
+    const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishEvent: jest.Mock;
+    };
+
+    await processDeploymentStatusJob();
+
+    expect(publishEvent).not.toHaveBeenCalled();
   });
 
   it('confirms execution for T+30 with low risk score', async () => {
@@ -202,6 +239,9 @@ describe('processDeploymentStatusJob', () => {
     mockLimit.mockResolvedValue([execution]);
 
     const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
     await processDeploymentStatusJob();
 
     expect(addJob).toHaveBeenCalledWith(
@@ -209,6 +249,7 @@ describe('processDeploymentStatusJob', () => {
       'execution.confirmed',
       expect.objectContaining({ executionId: 'exec-1' })
     );
+    expect(publishExecutionUpdate).toHaveBeenCalledWith('exec-1', { status: 'confirmed' });
   });
 
   it('defers T+5 checkpoint when confidence is low', async () => {

@@ -9,6 +9,7 @@ import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { hashContent } from '@pullmint/shared/utils';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
+import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { buildAnalysisCheckpoint } from '../checkpoint';
 import type { PREvent, Finding } from '@pullmint/shared/types';
 
@@ -47,10 +48,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     }
 
     // 2. Update execution status
-    await db
-      .update(schema.executions)
-      .set({ status: 'analyzing', updatedAt: new Date() })
-      .where(eq(schema.executions.executionId, prEvent.executionId));
+    await publishExecutionUpdate(prEvent.executionId, { status: 'analyzing' });
 
     // 3. Fetch PR diff
     const [owner, repo] = prEvent.repoFullName.split('/');
@@ -107,20 +105,16 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       );
 
       // Update execution with cached results
-      await db
-        .update(schema.executions)
-        .set({
-          status: 'completed',
-          findings: findings as unknown[],
-          riskScore,
-          checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
-          metadata: {
-            cached: true,
-            calibrationApplied: calibrationFactor,
-          },
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.executions.executionId, prEvent.executionId));
+      await publishExecutionUpdate(prEvent.executionId, {
+        status: 'completed',
+        findings: findings as unknown[],
+        riskScore,
+        checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
+        metadata: {
+          cached: true,
+          calibrationApplied: calibrationFactor,
+        },
+      });
 
       // Forward to github-integration
       await addJob(QUEUE_NAMES.GITHUB_INTEGRATION, 'analysis.complete', {
@@ -156,21 +150,17 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         db
       );
 
-      await db
-        .update(schema.executions)
-        .set({
-          status: 'completed',
-          findings: [] as unknown[],
-          riskScore: 50,
-          checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
-          metadata: {
-            cached: false,
-            rateLimited: true,
-            calibrationApplied: calibrationFactor,
-          },
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.executions.executionId, prEvent.executionId));
+      await publishExecutionUpdate(prEvent.executionId, {
+        status: 'completed',
+        findings: [] as unknown[],
+        riskScore: 50,
+        checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
+        metadata: {
+          cached: false,
+          rateLimited: true,
+          calibrationApplied: calibrationFactor,
+        },
+      });
 
       await addJob(QUEUE_NAMES.GITHUB_INTEGRATION, 'analysis.complete', {
         ...prEvent,
@@ -248,14 +238,10 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     console.error('Error processing PR:', JSON.stringify(structuredError));
 
     try {
-      await db
-        .update(schema.executions)
-        .set({
-          status: 'failed',
-          metadata: { error: structuredError.message },
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.executions.executionId, prEvent.executionId));
+      await publishExecutionUpdate(prEvent.executionId, {
+        status: 'failed',
+        metadata: { error: structuredError.message },
+      });
     } catch (updateError) {
       console.error('Failed to update execution status to failed:', {
         updateError,
