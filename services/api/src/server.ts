@@ -9,6 +9,8 @@ import { registerDashboardRoutes } from './routes/dashboard';
 import { registerSignalRoutes } from './routes/signals';
 import { registerHealthRoutes } from './routes/health';
 import { registerAdminRoutes } from './routes/admin';
+import { registerEventRoutes } from './routes/events';
+import { initSSE, closeSSE } from './sse';
 
 async function start() {
   // Optional tracing
@@ -47,6 +49,15 @@ async function start() {
   registerWebhookRoutes(app);
   registerDashboardRoutes(app);
   registerSignalRoutes(app);
+  registerEventRoutes(app);
+
+  // Initialize SSE
+  initSSE();
+
+  // Graceful shutdown
+  app.addHook('onClose', async () => {
+    await closeSSE();
+  });
 
   // Start server
   const port = parseInt(process.env.PORT || '3000', 10);
