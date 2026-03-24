@@ -1,128 +1,70 @@
 # Pullmint
 
-> **AI-powered PR analysis and deployment automation for GitHub**
+> AI-powered PR analysis and risk-gated deployment for GitHub
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/lokeshkaki/pullmint/actions/workflows/ci.yml/badge.svg)](https://github.com/lokeshkaki/pullmint/actions/workflows/ci.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
-[![AWS](https://img.shields.io/badge/AWS-Serverless-orange)](https://aws.amazon.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## What is Pullmint?
-
-Pullmint automates PR analysis and risk-gated deployments for GitHub. It reviews code changes with LLMs, posts structured findings, and deploys low-risk changes to staging with full traceability.
-
-## Quick Start
-
-```bash
-# Clone and install
-git clone https://github.com/lokeshkaki/pullmint.git
-cd pullmint && npm install
-
-# Deploy to AWS
-cd infrastructure
-export GITHUB_APP_ID=your-app-id
-npm run deploy
-```
-
-**Full setup instructions:** [Deployment Guide](docs/DEPLOYMENT.md)
+Pullmint reviews every PR with specialized AI agents, scores risk, and auto-deploys low-risk changes to staging — all with full traceability.
 
 ## How It Works
 
 ```
-PR Created → Webhook → LLM Analysis → Risk Scoring → Auto-Deploy (if low-risk) → Dashboard
+PR opened → Webhook → 4 AI agents analyze in parallel → Risk score → Auto-deploy if safe → Monitor
 ```
 
-1. **GitHub webhook** → Pullmint receives PR events
-2. **Claude Sonnet 4.5** → Analyzes code changes for quality, security, and risk
-3. **Risk scoring** → Calculates 0-100 risk score based on findings
-4. **Auto-deployment** → Low-risk PRs deploy to staging (threshold configurable)
-5. **Dashboard** → Real-time visibility into all executions
+1. **Multi-agent analysis** — Architecture, Security, Performance, and Maintainability agents review the diff in parallel using Claude
+2. **Risk scoring** — Findings are deduplicated, weighted, and synthesized into a 0–100 risk score with adaptive signal weights that learn from deployment outcomes
+3. **Deployment gating** — Low-risk PRs auto-deploy to staging; high-risk PRs are held for review
+4. **Post-deploy monitoring** — Tracks deployment health and auto-rolls back on failure
+5. **Real-time dashboard** — Live execution status via SSE, Kanban risk board, calibration metrics
 
-**Detailed architecture:** [Architecture Guide](docs/ARCHITECTURE.md)
+## Quick Start
 
-## Features
+```bash
+git clone https://github.com/lokeshkaki/pullmint.git
+cd pullmint
+cp .env.example .env   # Fill in required values
+npm install
+docker compose up
+```
 
-- PR analysis with structured findings and risk scoring
-- Risk-gated deployment orchestration with retries and rollback hooks
-- Dashboard and REST API for execution history
-- Serverless AWS architecture with CloudWatch monitoring
+The dashboard is at `http://localhost:3001`. See the [Development Guide](docs/DEVELOPMENT.md) for full setup.
 
 ## Tech Stack
 
-- **Compute:** AWS Lambda (Node.js 20)
-- **Storage:** DynamoDB + S3
-- **Orchestration:** EventBridge + SQS
-- **AI:** Anthropic Claude Sonnet 4.5
-- **Infra:** AWS CDK (TypeScript)
-- **CI/CD:** GitHub Actions
-
-## Documentation
-
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Dashboard](docs/DASHBOARD.md)
-- [Security](docs/SECURITY.md)
-- [Monitoring](docs/MONITORING.md)
-- [Cost Analysis](docs/COST.md)
-- [Development](docs/DEVELOPMENT.md)
-- [Next Phase](docs/NEXT-PHASE.md)
+| Layer          | Technology                    |
+| -------------- | ----------------------------- |
+| API            | Fastify (Node.js 20)          |
+| Workers        | BullMQ job processors         |
+| Database       | PostgreSQL 16 (pgvector)      |
+| Queue/Events   | Redis 7 (BullMQ + Pub/Sub)    |
+| Object Storage | MinIO (S3-compatible)         |
+| Dashboard      | Nginx + vanilla JS SPA        |
+| AI             | Claude Sonnet 4.6 + Haiku 4.5 |
+| ORM            | Drizzle                       |
+| CI/CD          | GitHub Actions → GHCR         |
 
 ## Project Structure
 
 ```
-pullmint/
-├── infrastructure/       # AWS CDK (CloudFormation templates)
-├── services/
-│   ├── webhook-receiver/      # GitHub webhook handler
-│   ├── llm-agents/
-│   │   └── architecture-agent/ # LLM-powered analysis
-│   ├── github-integration/    # Post results to GitHub
-│   ├── deployment-orchestrator/ # Auto-deploy logic
-│   ├── dashboard-api/         # REST API
-│   ├── dashboard-ui/          # Web interface
-│   └── shared/               # Common utilities
-└── docs/                 # Full documentation
+services/
+├── api/            # Fastify HTTP server (webhooks, dashboard API, SSE)
+├── workers/        # BullMQ processors (analysis, synthesis, deployment, calibration)
+├── shared/         # Database schema, queue config, types, utilities
+├── dashboard/      # Nginx reverse proxy + static file serving
+└── dashboard-ui/   # Static SPA (HTML/CSS/JS)
 ```
 
-## Cost
+## Documentation
 
-~**$32/month** for 250 PRs. See [Cost Analysis](docs/COST.md) for details and scaling projections.
-
-## Status
-
-Phase 2 complete. Phase 3 planned (see [Next Phase](docs/NEXT-PHASE.md)).
-
-## Development
-
-```bash
-# Build all services
-npm run build
-
-# Run tests
-npm test
-
-# Lint & format
-npm run lint
-npm run format
-```
-
-## Deployment
-
-```bash
-# Deploy infrastructure only
-cd infrastructure
-npm run deploy
-
-# Deploy all stacks
-npm run deploy:all
-
-# View changes before deploying
-npm run diff
-```
-
-## Environment Variables
-
-See [.env.example](.env.example) for all configuration options.
+- **[Architecture](docs/ARCHITECTURE.md)** — System design, data flow, multi-agent analysis, SSE
+- **[Development](docs/DEVELOPMENT.md)** — Local setup, testing, code style, CI
+- **[Deployment](docs/DEPLOYMENT.md)** — Production deployment with Docker Compose
+- **[Security](docs/SECURITY.md)** — Auth model, secret management, network security
+- **[Monitoring](docs/MONITORING.md)** — Health checks, logging, tracing, Bull Board
 
 ## License
 
-MIT License - Copyright (c) 2026 Lokesh Kaki
+MIT — Copyright (c) 2026 Lokesh Kaki

@@ -1,322 +1,146 @@
 # Architecture
 
-## Overview
+Pullmint is a TypeScript monorepo running as Docker containers. PostgreSQL stores state, Redis handles job queues and real-time events, MinIO stores large artifacts, and Nginx serves the dashboard.
 
-Pullmint is a serverless, event-driven platform built on AWS that combines LLM-powered code analysis with automated deployment orchestration.
+## Services
 
-## Tech Stack
+### API (`services/api/`)
 
-### Backend
+Fastify HTTP server handling:
 
-- **Runtime**: Node.js 20 + TypeScript 5.3
-- **Compute**: AWS Lambda (serverless functions)
-- **Orchestration**: Amazon EventBridge + SQS
-- **State Management**: DynamoDB (executions, cache, deduplication)
-- **Artifact Storage**: Amazon S3
-- **Secrets**: AWS Secrets Manager
+- **GitHub webhooks** — receives PR events, enqueues analysis jobs
+- **Dashboard REST API** — execution history, risk board, calibration data, repo management
+- **SSE endpoint** — `GET /dashboard/events` pushes real-time execution updates to the dashboard
+- **Signal ingestion** — accepts external CI/CD signals (test results, deploy status, error rates)
+- **Health checks** — `/health` (liveness), `/health/ready` (readiness: Postgres + Redis)
+- **Bull Board** — admin UI for queue inspection at `/admin/queues`
 
-### AI/LLM
+### Workers (`services/workers/`)
 
-- **Primary LLM**: Anthropic Claude Sonnet 4.5
-- **Use Cases**: Architecture analysis, risk scoring, finding generation
-- **Token Optimization**: Context packing, diff hash caching
+BullMQ job processors, one per queue:
 
-### Infrastructure
+| Processor               | Queue                | Purpose                                                 |
+| ----------------------- | -------------------- | ------------------------------------------------------- |
+| `analysis.ts`           | `analysis`           | Dispatches multi-agent analysis flow                    |
+| `agent.ts`              | `agent`              | Runs individual AI agent (4 specializations)            |
+| `synthesis.ts`          | `synthesis`          | Merges agent results, deduplicates, scores risk         |
+| `github-integration.ts` | `github-integration` | Posts results to GitHub, triggers deployment            |
+| `deployment.ts`         | `deployment`         | Executes deployment orchestration                       |
+| `deployment-status.ts`  | `deployment-status`  | Monitors post-deploy health                             |
+| `calibration.ts`        | `calibration`        | Updates risk calibration + signal weights from outcomes |
+| `repo-indexing.ts`      | `repo-indexing`      | Indexes repository structure                            |
+| `cleanup.ts`            | `cleanup`            | Prunes expired data                                     |
 
-- **IaC**: AWS CDK (TypeScript)
-- **CI/CD**: GitHub Actions with OIDC
-- **Monitoring**: CloudWatch Logs, Metrics, Alarms
-- **Testing**: Jest + aws-sdk-client-mock
+**Scheduled jobs** (in `scheduled.ts`):
 
-### GitHub Integration
+- Deployment monitor — every 5 minutes
+- Dependency scanner — daily at 2 AM
+- Cleanup — hourly
+- Signal recalibration — weekly (Sunday 3 AM)
 
-- **GitHub App**: Private app with PR read/write permissions
-- **Webhook Events**: `pull_request` (opened, synchronize, reopened)
-- **API Operations**: Fetch diff, post comments, update deployment status
+### Dashboard (`services/dashboard/` + `services/dashboard-ui/`)
 
-## How It Works
+Nginx serves the static SPA and reverse-proxies API routes. The SPA is vanilla HTML/CSS/JS with no build step.
 
-### Event-Driven Flow
+**Views:** Execution list, Kanban risk board, execution detail, calibration metrics, repo management.
+
+**Real-time updates:** The dashboard connects to `/dashboard/events` via `EventSource` (SSE) for instant status changes, with a 60-second fallback poll.
+
+### Shared (`services/shared/`)
+
+Common modules used by both API and Workers:
+
+- `db.ts` / `schema.ts` — Drizzle ORM, PostgreSQL schema (11 tables)
+- `queue.ts` — BullMQ queue definitions, `addJob()` helper
+- `risk-evaluator.ts` — Risk score computation with configurable signal weights
+- `signal-weights.ts` — Adaptive weight resolution (repo → global → hardcoded fallback)
+- `execution-events.ts` — Redis Pub/Sub for real-time execution status events
+- `config.ts` — Environment variable access with file-based secret support
+- `storage.ts` — MinIO/S3-compatible object storage
+- `types.ts` / `schemas.ts` — Shared TypeScript types and Zod validators
+
+## Data Flow
+
+### PR Analysis
 
 ```
-GitHub PR Event
-    ↓
-API Gateway → Webhook Receiver Lambda
-    ↓
-EventBridge (pullmint-bus)
-    ↓
-├─→ SQS Queue → Architecture Agent Lambda
-│       ↓
-│   LLM Analysis (Claude Sonnet 4.5)
-│       ↓
-│   EventBridge (analysis.completed)
-│       ↓
-├─→ GitHub Integration Lambda
-│       ↓
-│   Post PR Comment + Evaluate Risk
-│       ↓
-│   [If risk < threshold] EventBridge (deployment.approved)
-│       ↓
-└─→ Deployment Orchestrator Lambda
-        ↓
-    Webhook POST → Your Deploy System
-        ↓
-    Update Status in DynamoDB + GitHub
+PR webhook
+  → analysis queue (dispatcher)
+    → agent queue × 4 (parallel via BullMQ Flow)
+      → synthesis queue (parent job, waits for children)
+        → github-integration queue
+          → deployment queue (if auto-deploy)
+            → deployment-status queue (monitoring)
+              → calibration queue (outcome learning)
 ```
 
-### Detailed Flow
+The dispatcher creates a BullMQ Flow with 4 agent children and a synthesis parent. Agents run in parallel; the synthesizer collects results via `job.getChildrenValues()`.
 
-1. **PR Created/Updated** → GitHub sends webhook event
-2. **Webhook Receiver** → Validates HMAC signature, deduplicates via DynamoDB, creates execution record, publishes to EventBridge
-3. **EventBridge** → Routes `pr.opened` event to SQS queue
-4. **Architecture Agent** → Fetches PR diff, analyzes with Claude Sonnet 4.5, calculates risk score, publishes `analysis.completed` event
-5. **GitHub Integration** → Posts findings as PR comment, evaluates deployment gates, publishes `deployment.approved` if low-risk
-6. **Deployment Orchestrator** → POSTs to deployment webhook, tracks status in DynamoDB, updates GitHub deployment status
-7. **Dashboard** → Queries DynamoDB for execution history, serves real-time UI
+### AI Agents
 
-## Resilience Patterns
+| Agent           | Model             | Focus                                             |
+| --------------- | ----------------- | ------------------------------------------------- |
+| Architecture    | Claude Sonnet 4.6 | Structural impact, coupling, API changes          |
+| Security        | Claude Sonnet 4.6 | Vulnerabilities, auth, injection, data exposure   |
+| Performance     | Claude Haiku 4.5  | N+1 queries, memory leaks, algorithmic complexity |
+| Maintainability | Claude Haiku 4.5  | Readability, naming, duplication, test coverage   |
 
-### Idempotency
+Small diffs (< 200 lines) only run Architecture + Security. Agent weights are configurable via `AGENT_WEIGHT_*` env vars (default: 0.35/0.35/0.15/0.15).
 
-- **Webhook Deduplication**: DynamoDB stores delivery IDs with TTL
-- **Deployment Idempotency**: `executionId` ensures same deploy request is not processed twice
-- **SQS Message Deduplication**: EventBridge uses content-based deduplication
+### Risk Scoring
 
-### Retry Logic
+1. Each agent produces findings with individual risk scores
+2. Findings are deduplicated (exact match + Levenshtein overlap)
+3. Agent scores are weighted and combined
+4. External signals (CI status, error rates, coverage) adjust the score via learned signal weights
+5. Final score: 0–100, where higher = riskier
 
-- **SQS Visibility Timeout**: Failed messages return to queue after timeout
-- **Exponential Backoff**: Deployment webhook retries with 1s, 2s, 4s delays
-- **Dead Letter Queues**: Failed messages after max retries go to DLQ for investigation
+### Signal Weight Learning
 
-### Error Boundaries
+Signal weights adapt over time using exponential moving averages:
 
-- **Try-Catch in All Handlers**: Every Lambda has top-level error handling
-- **CloudWatch Alarms**: Alert on elevated error rates (≥3 errors/5min for deployment, ≥5 errors/5min for webhook/GitHub)
-- **Structured Logging**: JSON logs with correlation IDs for tracing
+- **Rollback** → weight increases (signal was right but too weak)
+- **False positive** (held then confirmed safe) → weight decreases
+- **Confirmed good** → no change
 
-## Risk Scoring Algorithm
+Three-tier resolution: repo-specific weights (after 10+ observations) → global baseline → hardcoded defaults.
 
-```typescript
-let riskScore = 0;
+### Real-Time Updates (SSE)
 
-// LLM-identified findings
-riskScore += findings.filter((f) => f.severity === 'critical').length * 30;
-riskScore += findings.filter((f) => f.severity === 'high').length * 15;
-riskScore += findings.filter((f) => f.severity === 'medium').length * 7;
-riskScore += findings.filter((f) => f.severity === 'low').length * 3;
-riskScore += findings.filter((f) => f.severity === 'info').length * 1;
-
-// Diff size heuristics (future enhancement)
-// riskScore += Math.min(diffLines / 100, 20);
-
-return Math.min(riskScore, 100);
+```
+Worker status change → Redis Pub/Sub → API subscriber → fan-out to SSE clients → Dashboard
 ```
 
-### Risk Thresholds
+Workers publish events on every execution status transition. The API maintains a single Redis subscriber connection shared across all connected dashboard clients. Events are filtered per-client by repository.
 
-- **Auto-Approve** (< 30): Trivial changes (typos, docs, formatting)
-- **Auto-Deploy** (< 40): Low-risk changes (minor features, refactors)
-- **Manual Review** (≥ 40): High-risk changes (architecture, security, API changes)
+## Database
 
-## Data Models
+PostgreSQL 16 with pgvector extension. 11 tables managed by Drizzle ORM with auto-migration on API startup.
 
-### PR Execution (DynamoDB)
+Key tables: `executions`, `findings`, `calibrations`, `signal_weight_defaults`, `repositories`, `module_narratives` (with 1536-dim embeddings), `webhook_dedup`, `llm_cache`, `llm_rate_limits`, `dependency_graphs`, `deployment_records`.
 
-```typescript
-{
-  executionId: string;           // Partition key (UUID v4)
-  repoFullName: string;          // GSI partition key "owner/repo"
-  prNumber: number;              // GSI sort key
-  headSha: string;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed' | 'deploying' | 'deployed';
-  timestamp: number;             // Unix timestamp
-  riskScore?: number;            // 0-100
-  findings?: Finding[];          // LLM analysis results
-  deploymentStatus?: 'pending' | 'approved' | 'deploying' | 'deployed' | 'failed';
-  deploymentEnvironment?: string; // e.g., "staging"
-  deploymentApprovedAt?: number;
-  deploymentStartedAt?: number;
-  deploymentCompletedAt?: number;
-  error?: string;                // Error message if failed
-  ttl: number;                   // Auto-delete after 90 days
-}
+## Infrastructure
+
+```
+                    ┌──────────────┐
+                    │    Nginx     │ :3001
+                    │  (dashboard) │
+                    └──────┬───────┘
+                           │ proxy
+                    ┌──────┴───────┐
+        ┌──────────►│  Fastify API │ :3000
+        │           └──────┬───────┘
+        │                  │
+   ┌────┴────┐      ┌──────┴───────┐
+   │  Redis  │◄────►│   Workers    │
+   │  :6379  │      └──────┬───────┘
+   └─────────┘             │
+        ▲           ┌──────┴───────┐
+        │           │  PostgreSQL  │ :5432
+        │           └──────────────┘
+        │           ┌──────────────┐
+        └──────────►│    MinIO     │ :9000
+                    └──────────────┘
 ```
 
-### Deduplication (DynamoDB)
-
-```typescript
-{
-  deliveryId: string; // Partition key (GitHub webhook delivery ID)
-  processedAt: number; // Timestamp
-  ttl: number; // Auto-delete after 24 hours
-}
-```
-
-### Cache (DynamoDB)
-
-```typescript
-{
-  cacheKey: string; // Partition key (diff hash or prompt hash)
-  cacheValue: string; // Serialized LLM response
-  createdAt: number;
-  ttl: number; // Auto-delete after 7 days
-}
-```
-
-## Lambda Functions
-
-### webhook-receiver
-
-- **Trigger**: API Gateway POST /webhook
-- **Purpose**: Validate GitHub webhooks, deduplicate, publish to EventBridge
-- **Timeout**: 10 seconds
-- **Memory**: 256 MB
-- **Environment Variables**: `WEBHOOK_SECRET_ARN`, `EXECUTIONS_TABLE_NAME`, `DEDUP_TABLE_NAME`, `EVENT_BUS_NAME`
-
-### architecture-agent
-
-- **Trigger**: SQS queue (EventBridge rule)
-- **Purpose**: Analyze PR with Claude Sonnet 4.5, calculate risk score
-- **Timeout**: 5 minutes
-- **Memory**: 512 MB
-- **Environment Variables**: `ANTHROPIC_API_KEY_ARN`, `EXECUTIONS_TABLE_NAME`, `CACHE_TABLE_NAME`, `EVENT_BUS_NAME`
-
-### github-integration
-
-- **Trigger**: EventBridge rule (analysis.completed event)
-- **Purpose**: Post findings to PR, evaluate deployment gates
-- **Timeout**: 30 seconds
-- **Memory**: 256 MB
-- **Environment Variables**: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_ARN`, `EXECUTIONS_TABLE_NAME`, `EVENT_BUS_NAME`
-
-### deployment-orchestrator
-
-- **Trigger**: EventBridge rule (deployment.approved event)
-- **Purpose**: Trigger deployments via webhook, track status
-- **Timeout**: 2 minutes
-- **Memory**: 256 MB
-- **Environment Variables**: `DEPLOYMENT_WEBHOOK_URL`, `DEPLOYMENT_WEBHOOK_AUTH_TOKEN_ARN`, `EXECUTIONS_TABLE_NAME`, `DEPLOYMENT_STRATEGY`
-
-### dashboard-api
-
-- **Trigger**: API Gateway GET /dashboard/executions\*
-- **Purpose**: Query execution history from DynamoDB
-- **Timeout**: 10 seconds
-- **Memory**: 256 MB
-- **Environment Variables**: `EXECUTIONS_TABLE_NAME`
-
-### dashboard-ui
-
-- **Trigger**: API Gateway GET /dashboard
-- **Purpose**: Serve single-page dashboard application
-- **Timeout**: 5 seconds
-- **Memory**: 128 MB
-- **Environment Variables**: None
-
-## Security Architecture
-
-### Authentication & Authorization
-
-- **GitHub Webhooks**: HMAC-SHA256 signature validation
-- **GitHub API**: JWT-based GitHub App authentication (1-hour tokens)
-- **Deployment Webhooks**: Bearer token authentication
-- **AWS IAM**: Least-privilege policies for Lambda functions
-
-### Secret Management
-
-- **AWS Secrets Manager**: All credentials stored with automatic rotation
-- **Secret Rotation**: Webhook secret (90 days), API keys (manual), GitHub App key (annual)
-- **Access Logging**: CloudTrail tracks all secret access
-
-### Network Security
-
-- **API Gateway**: Rate limiting (100 req/sec), throttling
-- **Lambda**: VPC isolation for sensitive operations (future)
-- **CORS**: Configured for dashboard browser access
-
-## Observability
-
-### CloudWatch Metrics
-
-- **Lambda**: Invocations, Errors, Duration, Throttles, Concurrent Executions
-- **DynamoDB**: Read/Write Capacity, Throttles, System Errors
-- **EventBridge**: Invocations, Failed Invocations, TriggeredRules
-- **API Gateway**: Count, Latency, 4XX/5XX Errors
-
-### CloudWatch Alarms
-
-- `pullmint-deployment-orchestrator-errors`: ≥3 errors/5min
-- `pullmint-github-integration-errors`: ≥5 errors/5min
-- `pullmint-webhook-handler-errors`: ≥5 errors/5min
-
-### Structured Logging
-
-```json
-{
-  "timestamp": "2026-02-09T10:30:00Z",
-  "level": "INFO",
-  "service": "architecture-agent",
-  "executionId": "abc-123-def-456",
-  "prNumber": 42,
-  "repo": "owner/repo",
-  "event": "analysis.started",
-  "metadata": {
-    "diffSize": 1234,
-    "filesChanged": 5
-  }
-}
-```
-
-## Performance Characteristics
-
-### Latency
-
-- **Webhook Processing**: < 200ms (validate + publish)
-- **LLM Analysis**: 15-45 seconds (depends on diff size)
-- **GitHub Comment Post**: < 2 seconds
-- **Deployment Trigger**: < 5 seconds
-- **End-to-End**: 20-60 seconds (PR opened → comment posted)
-
-### Throughput
-
-- **Concurrent PRs**: Up to 100 concurrent Lambda executions
-- **API Gateway**: 100 requests/second (configurable)
-- **DynamoDB**: On-demand scaling (no provisioned capacity)
-
-### Cost Efficiency
-
-- **Lambda**: $0 (within free tier for 250 PRs/month)
-- **DynamoDB**: $1/month (on-demand, low traffic)
-- **EventBridge**: $0 (within free tier)
-- **LLM API**: $25/month (primary variable cost)
-- **Total**: ~$32/month for 250 PRs
-
-## Design Decisions
-
-### Why Serverless?
-
-- **Low Operational Overhead**: No servers to patch or scale
-- **Cost Efficiency**: Pay only for actual usage
-- **Auto-Scaling**: Handles traffic spikes without configuration
-- **Built-in HA**: AWS manages availability across zones
-
-### Why EventBridge?
-
-- **Decoupling**: Services don't need to know about each other
-- **Extensibility**: Easy to add new agents or integrations
-- **Replay**: Can reprocess events from archive
-- **Filtering**: Route events based on content
-
-### Why DynamoDB?
-
-- **Serverless**: No database servers to manage
-- **Low Latency**: Single-digit millisecond reads/writes
-- **Auto-Scaling**: On-demand capacity handles traffic
-- **TTL**: Automatic deletion of old records
-
-### Why Claude Sonnet 4.5?
-
-- **Code Understanding**: Excellent at analyzing diffs and architecture
-- **Structured Output**: Reliable JSON response format
-- **Cost Efficiency**: $3/M input tokens vs GPT-4 Turbo ($10/M)
-- **Context Window**: 200K tokens handles large PRs
+All services defined in `docker-compose.yml` (dev) and `docker-compose.prod.yml` (production). CI/CD via GitHub Actions builds Docker images and pushes to GHCR.

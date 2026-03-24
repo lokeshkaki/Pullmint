@@ -1,334 +1,113 @@
 # Deployment Guide
 
-This guide covers installing and deploying Pullmint to AWS, including the GitHub webhook setup and deployment webhook integration.
+Pullmint runs as Docker containers orchestrated by Docker Compose. Any host with Docker installed can run it.
 
-## Prerequisites
+## Production Setup
 
-- AWS Account with CLI configured (`aws configure`)
-- Node.js 20+ installed
-- AWS CDK CLI installed (`npm install -g aws-cdk`)
-- Anthropic API key
-- GitHub App created with PR read/write permissions
-
-## Initial Deployment
-
-### 1. Clone and install dependencies
+### 1. Prepare the host
 
 ```bash
 git clone https://github.com/lokeshkaki/pullmint.git
 cd pullmint
-npm install
+cp .env.example .env
 ```
 
-### 2. Bootstrap CDK (first time per account/region)
+### 2. Configure environment
+
+Edit `.env` with production values:
 
 ```bash
-cdk bootstrap
+# Required
+GITHUB_APP_ID=<your-app-id>
+GITHUB_APP_PRIVATE_KEY_PATH=./secrets/github-app.pem
+GITHUB_WEBHOOK_SECRET=<your-webhook-secret>
+ANTHROPIC_API_KEY=<your-api-key>
+SIGNAL_INGESTION_HMAC_SECRET=<random-secret>
+
+# Deployment (if using auto-deploy)
+DEPLOYMENT_WEBHOOK_URL=<your-deploy-endpoint>
+DEPLOYMENT_WEBHOOK_SECRET=<random-secret>
+
+# Dashboard
+DASHBOARD_AUTH_TOKEN=<random-token>
+ALLOWED_ORIGINS=https://your-domain.com
 ```
 
-### 3. Deploy infrastructure
+### 3. Start services
 
 ```bash
-cd infrastructure
-npm install
-
-export GITHUB_APP_ID=your-github-app-id
-npm run deploy
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-### 4. Save deployment outputs
-
-Copy the following outputs from the deploy command:
-
-```
-WebhookURL: https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/webhook
-WebhookSecretArn: arn:aws:secretsmanager:us-east-1:xxxxx:secret:pullmint/github-webhook-secret-xxxxx
-EventBusName: pullmint-events
-ExecutionsTableName: pullmint-pr-executions
-```
-
-### 5. Configure secrets
-
-Store the required secrets in AWS Secrets Manager:
-
-**Anthropic API key**
+### 4. Verify
 
 ```bash
-aws secretsmanager put-secret-value \
-  --secret-id pullmint/anthropic-api-key \
-  --secret-string "sk-ant-your-anthropic-key"
+# Health check
+curl http://localhost:3000/health
+
+# Readiness (checks Postgres + Redis)
+curl http://localhost:3000/health/ready
 ```
 
-**GitHub App private key**
+## GitHub App Setup
+
+1. Create a GitHub App at https://github.com/settings/apps/new
+2. Set the webhook URL to `https://your-domain.com/webhook`
+3. Required permissions:
+   - **Pull requests:** Read & Write (post analysis comments)
+   - **Contents:** Read (fetch diffs)
+   - **Checks:** Read & Write (status checks)
+   - **Deployments:** Read & Write (if using auto-deploy)
+4. Subscribe to events: Pull request
+5. Generate and download the private key (`.pem` file)
+6. Install the app on your target repositories
+
+## Services
+
+| Service             | Port      | Purpose                          |
+| ------------------- | --------- | -------------------------------- |
+| `dashboard` (Nginx) | 3001 → 80 | Dashboard UI + API reverse proxy |
+| `api` (Fastify)     | 3000      | HTTP API + SSE endpoint          |
+| `workers`           | —         | Background job processors        |
+| `postgres`          | 5432      | Primary database                 |
+| `redis`             | 6379      | Job queues + Pub/Sub             |
+| `minio`             | 9000/9001 | Object storage                   |
+
+## Database
+
+Migrations run automatically on API startup via Drizzle. No manual migration step needed.
+
+To generate new migrations after schema changes:
 
 ```bash
-aws secretsmanager put-secret-value \
-  --secret-id pullmint/github-app-private-key \
-  --secret-string "$(cat /path/to/your/private-key.pem)"
+npx drizzle-kit generate
 ```
 
-**Webhook secret (read-only)**
+## Data Persistence
+
+Docker volumes store persistent data:
+
+- `postgres_data` — database
+- `redis_data` — queue state (AOF persistence enabled)
+- `minio_data` — analysis artifacts
+
+## Secrets
+
+Pullmint reads secrets two ways:
+
+1. **Environment variable** — `ANTHROPIC_API_KEY=sk-...`
+2. **File path** — `ANTHROPIC_API_KEY_PATH=./secrets/anthropic.key`
+
+The file-based approach is compatible with Docker secrets and Kubernetes secrets. The `getConfig()` helper checks the env var first, then falls back to reading the file at `${KEY}_PATH`.
+
+## Updating
 
 ```bash
-aws secretsmanager get-secret-value \
-  --secret-id pullmint/github-webhook-secret \
-  --query SecretString --output text
+git pull
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-### 6. Configure the GitHub webhook
+## CI/CD
 
-1. Go to repository settings and add a webhook.
-2. Payload URL: use the `WebhookURL` output from deployment.
-3. Content type: `application/json`.
-4. Secret: use the webhook secret from the previous step.
-5. Events: select Pull requests only.
-6. Keep the webhook active.
-
-## DynamoDB GSI Deployment Strategy
-
-DynamoDB has a limitation: **only one Global Secondary Index (GSI) can be created or deleted per update operation**. Pullmint's DynamoDB table uses 3 GSIs for different query patterns.
-
-### For Initial Deployments (New Stack)
-
-If you're deploying Pullmint for the first time and want to add GSIs incrementally:
-
-```bash
-cd infrastructure
-
-# First deployment: Create table with ByRepo GSI
-export GITHUB_APP_ID=your-github-app-id
-npm run deploy -- --require-approval never -c gsiStage=ByRepo
-
-# Second deployment: Add ByRepoPr GSI
-npm run deploy -- --require-approval never -c gsiStage=ByRepoPr
-
-# Third deployment: Add ByTimestamp GSI
-npm run deploy -- --require-approval never -c gsiStage=ByTimestamp
-```
-
-### For Existing Stacks (Updates)
-
-If your stack already has all GSIs created (which is the case for most deployments), always use:
-
-```bash
-cd infrastructure
-export GITHUB_APP_ID=your-github-app-id
-npm run deploy -- --require-approval never -c gsiStage=all
-```
-
-**This is the default behavior in CI/CD** - the GitHub Actions workflow uses `gsiStage=all` to ensure existing GSIs are maintained.
-
-### Manual GSI Management
-
-If you need to add a specific GSI to an existing table:
-
-```bash
-# Only add the ByTimestamp GSI (assumes ByRepo and ByRepoPr already exist)
-npm run deploy -- --require-approval never -c gsiStage=ByTimestamp
-```
-
-⚠️ **Warning**: Never deploy with a lower `gsiStage` than what's currently deployed, as this will attempt to delete existing GSIs and cause deployment failures.
-
-## Deployment Configuration
-
-### Risk thresholds
-
-```bash
-# Maximum risk score to auto-deploy
-DEPLOYMENT_RISK_THRESHOLD=30     # Default: 30
-
-# Maximum risk score to auto-approve
-AUTO_APPROVE_RISK_THRESHOLD=30   # Default: 30
-```
-
-### Deployment strategy
-
-```bash
-DEPLOYMENT_STRATEGY=eventbridge  # Options: eventbridge, label, deployment
-```
-
-| Strategy    | Use when                     | Pros                             | Cons                   | Status      |
-| ----------- | ---------------------------- | -------------------------------- | ---------------------- | ----------- |
-| eventbridge | Production deployments       | Retry logic and rollback support | Requires webhook setup | Recommended |
-| label       | Existing GitHub Actions flow | Simple integration               | Limited error handling | Legacy      |
-| deployment  | GitHub Deployments API       | Native GitHub integration        | Not implemented        | Planned     |
-
-### Deployment gates
-
-```bash
-DEPLOYMENT_REQUIRE_TESTS=false   # Default: false
-DEPLOYMENT_REQUIRED_CONTEXTS=ci,security-scan,build
-DEPLOYMENT_ENVIRONMENT=staging   # Default: staging
-DEPLOYMENT_LABEL=deploy:staging  # Default: deploy:staging
-```
-
-### Webhook configuration (eventbridge strategy)
-
-```bash
-DEPLOYMENT_WEBHOOK_URL=https://your-deploy-system.com/deploy
-DEPLOYMENT_WEBHOOK_AUTH_TOKEN=your-bearer-token
-DEPLOYMENT_WEBHOOK_TIMEOUT_MS=30000
-DEPLOYMENT_WEBHOOK_RETRIES=3
-DEPLOYMENT_ROLLBACK_WEBHOOK_URL=https://your-deploy-system.com/rollback
-```
-
-### JSON configuration (alternative)
-
-```bash
-DEPLOYMENT_CONFIG='{
-  "strategy": "eventbridge",
-  "riskThreshold": 30,
-  "webhookUrl": "https://your-deploy-system.com/deploy",
-  "webhookTimeoutMs": 30000,
-  "retries": 3,
-  "environment": "staging"
-}'
-```
-
-### Update configuration after deployment
-
-**CDK context**
-
-```bash
-cd infrastructure
-npm run deploy -- \
-  -c deploymentStrategy=eventbridge \
-  -c deploymentRiskThreshold=30 \
-  -c deploymentWebhookUrl=https://example.com/deploy
-```
-
-**Lambda environment variables**
-
-```bash
-aws lambda update-function-configuration \
-  --function-name pullmint-deployment-orchestrator \
-  --environment "Variables={
-    DEPLOYMENT_STRATEGY=eventbridge,
-    DEPLOYMENT_RISK_THRESHOLD=30,
-    DEPLOYMENT_WEBHOOK_URL=https://example.com/deploy
-  }"
-```
-
-## Deployment webhook integration
-
-### Payload
-
-```json
-{
-  "executionId": "abc-123-def-456",
-  "prNumber": 42,
-  "repoFullName": "owner/repo",
-  "headSha": "abc123def456...",
-  "deploymentEnvironment": "staging",
-  "riskScore": 25,
-  "timestamp": 1707523200000
-}
-```
-
-### Requirements
-
-1. Accept POST requests with JSON bodies.
-2. Authenticate via `Authorization: Bearer <token>`.
-3. Return status codes:
-   - 200-299: success
-   - 500-599: retry
-   - 400-499: fail
-4. Implement idempotency using `executionId`.
-5. Respond within the configured timeout.
-
-### Rollback webhook payload
-
-```json
-{
-  "executionId": "abc-123-def-456",
-  "prNumber": 42,
-  "repoFullName": "owner/repo",
-  "headSha": "abc123def456...",
-  "deploymentEnvironment": "staging",
-  "reason": "Webhook timeout after 3 retries"
-}
-```
-
-## Update and rollback
-
-### Update application code
-
-```bash
-cd pullmint
-git pull origin main
-npm install
-npm run build
-cd infrastructure
-npm run deploy
-```
-
-### Update configuration only
-
-```bash
-cd infrastructure
-npm run deploy -- -c deploymentRiskThreshold=35
-```
-
-### Roll back the stack
-
-```bash
-aws cloudformation describe-stack-events \
-  --stack-name PullmintWebhookStack
-
-aws cloudformation rollback-stack \
-  --stack-name PullmintWebhookStack
-```
-
-## Multi-environment deployment
-
-```bash
-# Development
-npm run deploy -- --context environment=dev
-
-# Staging
-npm run deploy -- --context environment=staging
-
-# Production
-npm run deploy -- --context environment=prod
-```
-
-```typescript
-const env = app.node.tryGetContext('environment') || 'dev';
-new WebhookStack(app, `PullmintWebhookStack-${env}`, {
-  /* ... */
-});
-```
-
-## Troubleshooting
-
-### Webhook not triggering
-
-1. Check GitHub webhook delivery history.
-2. Verify the webhook secret matches Secrets Manager.
-3. Check CloudWatch logs for the webhook-receiver Lambda.
-4. Verify the API Gateway endpoint is accessible.
-
-### Deployment not triggered
-
-1. Verify the risk score is below the deployment threshold (default 30).
-2. Ensure `DEPLOYMENT_WEBHOOK_URL` is configured.
-3. Confirm the EventBridge rule is enabled.
-4. Review deployment-orchestrator Lambda logs.
-
-### High LLM costs
-
-1. Review cache hit rates.
-2. Check for unusually large PR diffs.
-3. Consider tighter thresholds or caching improvements.
-
-### DynamoDB throttling
-
-1. Check read/write capacity metrics.
-2. Switch tables to on-demand billing.
-3. Add GSIs for common query patterns.
-
-### Lambda timeouts
-
-1. Increase timeouts in the CDK stack.
-2. Review logs for slow operations.
-3. Optimize prompt size or diff filtering.
+GitHub Actions builds Docker images on every push to `main` and publishes to GitHub Container Registry (GHCR). See `.github/workflows/` for the full pipeline.
