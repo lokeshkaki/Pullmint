@@ -35,8 +35,8 @@
     "llm",
     "github",
     "ci-cd",
-    "serverless",
-    "aws"
+    "docker",
+    "typescript"
   ],
   "author": "Lokesh Kaki",
   "license": "MIT",
