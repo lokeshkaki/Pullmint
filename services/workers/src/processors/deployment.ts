@@ -5,6 +5,7 @@ import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfigOptional } from '@pullmint/shared/config';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { createStructuredError } from '@pullmint/shared/error-handling';
+import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { evaluateRisk } from '@pullmint/shared/risk-evaluator';
 import { resolveSignalWeights } from '@pullmint/shared/signal-weights';
 import type {
@@ -65,19 +66,15 @@ export async function processDeploymentJob(job: Job): Promise<void> {
       return;
     }
 
-    await db
-      .update(schema.executions)
-      .set({
-        status: 'deploying',
-        deploymentStrategy: detail.deploymentStrategy,
-        deploymentStartedAt: new Date().toISOString(),
-        metadata: {
-          deploymentStatus: 'deploying',
-          deploymentEnvironment: detail.deploymentEnvironment,
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.executions.executionId, detail.executionId));
+    await publishExecutionUpdate(detail.executionId, {
+      status: 'deploying',
+      deploymentStrategy: detail.deploymentStrategy,
+      deploymentStartedAt: new Date().toISOString(),
+      metadata: {
+        deploymentStatus: 'deploying',
+        deploymentEnvironment: detail.deploymentEnvironment,
+      },
+    });
     deployingStatusSet = true;
 
     // Checkpoint 2: re-evaluate risk with late signals before deploying
@@ -88,35 +85,27 @@ export async function processDeploymentJob(job: Job): Promise<void> {
     } = await runCheckpoint2(detail);
 
     if (checkpoint2Score >= DEPLOYMENT_THRESHOLD) {
-      await db
-        .update(schema.executions)
-        .set({
-          status: 'deployment-blocked',
-          checkpoints: [...priorCheckpoints, checkpoint2] as unknown as Record<string, unknown>,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.executions.executionId, detail.executionId));
+      await publishExecutionUpdate(detail.executionId, {
+        status: 'deployment-blocked',
+        checkpoints: [...priorCheckpoints, checkpoint2] as unknown as Record<string, unknown>,
+      });
       deployingStatusSet = false;
       return;
     }
 
     const outcome = await performDeployment(detail, config);
 
-    await db
-      .update(schema.executions)
-      .set({
-        status: outcome.status === 'deployed' ? 'monitoring' : 'failed',
-        checkpoints: [...priorCheckpoints, checkpoint2] as unknown as Record<string, unknown>,
-        deploymentCompletedAt: new Date().toISOString(),
-        metadata: {
-          deploymentStatus: outcome.status,
-          deploymentEnvironment: detail.deploymentEnvironment,
-          deploymentMessage: outcome.message,
-          rollbackStatus: outcome.rollbackStatus,
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.executions.executionId, detail.executionId));
+    await publishExecutionUpdate(detail.executionId, {
+      status: outcome.status === 'deployed' ? 'monitoring' : 'failed',
+      checkpoints: [...priorCheckpoints, checkpoint2] as unknown as Record<string, unknown>,
+      deploymentCompletedAt: new Date().toISOString(),
+      metadata: {
+        deploymentStatus: outcome.status,
+        deploymentEnvironment: detail.deploymentEnvironment,
+        deploymentMessage: outcome.message,
+        rollbackStatus: outcome.rollbackStatus,
+      },
+    });
     deployingStatusSet = false;
 
     const statusEvent: DeploymentStatusEvent = {
@@ -143,19 +132,15 @@ export async function processDeploymentJob(job: Job): Promise<void> {
   } finally {
     if (deployingStatusSet) {
       try {
-        await getDb()
-          .update(schema.executions)
-          .set({
-            status: 'failed',
-            metadata: {
-              deploymentStatus: 'failed',
-              deploymentMessage:
-                'Unhandled error during deployment — status recovered by finally block',
-            },
-            deploymentCompletedAt: new Date().toISOString(),
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.executions.executionId, detail.executionId));
+        await publishExecutionUpdate(detail.executionId, {
+          status: 'failed',
+          metadata: {
+            deploymentStatus: 'failed',
+            deploymentMessage:
+              'Unhandled error during deployment — status recovered by finally block',
+          },
+          deploymentCompletedAt: new Date().toISOString(),
+        });
       } catch (finallyError) {
         console.error('CRITICAL: Failed to write terminal status in finally block', finallyError);
       }

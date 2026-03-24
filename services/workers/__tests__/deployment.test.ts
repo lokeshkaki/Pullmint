@@ -50,6 +50,12 @@ jest.mock('@pullmint/shared/signal-weights', () => ({
   }),
 }));
 
+jest.mock('@pullmint/shared/execution-events', () => ({
+  publishExecutionUpdate: jest.fn().mockResolvedValue(undefined),
+  publishEvent: jest.fn().mockResolvedValue(undefined),
+  closePublisher: jest.fn().mockResolvedValue(undefined),
+}));
+
 // ---- shared DB mock state ----
 let mockDb: { select: jest.Mock; update: jest.Mock };
 let mockLimit: jest.Mock;
@@ -139,7 +145,10 @@ describe('processDeploymentJob', () => {
     await processDeploymentJob(makeDeploymentJob());
 
     consoleSpy.mockRestore();
-    expect(mockDb.update).not.toHaveBeenCalled();
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    expect(publishExecutionUpdate).not.toHaveBeenCalled();
   });
 
   it('deploys successfully and publishes deployment.status event', async () => {
@@ -190,12 +199,13 @@ describe('processDeploymentJob', () => {
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(addJob).not.toHaveBeenCalled();
-    // Should update status to deployment-blocked
-    const setCalls = mockDb.update.mock.results
-      .map((r) => r.value.set.mock.calls[1]?.[0])
-      .filter(Boolean);
-    const blockedCall = setCalls.find((s) => s?.status === 'deployment-blocked');
-    expect(blockedCall).toBeDefined();
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({ status: 'deployment-blocked' })
+    );
   });
 
   it('handles missing webhook URL gracefully (no-url path)', async () => {
@@ -235,8 +245,13 @@ describe('processDeploymentJob', () => {
     await expect(processDeploymentJob(makeDeploymentJob())).rejects.toThrow('unexpected DB error');
 
     consoleSpy.mockRestore();
-    // finally block should still attempt status update
-    expect(mockDb.update).toHaveBeenCalled();
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({ status: 'failed' })
+    );
   });
 
   it('uses checkpoint wait/delay and calibration factor during successful deployment', async () => {
@@ -423,17 +438,12 @@ describe('processDeploymentJob', () => {
   });
 
   it('logs a critical error when finally status recovery write fails', async () => {
-    const dbModule = jest.requireMock('@pullmint/shared/db') as { getDb: jest.Mock };
-    const failingDb = {
-      update: jest.fn().mockImplementation(() => {
-        throw new Error('failed terminal status write');
-      }),
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
     };
-
-    dbModule.getDb
-      .mockImplementationOnce(() => mockDb)
-      .mockImplementationOnce(() => mockDb)
-      .mockImplementationOnce(() => failingDb);
+    publishExecutionUpdate
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('failed terminal status write'));
 
     mockLimit
       .mockResolvedValueOnce([{ deploymentStartedAt: null }])
