@@ -28,7 +28,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push API image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/api/Dockerfile
@@ -38,7 +38,7 @@ jobs:
             ghcr.io/${{ env.REPO_LC }}/api:${{ github.sha }}
 
       - name: Build and push Workers image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/workers/Dockerfile
@@ -48,7 +48,7 @@ jobs:
             ghcr.io/${{ env.REPO_LC }}/workers:${{ github.sha }}
 
       - name: Build and push Dashboard image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/dashboard/Dockerfile
