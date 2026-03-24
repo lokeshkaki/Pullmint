@@ -8,6 +8,8 @@ const apiBase = '/dashboard';
 let currentFilters = {};
 let nextToken = null;
 let pollingInterval = null;
+let eventSource = null;
+let currentView = 'executions-view';
 
 function getAuthHeaders() {
   const token = window.localStorage?.getItem('dashboardAuthToken');
@@ -81,6 +83,7 @@ function renderExecutions(executions, append = false) {
   executions.forEach((exec) => {
     const item = document.createElement('div');
     item.className = 'execution-item';
+    item.setAttribute('data-execution-id', exec.executionId);
     item.onclick = () => viewExecution(exec.executionId);
 
     const timestamp = exec.timestamp ? new Date(exec.timestamp).toLocaleString() : 'Unknown';
@@ -297,12 +300,87 @@ async function viewExecution(executionId) {
 function startPolling() {
   pollingInterval = setInterval(() => {
     loadExecutions();
-  }, 10000);
+  }, 60000);
 }
 
 function stopPolling() {
   if (pollingInterval) {
     clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+}
+
+function connectSSE() {
+  const token = window.localStorage?.getItem('dashboardAuthToken');
+  if (!token) return;
+
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+
+  const url = `${apiBase}/events?token=${encodeURIComponent(token)}`;
+  eventSource = new EventSource(url);
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      handleExecutionUpdate(data);
+    } catch (err) {
+      console.error('Failed to parse SSE event:', err);
+    }
+  };
+
+  eventSource.addEventListener('open', () => {
+    loadExecutions();
+  });
+
+  eventSource.onerror = () => {
+    if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+      console.error('SSE connection closed permanently');
+    }
+  };
+}
+
+function disconnectSSE() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+}
+
+function handleExecutionUpdate(data) {
+  const row = document.querySelector(`[data-execution-id="${data.executionId}"]`);
+  if (row) {
+    updateExecutionRow(row, data);
+  } else if (data.status === 'pending' || data.status === 'analyzing') {
+    loadExecutions();
+  }
+
+  if (currentView === 'board-view') {
+    loadBoard();
+  }
+
+  if (currentView === 'detail-view' && currentExecutionId === data.executionId) {
+    showExecutionDetail(data.executionId);
+  }
+}
+
+function updateExecutionRow(row, data) {
+  if (data.status) {
+    const statusBadge = row.querySelector('.badge');
+    if (statusBadge) {
+      statusBadge.textContent = data.status;
+      statusBadge.className = 'badge ' + data.status;
+    }
+  }
+
+  if (data.riskScore !== null && data.riskScore !== undefined) {
+    const riskEl = row.querySelector('.risk-score');
+    if (riskEl) {
+      riskEl.textContent = 'Risk: ' + data.riskScore;
+      riskEl.className = 'risk-score ' + getRiskClass(data.riskScore);
+    }
   }
 }
 
@@ -328,6 +406,7 @@ function initializeDashboard() {
 
   loadExecutions();
   startPolling();
+  connectSSE();
 }
 
 // Stop polling when page is hidden
@@ -336,7 +415,14 @@ document.addEventListener('visibilitychange', () => {
     stopPolling();
   } else {
     startPolling();
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+      connectSSE();
+    }
   }
+});
+
+window.addEventListener('beforeunload', () => {
+  disconnectSSE();
 });
 
 initializeDashboard();
@@ -347,6 +433,7 @@ initializeDashboard();
 let activeViewBtn = document.querySelector('.nav-tab.active');
 
 function showView(viewId, btn) {
+  currentView = viewId;
   ['executions-view', 'board-view', 'detail-view', 'calibration-view'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
