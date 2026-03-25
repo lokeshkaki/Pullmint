@@ -12,6 +12,7 @@ jest.mock('@pullmint/shared/db', () => ({
 jest.mock('@pullmint/shared/queue', () => ({
   addJob: jest.fn().mockResolvedValue(undefined),
   QUEUE_NAMES: {
+    DEPLOYMENT: 'deployment',
     GITHUB_INTEGRATION: 'github-integration',
   },
 }));
@@ -274,12 +275,96 @@ describe('processDeploymentJob', () => {
       .mockResolvedValueOnce([{ checkpoints: [], repoContext: null, signalsReceived: {} }])
       .mockResolvedValueOnce([{ calibrationFactor: 1.25 }]);
 
-    await processDeploymentJob(makeDeploymentJob({ riskScore: 15 }));
+    await processDeploymentJob(makeDeploymentJob({ riskScore: 15, checkpoint2Complete: true }));
 
     expect(evaluateRisk).toHaveBeenCalledWith(
       expect.objectContaining({ calibrationFactor: 1.25, llmBaseScore: 15 })
     );
     expect(mockFetch).toHaveBeenCalled();
+  });
+
+  describe('checkpoint2 delayed re-enqueue', () => {
+    it('re-enqueues job with delay when checkpoint2Complete is not set', async () => {
+      (
+        jest.requireMock('@pullmint/shared/config') as { getConfigOptional: jest.Mock }
+      ).getConfigOptional.mockImplementation((key: string) => {
+        if (key === 'DEPLOYMENT_WEBHOOK_URL') return 'https://deploy.example.com';
+        if (key === 'DEPLOYMENT_WEBHOOK_SECRET') return 'secret-token';
+        if (key === 'CHECKPOINT_2_WAIT_MS') return '5000';
+        return undefined;
+      });
+
+      mockLimit.mockResolvedValueOnce([{ deploymentStartedAt: null }]);
+
+      const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+
+      await processDeploymentJob(makeDeploymentJob());
+
+      expect(addJob).toHaveBeenCalledWith(
+        'deployment',
+        'deployment_approved',
+        expect.objectContaining({ executionId: 'exec-1', checkpoint2Complete: true }),
+        expect.objectContaining({ delay: 5000, jobId: 'exec-1-checkpoint2' })
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('runs checkpoint2 inline when checkpoint2Complete is true', async () => {
+      (
+        jest.requireMock('@pullmint/shared/config') as { getConfigOptional: jest.Mock }
+      ).getConfigOptional.mockImplementation((key: string) => {
+        if (key === 'DEPLOYMENT_WEBHOOK_URL') return 'https://deploy.example.com';
+        if (key === 'DEPLOYMENT_WEBHOOK_SECRET') return 'secret-token';
+        if (key === 'CHECKPOINT_2_WAIT_MS') return '5000';
+        return undefined;
+      });
+
+      mockLimit
+        .mockResolvedValueOnce([{ deploymentStartedAt: null }])
+        .mockResolvedValueOnce([{ checkpoints: [], repoContext: null, signalsReceived: {} }])
+        .mockResolvedValueOnce([]);
+
+      const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      const { evaluateRisk } = jest.requireMock('@pullmint/shared/risk-evaluator') as {
+        evaluateRisk: jest.Mock;
+      };
+
+      await processDeploymentJob(makeDeploymentJob({ checkpoint2Complete: true }));
+
+      expect(
+        addJob.mock.calls.some((call) => call[0] === 'deployment' && call[1] === 'deployment_approved')
+      ).toBe(false);
+      expect(evaluateRisk).toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    it('skips re-enqueue when CHECKPOINT_2_WAIT_MS is 0', async () => {
+      (
+        jest.requireMock('@pullmint/shared/config') as { getConfigOptional: jest.Mock }
+      ).getConfigOptional.mockImplementation((key: string) => {
+        if (key === 'DEPLOYMENT_WEBHOOK_URL') return 'https://deploy.example.com';
+        if (key === 'DEPLOYMENT_WEBHOOK_SECRET') return 'secret-token';
+        if (key === 'CHECKPOINT_2_WAIT_MS') return '0';
+        return undefined;
+      });
+
+      mockLimit
+        .mockResolvedValueOnce([{ deploymentStartedAt: null }])
+        .mockResolvedValueOnce([{ checkpoints: [], repoContext: null, signalsReceived: {} }])
+        .mockResolvedValueOnce([]);
+
+      const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      const { evaluateRisk } = jest.requireMock('@pullmint/shared/risk-evaluator') as {
+        evaluateRisk: jest.Mock;
+      };
+
+      await processDeploymentJob(makeDeploymentJob());
+
+      expect(
+        addJob.mock.calls.some((call) => call[0] === 'deployment' && call[1] === 'deployment_approved')
+      ).toBe(false);
+      expect(evaluateRisk).toHaveBeenCalled();
+    });
   });
 
   it('retries webhook after a transient failure and then succeeds', async () => {
