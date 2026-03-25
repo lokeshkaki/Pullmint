@@ -318,11 +318,16 @@ describe('evaluateRisk', () => {
     });
 
     it('clamps risk score to 0 when inputs produce negative value', () => {
+      // Use a negative learned weight to force a negative net score:
+      // adjustedBase = 5 * 0.5 * 0.1 = 0.25, signalDelta = -50 → net = -49.75 → clamped to 0
       const result = evaluateRisk({
         llmBaseScore: 5,
-        signals: [],
+        signals: [
+          { signalType: 'ci.result', value: false, source: 'github', timestamp: Date.now() },
+        ],
         calibrationFactor: 0.1,
         blastRadiusMultiplier: 0.5,
+        signalWeights: { 'ci.result': -50 },
       });
 
       expect(result.score).toBe(0);

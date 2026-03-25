@@ -31,16 +31,19 @@ export interface FilteredDiff {
 
 const EXCLUSION_PATTERNS: Record<string, string[]> = {
   architecture: ['*.lock', '*.min.js', '*.min.css', '*.generated.*'],
-  security: ['*test*', '*spec*', '*__tests__*', '*.test.*', '*.spec.*', '*mock*', '*.stories.*'],
+  security: ['__tests__', '__mocks__', '*.test.*', '*.spec.*', '*.stories.*', '*.mock.*'],
   performance: ['*.md', '*.txt', '*.lock', 'LICENSE', 'CHANGELOG*', '*.stories.*'],
   style: ['*.lock', '*.min.js', '*.min.css', '*.generated.*', 'package-lock.json', 'yarn.lock'],
 };
 
 function globToRegExp(pattern: string): RegExp {
-  if (pattern === 'package-lock.json' || pattern === 'yarn.lock' || pattern === 'LICENSE') {
-    return new RegExp(`(^|/)${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  // Exact filenames — match the segment exactly
+  if (!pattern.includes('*')) {
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${escaped}$`, 'i');
   }
 
+  // Glob patterns — tested against each path segment individually
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   return new RegExp(`^${escaped}$`, 'i');
 }
@@ -179,9 +182,9 @@ function getChangeCount(file: DiffFile): number {
 
 function matchesAnyExclusion(path: string, exclusions: RegExp[]): boolean {
   const normalizedPath = path.replace(/\\/g, '/');
-  const fileName = normalizedPath.split('/').pop() || normalizedPath;
+  const segments = normalizedPath.split('/');
 
-  return exclusions.some((regex) => regex.test(normalizedPath) || regex.test(fileName));
+  return exclusions.some((regex) => segments.some((segment) => regex.test(segment)));
 }
 
 export function filterDiff(parsed: ParsedDiff, agentType: string, maxChars: number): FilteredDiff {
