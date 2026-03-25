@@ -91,6 +91,81 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  workers-analysis:
+    build:
+      context: .
+      dockerfile: services/workers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://pullmint:pullmint@postgres:5432/pullmint
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
+      WORKER_GROUP: analysis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - split
+
+  workers-integration:
+    build:
+      context: .
+      dockerfile: services/workers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://pullmint:pullmint@postgres:5432/pullmint
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
+      WORKER_GROUP: integration
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - split
+
+  workers-background:
+    build:
+      context: .
+      dockerfile: services/workers/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://pullmint:pullmint@postgres:5432/pullmint
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
+      WORKER_GROUP: background
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - split
+
   dashboard:
     build:
       context: .

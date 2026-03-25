@@ -45,7 +45,7 @@ type FetchFn = (
 ) => Promise<FetchResponse>;
 
 export async function processDeploymentJob(job: Job): Promise<void> {
-  const detail = job.data as DeploymentApprovedEvent;
+  const detail = job.data as DeploymentApprovedEvent & { checkpoint2Complete?: boolean };
   addTraceAnnotations({ executionId: detail.executionId, prNumber: detail.prNumber });
   const config = getDeploymentConfig();
   const db = getDb();
@@ -60,22 +60,38 @@ export async function processDeploymentJob(job: Job): Promise<void> {
       .limit(1);
 
     if (existing?.deploymentStartedAt) {
-      console.warn(
-        `Deployment already started for ${detail.executionId} — skipping duplicate invocation`
-      );
-      return;
+      if (detail.checkpoint2Complete) {
+        deployingStatusSet = true;
+      } else {
+        console.warn(
+          `Deployment already started for ${detail.executionId} — skipping duplicate invocation`
+        );
+        return;
+      }
+    } else {
+      await publishExecutionUpdate(detail.executionId, {
+        status: 'deploying',
+        deploymentStrategy: detail.deploymentStrategy,
+        deploymentStartedAt: new Date().toISOString(),
+        metadata: {
+          deploymentStatus: 'deploying',
+          deploymentEnvironment: detail.deploymentEnvironment,
+        },
+      });
+      deployingStatusSet = true;
     }
 
-    await publishExecutionUpdate(detail.executionId, {
-      status: 'deploying',
-      deploymentStrategy: detail.deploymentStrategy,
-      deploymentStartedAt: new Date().toISOString(),
-      metadata: {
-        deploymentStatus: 'deploying',
-        deploymentEnvironment: detail.deploymentEnvironment,
-      },
-    });
-    deployingStatusSet = true;
+    const waitMs = Number(getConfigOptional('CHECKPOINT_2_WAIT_MS') ?? '30000');
+    if (waitMs > 0 && !detail.checkpoint2Complete) {
+      await addJob(
+        QUEUE_NAMES.DEPLOYMENT,
+        job.name,
+        { ...detail, checkpoint2Complete: true } as Record<string, unknown>,
+        { delay: waitMs, jobId: `${detail.executionId}-checkpoint2` }
+      );
+      deployingStatusSet = false;
+      return;
+    }
 
     // Checkpoint 2: re-evaluate risk with late signals before deploying
     const {
@@ -152,11 +168,6 @@ async function runCheckpoint2(
   detail: DeploymentApprovedEvent
 ): Promise<{ score: number; checkpoint: CheckpointRecord; priorCheckpoints: CheckpointRecord[] }> {
   const db = getDb();
-  const waitMs = Number(getConfigOptional('CHECKPOINT_2_WAIT_MS') ?? '30000');
-
-  if (waitMs > 0) {
-    await delay(waitMs);
-  }
 
   const [execution] = await db
     .select({

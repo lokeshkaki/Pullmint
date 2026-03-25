@@ -40,8 +40,7 @@ interface AnalysisCompleteData extends PREvent, AnalysisResult {
   findingsCount?: number;
 }
 
-let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
-let octokitRepoFullName: string | undefined;
+const octokitClients = new Map<string, Awaited<ReturnType<typeof getGitHubInstallationClient>>>();
 
 export async function processGitHubIntegrationJob(job: Job): Promise<void> {
   const jobName = job.name;
@@ -458,11 +457,12 @@ async function areRequiredChecksPassing(
 }
 
 async function getOctokitClient(repoFullName: string) {
-  if (!octokitClient || octokitRepoFullName !== repoFullName) {
-    octokitClient = await getGitHubInstallationClient(repoFullName);
-    octokitRepoFullName = repoFullName;
+  let client = octokitClients.get(repoFullName);
+  if (!client) {
+    client = await getGitHubInstallationClient(repoFullName);
+    octokitClients.set(repoFullName, client);
   }
-  return octokitClient;
+  return client;
 }
 
 function getDeploymentConfig(): DeploymentConfig {
