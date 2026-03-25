@@ -36,24 +36,18 @@ export async function publishExecutionUpdate(
 ): Promise<void> {
   const db = getDb();
 
-  // Perform the DB update
-  await db
+  // Single atomic UPDATE ... RETURNING avoids a stale read between queries.
+  const [row] = await db
     .update(schema.executions)
     .set({ ...updates, updatedAt: new Date() })
-    .where(eq(schema.executions.executionId, executionId));
-
-  // Load minimal fields for the event payload
-  const [row] = await db
-    .select({
+    .where(eq(schema.executions.executionId, executionId))
+    .returning({
       executionId: schema.executions.executionId,
       repoFullName: schema.executions.repoFullName,
       prNumber: schema.executions.prNumber,
       status: schema.executions.status,
       riskScore: schema.executions.riskScore,
-    })
-    .from(schema.executions)
-    .where(eq(schema.executions.executionId, executionId))
-    .limit(1);
+    });
 
   if (!row) return;
 

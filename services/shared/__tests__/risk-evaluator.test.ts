@@ -317,6 +317,18 @@ describe('evaluateRisk', () => {
       ).toBe(0);
     });
 
+    it('clamps risk score to 0 when inputs produce negative value', () => {
+      const result = evaluateRisk({
+        llmBaseScore: 5,
+        signals: [],
+        calibrationFactor: 0.1,
+        blastRadiusMultiplier: 0.5,
+      });
+
+      expect(result.score).toBe(0);
+      expect(result.score).toBeGreaterThanOrEqual(0);
+    });
+
     it('should not amplify signal deltas by both multipliers', () => {
       // blastRadius=1.5, calibration=1.5, CI fail (+15)
       // New formula: 20 * 1.5 * 1.5 + 15 = 45 + 15 = 60

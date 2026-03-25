@@ -92,7 +92,7 @@ export function evaluateRisk(
   // Apply multipliers only to the LLM base score so signal deltas always contribute their face value
   const adjustedBase = llmBaseScore * blastRadiusMultiplier * calibrationFactor;
   const calibrationAdjusted = adjustedBase + signalDelta;
-  const score = Math.min(100, Math.round(calibrationAdjusted));
+  const score = Math.max(0, Math.min(100, Math.round(calibrationAdjusted)));
 
   const receivedTypes = new Set(dedupedSignals.map((s) => s.signalType));
   const missingSignals = EXPECTED_SIGNAL_TYPES.filter((t) => !receivedTypes.has(t));
