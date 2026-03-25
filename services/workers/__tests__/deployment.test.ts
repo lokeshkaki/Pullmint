@@ -332,7 +332,9 @@ describe('processDeploymentJob', () => {
       await processDeploymentJob(makeDeploymentJob({ checkpoint2Complete: true }));
 
       expect(
-        addJob.mock.calls.some((call) => call[0] === 'deployment' && call[1] === 'deployment_approved')
+        addJob.mock.calls.some(
+          (call) => call[0] === 'deployment' && call[1] === 'deployment_approved'
+        )
       ).toBe(false);
       expect(evaluateRisk).toHaveBeenCalled();
       expect(mockFetch).toHaveBeenCalled();
@@ -361,7 +363,9 @@ describe('processDeploymentJob', () => {
       await processDeploymentJob(makeDeploymentJob());
 
       expect(
-        addJob.mock.calls.some((call) => call[0] === 'deployment' && call[1] === 'deployment_approved')
+        addJob.mock.calls.some(
+          (call) => call[0] === 'deployment' && call[1] === 'deployment_approved'
+        )
       ).toBe(false);
       expect(evaluateRisk).toHaveBeenCalled();
     });
