@@ -8,18 +8,13 @@ jest.mock('ioredis', () => {
   }));
 });
 
-const mockUpdateWhere = jest.fn().mockResolvedValue(undefined);
+const mockUpdateReturning = jest.fn();
+const mockUpdateWhere = jest.fn().mockReturnValue({ returning: mockUpdateReturning });
 const mockUpdateSet = jest.fn().mockReturnValue({ where: mockUpdateWhere });
 const mockUpdate = jest.fn().mockReturnValue({ set: mockUpdateSet });
 
-const mockLimit = jest.fn();
-const mockSelectWhere = jest.fn().mockReturnValue({ limit: mockLimit });
-const mockSelectFrom = jest.fn().mockReturnValue({ where: mockSelectWhere });
-const mockSelect = jest.fn().mockReturnValue({ from: mockSelectFrom });
-
 const mockDb = {
   update: mockUpdate,
-  select: mockSelect,
 };
 
 jest.mock('../db', () => ({
@@ -50,7 +45,7 @@ describe('execution-events', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPublish.mockResolvedValue(1);
-    mockLimit.mockResolvedValue([]);
+    mockUpdateReturning.mockResolvedValue([]);
   });
 
   afterEach(async () => {
@@ -59,7 +54,7 @@ describe('execution-events', () => {
 
   describe('publishExecutionUpdate', () => {
     it('performs DB update and publishes event payload', async () => {
-      mockLimit.mockResolvedValue([
+      mockUpdateReturning.mockResolvedValue([
         {
           executionId: 'exec-1',
           repoFullName: 'org/repo',
@@ -83,6 +78,13 @@ describe('execution-events', () => {
         updatedAt: expect.any(Date),
       });
       expect(mockUpdateWhere).toHaveBeenCalled();
+      expect(mockUpdateReturning).toHaveBeenCalledWith({
+        executionId: 'execution_id',
+        repoFullName: 'repo_full_name',
+        prNumber: 'pr_number',
+        status: 'status',
+        riskScore: 'risk_score',
+      });
       expect(mockPublish).toHaveBeenCalledWith(
         'pullmint:execution-updates',
         expect.stringContaining('"executionId":"exec-1"')
@@ -94,7 +96,7 @@ describe('execution-events', () => {
     });
 
     it('does not publish when execution is not found after update', async () => {
-      mockLimit.mockResolvedValue([]);
+      mockUpdateReturning.mockResolvedValue([]);
 
       await publishExecutionUpdate('missing-exec', { status: 'analyzing' });
 
@@ -103,7 +105,7 @@ describe('execution-events', () => {
     });
 
     it('does not throw when Redis publish fails', async () => {
-      mockLimit.mockResolvedValue([
+      mockUpdateReturning.mockResolvedValue([
         {
           executionId: 'exec-1',
           repoFullName: 'org/repo',
