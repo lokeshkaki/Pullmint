@@ -13,7 +13,6 @@ import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { buildAnalysisCheckpoint } from '../checkpoint';
 import type { PREvent, Finding } from '@pullmint/shared/types';
 
-let octokitClient: Awaited<ReturnType<typeof getGitHubInstallationClient>> | undefined;
 let flowProducer: FlowProducer | undefined;
 
 function getAnalysisConfig() {
@@ -43,9 +42,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
 
   try {
     // 1. Initialize GitHub client
-    if (!octokitClient) {
-      octokitClient = await getGitHubInstallationClient(prEvent.repoFullName);
-    }
+    const octokitClient = await getGitHubInstallationClient(prEvent.repoFullName);
 
     // 2. Update execution status
     await publishExecutionUpdate(prEvent.executionId, { status: 'analyzing' });
@@ -54,7 +51,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     const [owner, repo] = prEvent.repoFullName.split('/');
     const diff = await retryWithBackoff(
       async () => {
-        const response = await octokitClient!.rest.pulls.get({
+        const response = await octokitClient.rest.pulls.get({
           owner,
           repo,
           pull_number: prEvent.prNumber,
@@ -286,4 +283,11 @@ function extractChangedFiles(diff: string): string[] {
     }
   }
   return files;
+}
+
+export async function closeAnalysisFlowProducer(): Promise<void> {
+  if (flowProducer) {
+    await flowProducer.close();
+    flowProducer = undefined;
+  }
 }

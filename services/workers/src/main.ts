@@ -1,133 +1,69 @@
-import { Worker, type WorkerOptions } from 'bullmq';
-import IORedis from 'ioredis';
-import { initTracing } from '@pullmint/shared/tracing';
-import { QUEUE_NAMES } from '@pullmint/shared/queue';
-import { closePublisher } from '@pullmint/shared/execution-events';
-import { processAnalysisJob } from './processors/analysis.js';
-import { processAgentJob } from './processors/agent.js';
-import { processSynthesisJob } from './processors/synthesis.js';
-import { processGitHubIntegrationJob } from './processors/github-integration.js';
-import { processDeploymentJob } from './processors/deployment.js';
-import { processDeploymentStatusJob } from './processors/deployment-status.js';
-import { processCalibrationJob } from './processors/calibration.js';
-import { processRepoIndexingJob } from './processors/repo-indexing.js';
-import { processCleanupJob } from './processors/cleanup.js';
-import { registerScheduledJobs } from './scheduled.js';
+import { startAnalysisGroup } from './groups/analysis-group.js';
+import { startIntegrationGroup } from './groups/integration-group.js';
+import { startBackgroundGroup } from './groups/background-group.js';
 
 async function start(): Promise<void> {
-  initTracing('pullmint-workers');
+  const group = process.env.WORKER_GROUP;
 
-  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-  const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
-  const workerConnection = connection as unknown as WorkerOptions['connection'];
-
-  console.log('Starting Pullmint workers...');
-
-  const workers: Worker[] = [];
-
-  // Analysis queue (now acts as dispatcher — creates BullMQ Flows)
-  workers.push(
-    new Worker(QUEUE_NAMES.ANALYSIS, processAnalysisJob, {
-      connection: workerConnection,
-      concurrency: 2,
-    })
-  );
-
-  // GitHub integration queue
-  workers.push(
-    new Worker(QUEUE_NAMES.GITHUB_INTEGRATION, processGitHubIntegrationJob, {
-      connection: workerConnection,
-      concurrency: 5,
-    })
-  );
-
-  // Deployment queue (deployment-orchestrator + rollback)
-  workers.push(
-    new Worker(QUEUE_NAMES.DEPLOYMENT, processDeploymentJob, {
-      connection: workerConnection,
-      concurrency: 3,
-    })
-  );
-
-  // Deployment status queue
-  workers.push(
-    new Worker(QUEUE_NAMES.DEPLOYMENT_STATUS, processDeploymentStatusJob, {
-      connection: workerConnection,
-      concurrency: 5,
-    })
-  );
-
-  // Calibration queue
-  workers.push(
-    new Worker(QUEUE_NAMES.CALIBRATION, processCalibrationJob, {
-      connection: workerConnection,
-      concurrency: 3,
-    })
-  );
-
-  // Repo indexing queue
-  workers.push(
-    new Worker(QUEUE_NAMES.REPO_INDEXING, processRepoIndexingJob, {
-      connection: workerConnection,
-      concurrency: 2,
-    })
-  );
-
-  // Cleanup queue (TTL cleanup for PostgreSQL)
-  workers.push(
-    new Worker(QUEUE_NAMES.CLEANUP, processCleanupJob, {
-      connection: workerConnection,
-      concurrency: 1,
-    })
-  );
-
-  // Agent queue — individual LLM analysis jobs (high concurrency for parallel agents)
-  workers.push(
-    new Worker(QUEUE_NAMES.AGENT, processAgentJob, {
-      connection: workerConnection,
-      concurrency: 4,
-    })
-  );
-
-  // Synthesis queue — merges agent results after all children complete
-  workers.push(
-    new Worker(QUEUE_NAMES.SYNTHESIS, processSynthesisJob, {
-      connection: workerConnection,
-      concurrency: 3,
-    })
-  );
-
-  // Register scheduled/repeatable jobs
-  await registerScheduledJobs(connection);
-
-  // Log worker events
-  for (const worker of workers) {
-    worker.on('completed', (job) => {
-      console.log(`[${worker.name}] Job ${job.id ?? 'unknown'} (${job.name}) completed`);
-    });
-    worker.on('failed', (job, err) => {
-      console.error(
-        `[${worker.name}] Job ${job?.id ?? 'unknown'} (${job?.name ?? 'unknown'}) failed:`,
-        err.message
-      );
-    });
+  if (group === 'analysis') {
+    console.log('Starting analysis worker group...');
+    const { shutdown } = await startAnalysisGroup();
+    setupShutdown(shutdown);
+    return;
   }
 
-  console.log(`Workers started: ${workers.map((w) => w.name).join(', ')}`);
+  if (group === 'integration') {
+    console.log('Starting integration worker group...');
+    const { shutdown } = await startIntegrationGroup();
+    setupShutdown(shutdown);
+    return;
+  }
+
+  if (group === 'background') {
+    console.log('Starting background worker group...');
+    const { shutdown } = await startBackgroundGroup();
+    setupShutdown(shutdown);
+    return;
+  }
+
+  console.log('Starting Pullmint workers (unified mode)...');
+
+  const analysis = await startAnalysisGroup();
+  const integration = await startIntegrationGroup();
+  const background = await startBackgroundGroup();
+
+  console.log('All worker groups started');
 
   const shutdown = async (): Promise<void> => {
-    console.log('Shutting down workers...');
-    await Promise.all(workers.map((w) => w.close()));
-    await closePublisher();
-    await connection.quit();
-    process.exit(0);
+    console.log('Shutting down all worker groups...');
+    await Promise.all([analysis.shutdown(), integration.shutdown(), background.shutdown()]);
+  };
+
+  setupShutdown(shutdown);
+}
+
+function setupShutdown(shutdown: () => Promise<void>): void {
+  let isShuttingDown = false;
+
+  const handleSignal = (): void => {
+    if (isShuttingDown) {
+      return;
+    }
+    isShuttingDown = true;
+
+    void shutdown()
+      .then(() => process.exit(0))
+      .catch((error) => {
+        console.error('Failed during worker shutdown:', error);
+        process.exit(1);
+      });
   };
 
   process.on('SIGTERM', () => {
-    void shutdown();
+    handleSignal();
   });
   process.on('SIGINT', () => {
-    void shutdown();
+    handleSignal();
   });
 }
 

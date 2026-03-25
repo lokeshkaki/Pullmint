@@ -203,6 +203,35 @@ describe('processGitHubIntegrationJob', () => {
       expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
     });
 
+    it('uses separate Octokit clients for different repositories', async () => {
+      mockLimit.mockResolvedValue([{ checkpoints: [] }]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      const { getGitHubInstallationClient } = jest.requireMock('@pullmint/shared/github-app') as {
+        getGitHubInstallationClient: jest.Mock;
+      };
+
+      await processGitHubIntegrationJob(
+        makeAnalysisCompleteJob({
+          executionId: 'exec-1',
+          repoFullName: 'org/repo-one',
+          prNumber: 101,
+        })
+      );
+
+      await processGitHubIntegrationJob(
+        makeAnalysisCompleteJob({
+          executionId: 'exec-2',
+          repoFullName: 'org/repo-two',
+          prNumber: 202,
+        })
+      );
+
+      expect(getGitHubInstallationClient).toHaveBeenCalledWith('org/repo-one');
+      expect(getGitHubInstallationClient).toHaveBeenCalledWith('org/repo-two');
+      expect(getGitHubInstallationClient).toHaveBeenCalledTimes(2);
+    });
+
     it('triggers deployment via eventbridge strategy when risk is below threshold', async () => {
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]); // approval succeeds
