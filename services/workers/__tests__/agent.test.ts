@@ -182,4 +182,34 @@ describe('processAgentJob', () => {
 
     expect(capturedInput?.messages?.[0]?.content).toContain('test knowledge');
   });
+
+  it('injects info finding when diff is truncated', async () => {
+    const largeDiff = Array.from({ length: 200 }, (_, index) => {
+      return [
+        `diff --git a/src/file${index}.ts b/src/file${index}.ts`,
+        `--- a/src/file${index}.ts`,
+        `+++ b/src/file${index}.ts`,
+        '@@ -1,1 +1,2 @@',
+        ` line ${index}`,
+        `+added line ${'x'.repeat(40)}`,
+      ].join('\n');
+    }).join('\n');
+
+    (getObject as jest.Mock).mockResolvedValueOnce(largeDiff);
+    process.env.LLM_MAX_DIFF_CHARS_ARCHITECTURE = '500';
+
+    try {
+      const result = await processAgentJob(makeAgentJob('architecture'));
+      const partialInfoFinding = result.findings.find(
+        (finding) => finding.severity === 'info' && finding.title === 'Partial diff analysis'
+      );
+
+      expect(partialInfoFinding).toBeDefined();
+      expect(partialInfoFinding?.description).toContain(
+        'excluded by relevance filter or size limit'
+      );
+    } finally {
+      delete process.env.LLM_MAX_DIFF_CHARS_ARCHITECTURE;
+    }
+  });
 });
