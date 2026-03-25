@@ -64,8 +64,16 @@ describe('parseDiff', () => {
 describe('getFileExclusions', () => {
   it('returns test-related patterns for security agent', () => {
     const exclusions = getFileExclusions('security');
-    expect(exclusions.some((re) => re.test('src/__tests__/foo.test.ts'))).toBe(true);
-    expect(exclusions.some((re) => re.test('src/index.ts'))).toBe(false);
+    // Matches test files by extension
+    expect(exclusions.some((re) => re.test('foo.test.ts'))).toBe(true);
+    expect(exclusions.some((re) => re.test('foo.spec.ts'))).toBe(true);
+    // Matches __tests__ directory segment
+    expect(exclusions.some((re) => re.test('__tests__'))).toBe(true);
+    // Does NOT match normal source files
+    expect(exclusions.some((re) => re.test('index.ts'))).toBe(false);
+    // Does NOT false-positive on filenames containing "test" as substring
+    expect(exclusions.some((re) => re.test('latest-config.ts'))).toBe(false);
+    expect(exclusions.some((re) => re.test('attest.ts'))).toBe(false);
   });
 
   it('returns lock file patterns for style agent', () => {

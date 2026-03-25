@@ -13,6 +13,7 @@ export async function startBackgroundGroup(): Promise<{ shutdown: () => Promise<
 
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
   const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+  await connection.ping();
   const workerConnection = connection as unknown as WorkerOptions['connection'];
 
   const workers: Worker[] = [];
