@@ -8,6 +8,7 @@ import { getArchitecturePrompt } from '../prompts/architecture';
 import { getSecurityPrompt } from '../prompts/security';
 import { getPerformancePrompt } from '../prompts/performance';
 import { getMaintainabilityPrompt } from '../prompts/maintainability';
+import { parseDiff, filterDiff, getMaxDiffChars, type FilteredDiff } from '../diff-filter';
 
 type AnthropicMessageInput = {
   model: string;
@@ -114,11 +115,11 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
   );
 
   // Build user prompt (same format as buildAnalysisPrompt in analysis.ts)
-  const maxDiffLength = 8000;
-  const truncatedDiff =
-    diff.length > maxDiffLength
-      ? diff.substring(0, maxDiffLength) + '\n\n[... diff truncated ...]'
-      : diff;
+  const maxChars = getMaxDiffChars(agentType);
+  const parsedDiff = parseDiff(diff);
+  const filtered: FilteredDiff = filterDiff(parsedDiff, agentType, maxChars);
+
+  const truncatedDiff = filtered.diff;
 
   let userContent = `<pr_title>${prEvent.title}</pr_title>\n`;
   if (repoKnowledge) {
@@ -150,6 +151,23 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
     .join('');
 
   const parsed = parseAgentResponse(responseText, agentType);
+
+  if (filtered.wasTruncated || filtered.excludedFiles > 0) {
+    const infoFinding: Finding = {
+      type: agentType as Finding['type'],
+      severity: 'info',
+      title: 'Partial diff analysis',
+      description:
+        `Analyzed ${filtered.includedFiles} of ${filtered.includedFiles + filtered.excludedFiles} changed files ` +
+        `(${filtered.excludedFiles} excluded by relevance filter or size limit). ` +
+        `Original diff: ${filtered.originalCharCount.toLocaleString()} characters.` +
+        (filtered.excludedFilePaths.length > 0
+          ? ` Excluded: ${filtered.excludedFilePaths.slice(0, 5).join(', ')}${filtered.excludedFilePaths.length > 5 ? ` and ${filtered.excludedFilePaths.length - 5} more` : ''}.`
+          : ''),
+    };
+
+    parsed.findings.push(infoFinding);
+  }
 
   // Calculate tokens
   const tokens = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
