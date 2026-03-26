@@ -1033,6 +1033,22 @@ describe('processGitHubIntegrationJob', () => {
       expect(body).toContain('321 tokens');
     });
 
+    it('renders incremental metadata with rerun agent count', () => {
+      const body = buildCommentBody({
+        ...(makeAnalysisCompleteJob().data as Record<string, unknown>),
+        findings: [],
+        metadata: {
+          processingTime: 87,
+          tokensUsed: 321,
+          incremental: true,
+          rerunAgents: ['architecture', 'security'],
+        },
+      } as unknown as Parameters<typeof buildCommentBody>[0]);
+
+      expect(body).toContain('🔄 incremental');
+      expect(body).toContain('re-analyzed 2 agents for changed files');
+    });
+
     it('returns medium risk emoji', () => {
       expect(getRiskEmoji('Medium')).toBe('🟡');
     });

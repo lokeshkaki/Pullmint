@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import type { SynthesisJobData } from '../src/processors/synthesis';
+import type { AgentResult } from '../src/processors/agent';
 
 let mockChat: jest.Mock;
 
@@ -132,12 +133,15 @@ function makeSynthesisJob(
   } as unknown as Job<SynthesisJobData>;
 }
 
-function makeAgentResult(agentType: string, overrides: Record<string, unknown> = {}) {
+function makeAgentResult(
+  agentType: 'architecture' | 'security' | 'performance' | 'style',
+  overrides: Partial<AgentResult> = {}
+): AgentResult {
   return {
     agentType,
     findings: [
       {
-        type: agentType === 'style' ? 'style' : agentType,
+        type: agentType,
         severity: 'medium',
         title: `${agentType} finding`,
         description: `A ${agentType} issue`,
@@ -357,5 +361,122 @@ describe('processSynthesisJob', () => {
 
     expect(storedData.agentResults.security.status).toBe('failed');
     expect(storedData.agentResults.architecture.status).toBe('completed');
+  });
+
+  describe('incremental result merging', () => {
+    it('merges prior results with new agent results', async () => {
+      const children = {
+        'bull:agent:arch-1': makeAgentResult('architecture'),
+        'bull:agent:sec-1': makeAgentResult('security'),
+      };
+
+      const priorAgentResults = {
+        performance: makeAgentResult('performance'),
+        style: makeAgentResult('style'),
+      };
+
+      const job = makeSynthesisJob(children, {
+        priorAgentResults,
+        rerunAgentTypes: ['architecture', 'security'],
+      });
+
+      await processSynthesisJob(job);
+
+      const { putObject } = jest.requireMock('@pullmint/shared/storage') as {
+        putObject: jest.Mock;
+      };
+      const storedData = JSON.parse(putObject.mock.calls[0][2] as string) as {
+        findings: unknown[];
+        agentResults: Record<string, unknown>;
+      };
+
+      expect(storedData.findings).toHaveLength(4);
+      expect(Object.keys(storedData.agentResults).sort()).toEqual([
+        'architecture',
+        'performance',
+        'security',
+        'style',
+      ]);
+
+      const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      expect(addJob).toHaveBeenCalledWith(
+        'github-integration',
+        'analysis.complete',
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            incremental: true,
+            rerunAgents: ['architecture', 'security'],
+          }),
+        })
+      );
+    });
+
+    it('new results override prior results for the same agent type', async () => {
+      const priorAgentResults = {
+        architecture: makeAgentResult('architecture', {
+          riskScore: 5,
+          findings: [
+            {
+              type: 'architecture',
+              severity: 'low',
+              title: 'Old architecture finding',
+              description: 'old description',
+            },
+          ],
+        }),
+      };
+
+      const children = {
+        'bull:agent:arch-1': makeAgentResult('architecture', {
+          riskScore: 90,
+          findings: [
+            {
+              type: 'architecture',
+              severity: 'high',
+              title: 'New architecture finding',
+              description: 'new description',
+            },
+          ],
+        }),
+      };
+
+      const job = makeSynthesisJob(children, {
+        agentTypes: ['architecture'],
+        priorAgentResults,
+        rerunAgentTypes: ['architecture'],
+      });
+
+      await processSynthesisJob(job);
+
+      const { putObject } = jest.requireMock('@pullmint/shared/storage') as {
+        putObject: jest.Mock;
+      };
+      const storedData = JSON.parse(putObject.mock.calls[0][2] as string) as {
+        riskScore: number;
+      };
+
+      expect(storedData.riskScore).toBe(90);
+    });
+
+    it('works normally without priorAgentResults', async () => {
+      const children = {
+        'bull:agent:perf-1': makeAgentResult('performance'),
+      };
+
+      const job = makeSynthesisJob(children, {
+        agentTypes: ['performance'],
+      });
+      await processSynthesisJob(job);
+
+      const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+      expect(addJob).toHaveBeenCalledWith(
+        'github-integration',
+        'analysis.complete',
+        expect.objectContaining({
+          executionId: 'exec-1',
+          findingsCount: 1,
+        })
+      );
+    });
   });
 });

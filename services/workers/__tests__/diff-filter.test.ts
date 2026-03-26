@@ -1,5 +1,6 @@
 import {
   parseDiff,
+  getChangedFiles,
   getFileExclusions,
   filterDiff,
   getMaxDiffChars,
@@ -59,6 +60,124 @@ describe('parseDiff', () => {
     expect(result.files[0].hunks).toHaveLength(2);
     expect(result.totalAddedLines).toBe(2);
     expect(result.totalRemovedLines).toBe(1);
+  });
+});
+
+describe('getChangedFiles', () => {
+  it('detects added files', () => {
+    const oldParsed = parseDiff(
+      [
+        'diff --git a/old.ts b/old.ts',
+        '--- a/old.ts',
+        '+++ b/old.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n')
+    );
+
+    const newParsed = parseDiff(
+      [
+        'diff --git a/old.ts b/old.ts',
+        '--- a/old.ts',
+        '+++ b/old.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+        'diff --git a/added.ts b/added.ts',
+        '--- /dev/null',
+        '+++ b/added.ts',
+        '@@ -0,0 +1 @@',
+        '+content',
+      ].join('\n')
+    );
+
+    const delta = getChangedFiles(oldParsed, newParsed);
+    expect(delta.added).toEqual(['added.ts']);
+    expect(delta.removed).toEqual([]);
+    expect(delta.modified).toEqual([]);
+  });
+
+  it('detects removed files', () => {
+    const oldParsed = parseDiff(
+      [
+        'diff --git a/keep.ts b/keep.ts',
+        '--- a/keep.ts',
+        '+++ b/keep.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+        'diff --git a/remove.ts b/remove.ts',
+        '--- a/remove.ts',
+        '+++ b/remove.ts',
+        '@@ -1 +1 @@',
+        '-x',
+        '+y',
+      ].join('\n')
+    );
+
+    const newParsed = parseDiff(
+      [
+        'diff --git a/keep.ts b/keep.ts',
+        '--- a/keep.ts',
+        '+++ b/keep.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n')
+    );
+
+    const delta = getChangedFiles(oldParsed, newParsed);
+    expect(delta.added).toEqual([]);
+    expect(delta.removed).toEqual(['remove.ts']);
+    expect(delta.modified).toEqual([]);
+  });
+
+  it('detects modified files', () => {
+    const oldParsed = parseDiff(
+      [
+        'diff --git a/main.ts b/main.ts',
+        '--- a/main.ts',
+        '+++ b/main.ts',
+        '@@ -1 +1 @@',
+        '-a',
+        '+b',
+      ].join('\n')
+    );
+
+    const newParsed = parseDiff(
+      [
+        'diff --git a/main.ts b/main.ts',
+        '--- a/main.ts',
+        '+++ b/main.ts',
+        '@@ -1 +1 @@',
+        '-a',
+        '+c',
+      ].join('\n')
+    );
+
+    const delta = getChangedFiles(oldParsed, newParsed);
+    expect(delta.added).toEqual([]);
+    expect(delta.removed).toEqual([]);
+    expect(delta.modified).toEqual(['main.ts']);
+  });
+
+  it('returns empty delta for identical diffs', () => {
+    const parsed = parseDiff(
+      [
+        'diff --git a/same.ts b/same.ts',
+        '--- a/same.ts',
+        '+++ b/same.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n')
+    );
+
+    const delta = getChangedFiles(parsed, parsed);
+    expect(delta.added).toEqual([]);
+    expect(delta.removed).toEqual([]);
+    expect(delta.modified).toEqual([]);
   });
 });
 
