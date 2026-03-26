@@ -1,5 +1,6 @@
 import { FlowProducer, Job } from 'bullmq';
 import type { ConnectionOptions } from 'bullmq';
+import YAML from 'yaml';
 import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES, getRedisConnection } from '@pullmint/shared/queue';
@@ -7,6 +8,11 @@ import { getConfig, getConfigOptional } from '@pullmint/shared/config';
 import { putObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
+import {
+  DEFAULT_CONFIG,
+  pullmintConfigSchema,
+  type PullmintConfig,
+} from '@pullmint/shared/pullmint-config';
 import { hashContent } from '@pullmint/shared/utils';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
 import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
@@ -14,6 +20,8 @@ import { buildAnalysisCheckpoint } from '../checkpoint';
 import type { PREvent, Finding } from '@pullmint/shared/types';
 
 let flowProducer: FlowProducer | undefined;
+type OctokitClient = Awaited<ReturnType<typeof getGitHubInstallationClient>>;
+type LogFn = (message: string) => void | Promise<unknown>;
 
 function getAnalysisConfig() {
   return {
@@ -32,6 +40,52 @@ function getFlowProducer(): FlowProducer {
   return flowProducer;
 }
 
+export async function fetchRepoConfig(
+  octokit: OctokitClient,
+  owner: string,
+  repo: string,
+  headSha: string,
+  logWarning?: LogFn
+): Promise<PullmintConfig> {
+  try {
+    const response = await octokit.rest.repos.getContent({
+      owner,
+      repo,
+      path: '.pullmint.yml',
+      ref: headSha,
+    });
+    const data = response.data as { content?: string } | undefined;
+
+    if (!data || typeof data.content !== 'string') {
+      return DEFAULT_CONFIG;
+    }
+
+    const content = Buffer.from(data.content, 'base64').toString('utf-8');
+    const raw: unknown = YAML.parse(content);
+    const result = pullmintConfigSchema.safeParse(raw);
+
+    if (!result.success) {
+      const issues = result.error.issues.map((issue) => issue.message).join(', ');
+      await Promise.resolve(
+        logWarning?.(`Warning: Invalid .pullmint.yml — ${issues}. Using defaults.`)
+      );
+      return DEFAULT_CONFIG;
+    }
+
+    return result.data;
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
+      return DEFAULT_CONFIG;
+    }
+
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    await Promise.resolve(
+      logWarning?.(`Warning: Failed to load .pullmint.yml — ${message}. Using defaults.`)
+    );
+    return DEFAULT_CONFIG;
+  }
+}
+
 export async function processAnalysisJob(job: Job): Promise<void> {
   const prEvent = job.data as PREvent & { executionId: string };
   const db = getDb();
@@ -44,11 +98,23 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     // 1. Initialize GitHub client
     const octokitClient = await getGitHubInstallationClient(prEvent.repoFullName);
 
+    const [owner, repo] = prEvent.repoFullName.split('/');
+    const repoConfig = await fetchRepoConfig(
+      octokitClient,
+      owner,
+      repo,
+      prEvent.headSha,
+      (message) => job.log?.(message)
+    );
+
+    await publishExecutionUpdate(prEvent.executionId, {
+      metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ repoConfig })}::jsonb`,
+    });
+
     // 2. Update execution status
     await publishExecutionUpdate(prEvent.executionId, { status: 'analyzing' });
 
     // 3. Fetch PR diff
-    const [owner, repo] = prEvent.repoFullName.split('/');
     const diff = await retryWithBackoff(
       async () => {
         const response = await octokitClient.rest.pulls.get({
@@ -178,9 +244,15 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     const diffLineCount = diff.split('\n').length;
     const isSmallDiff = diffLineCount < config.multiAgentMinDiffLines;
 
-    const agentTypes = isSmallDiff
+    const agentTypes: Array<keyof PullmintConfig['agents']> = isSmallDiff
       ? ['architecture', 'security']
       : ['architecture', 'security', 'performance', 'style'];
+
+    const configuredAgentTypes = agentTypes.filter((type) => repoConfig.agents[type] !== false);
+
+    if (configuredAgentTypes.length === 0) {
+      configuredAgentTypes.push('security');
+    }
 
     // 9. Create BullMQ Flow
     const childJobData = {
@@ -196,9 +268,10 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       },
       diffRef,
       repoKnowledge,
+      userIgnorePaths: repoConfig.ignore_paths,
     };
 
-    const children = agentTypes.map((agentType) => ({
+    const children = configuredAgentTypes.map((agentType) => ({
       name: agentType,
       queueName: QUEUE_NAMES.AGENT,
       data: { ...childJobData, agentType },
@@ -213,14 +286,14 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         executionId: prEvent.executionId,
         prEvent: childJobData.prEvent,
         diffRef,
-        agentTypes,
+        agentTypes: configuredAgentTypes,
         cacheKey,
       },
       children,
     });
 
     console.log(
-      `Dispatched ${agentTypes.length} agents for PR #${prEvent.prNumber} (${isSmallDiff ? 'small' : 'full'} diff, ${diffLineCount} lines)`
+      `Dispatched ${configuredAgentTypes.length} agents for PR #${prEvent.prNumber} (${isSmallDiff ? 'small' : 'full'} diff, ${diffLineCount} lines)`
     );
   } catch (error) {
     const structuredError = createStructuredError(

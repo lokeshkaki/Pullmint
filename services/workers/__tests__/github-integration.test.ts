@@ -315,6 +315,106 @@ describe('processGitHubIntegrationJob', () => {
       );
     });
 
+    it('filters review findings by severity threshold from repo config', async () => {
+      mockLimit.mockResolvedValue([
+        {
+          checkpoints: [],
+          metadata: {
+            repoConfig: {
+              severity_threshold: 'high',
+              ignore_paths: [],
+              agents: {
+                architecture: true,
+                security: true,
+                performance: true,
+                style: true,
+              },
+            },
+          },
+        },
+      ]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      await processGitHubIntegrationJob(
+        makeAnalysisCompleteJob({
+          riskScore: 30,
+          findings: [
+            {
+              type: 'architecture',
+              severity: 'info',
+              title: 'Info finding',
+              description: 'info description',
+            },
+            {
+              type: 'architecture',
+              severity: 'medium',
+              title: 'Medium finding',
+              description: 'medium description',
+            },
+            {
+              type: 'architecture',
+              severity: 'high',
+              title: 'High finding',
+              description: 'high description',
+            },
+          ],
+        })
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'COMMENT',
+          body: expect.stringContaining('High finding'),
+        })
+      );
+
+      const reviewCall = mockOctokit.rest.pulls.createReview.mock.calls.find(
+        ([args]: [{ event: string }]) => args.event === 'COMMENT'
+      );
+      const reviewBody = reviewCall?.[0].body as string;
+
+      expect(reviewBody).not.toContain('Info finding');
+      expect(reviewBody).not.toContain('Medium finding');
+    });
+
+    it('uses repo auto_approve_below over environment threshold', async () => {
+      mockLimit.mockResolvedValue([
+        {
+          checkpoints: [],
+          metadata: {
+            repoConfig: {
+              severity_threshold: 'low',
+              ignore_paths: [],
+              agents: {
+                architecture: true,
+                security: true,
+                performance: true,
+                style: true,
+              },
+              auto_approve_below: 15,
+            },
+          },
+        },
+      ]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      (
+        jest.requireMock('@pullmint/shared/config') as { getConfigOptional: jest.Mock }
+      ).getConfigOptional.mockImplementation((key: string) => {
+        if (key === 'AUTO_APPROVE_RISK_THRESHOLD') return '5';
+        if (key === 'DEPLOYMENT_RISK_THRESHOLD') return '60';
+        if (key === 'DEPLOYMENT_STRATEGY') return 'eventbridge';
+        if (key === 'DEPLOYMENT_ENVIRONMENT') return 'production';
+        return undefined;
+      });
+
+      await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 10 }));
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'APPROVE' })
+      );
+    });
+
     it('fetches findings from storage when s3Key is provided', async () => {
       const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
         getObject: jest.Mock;

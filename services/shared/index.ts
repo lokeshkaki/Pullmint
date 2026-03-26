@@ -13,6 +13,7 @@ export * from './schemas';
 export * from './github-app';
 export * from './risk-evaluator';
 export * from './llm';
+export * from './pullmint-config';
 
 // Schema exports
 export * from './schema';
