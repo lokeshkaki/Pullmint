@@ -39,26 +39,26 @@ The dashboard is at `http://localhost:3001`. See the [Development Guide](docs/DE
 Drop a `.pullmint.yml` in your repo root to customize analysis:
 
 ```yaml
-severity_threshold: medium     # minimum severity in PR comments
-ignore_paths: ["generated/**"] # paths to exclude from analysis
+severity_threshold: medium # minimum severity in PR comments
+ignore_paths: ['generated/**'] # paths to exclude from analysis
 agents:
-  performance: false           # skip performance agent for this repo
-auto_approve_below: 25         # risk score auto-approval threshold
+  performance: false # skip performance agent for this repo
+auto_approve_below: 25 # risk score auto-approval threshold
 ```
 
 ## Tech Stack
 
-| Layer          | Technology                    |
-| -------------- | ----------------------------- |
-| API            | Fastify (Node.js 20)          |
-| Workers        | BullMQ job processors         |
-| Database       | PostgreSQL 16 (pgvector)      |
-| Queue/Events   | Redis 7 (BullMQ + Pub/Sub)    |
-| Object Storage | MinIO (S3-compatible)         |
-| Dashboard      | Nginx + vanilla JS SPA        |
+| Layer          | Technology                                        |
+| -------------- | ------------------------------------------------- |
+| API            | Fastify (Node.js 20)                              |
+| Workers        | BullMQ job processors                             |
+| Database       | PostgreSQL 16 (pgvector)                          |
+| Queue/Events   | Redis 7 (BullMQ + Pub/Sub)                        |
+| Object Storage | MinIO (S3-compatible)                             |
+| Dashboard      | Nginx + vanilla JS SPA                            |
 | AI             | Pluggable LLM provider (Anthropic Claude shipped) |
-| ORM            | Drizzle                       |
-| CI/CD          | GitHub Actions → GHCR         |
+| ORM            | Drizzle                                           |
+| CI/CD          | GitHub Actions → GHCR                             |
 
 ## Project Structure
 
