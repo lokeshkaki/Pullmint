@@ -5,49 +5,89 @@ function escapeHtml(text) {
 }
 
 const apiBase = '/dashboard';
-let currentFilters = {};
-let nextToken = null;
+const PAGE_SIZE = 20;
+let currentOffset = 0;
+let lastFetchedCount = 0;
 let pollingInterval = null;
 let eventSource = null;
 let currentView = 'executions-view';
+let trendChartInstance = null;
 
 function getAuthHeaders() {
   const token = window.localStorage?.getItem('dashboardAuthToken');
   return token ? { Authorization: 'Bearer ' + token } : {};
 }
 
+function getFilterParams() {
+  const params = new URLSearchParams();
+
+  const search = document.getElementById('searchInput')?.value?.trim();
+  const repo = document.getElementById('repoFilter')?.value?.trim();
+  const status = document.getElementById('statusFilter')?.value;
+  const author = document.getElementById('authorFilter')?.value?.trim();
+  const dateFrom = document.getElementById('dateFrom')?.value;
+  const dateTo = document.getElementById('dateTo')?.value;
+  const riskMin = document.getElementById('riskMin')?.value;
+  const riskMax = document.getElementById('riskMax')?.value;
+  const findingType = document.getElementById('findingTypeFilter')?.value;
+
+  if (search) params.set('search', search);
+  if (repo) params.set('repo', repo);
+  if (status) params.set('status', status);
+  if (author) params.set('author', author);
+  if (dateFrom) params.set('dateFrom', dateFrom);
+  if (dateTo) params.set('dateTo', dateTo);
+  if (riskMin) params.set('riskMin', riskMin);
+  if (riskMax) params.set('riskMax', riskMax);
+  if (findingType) params.set('findingType', findingType);
+
+  return params;
+}
+
 async function loadExecutions(append = false) {
   try {
-    const params = new URLSearchParams(currentFilters);
-    if (append && nextToken) {
-      params.set('nextToken', nextToken);
+    if (!append) {
+      currentOffset = 0;
     }
 
-    const response = await fetch(`${apiBase}/executions?${params}`, {
+    const params = getFilterParams();
+    params.set('limit', String(PAGE_SIZE));
+    params.set('offset', String(currentOffset));
+
+    const response = await fetch(`${apiBase}/executions?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     if (!response.ok) throw new Error('Failed to fetch executions');
 
     const data = await response.json();
+    lastFetchedCount = Array.isArray(data.executions) ? data.executions.length : 0;
 
     if (!append) {
       updateStats(data.executions);
     }
 
     renderExecutions(data.executions, append);
-    nextToken = data.nextToken;
+    const repo = document.getElementById('repoFilter')?.value?.trim();
+    if (repo) {
+      void loadTrendChart(repo);
+    } else {
+      hideTrendChart();
+    }
 
-    // Show/hide load more button
     const loadMoreBtn = document.querySelector('.load-more');
-    if (nextToken && !loadMoreBtn) {
+    const hasMore = lastFetchedCount === PAGE_SIZE;
+    if (hasMore && !loadMoreBtn) {
       const btn = document.createElement('div');
       btn.className = 'load-more';
       const button = document.createElement('button');
       button.textContent = 'Load More';
-      button.onclick = () => loadExecutions(true);
+      button.onclick = () => {
+        currentOffset += PAGE_SIZE;
+        void loadExecutions(true);
+      };
       btn.appendChild(button);
       document.getElementById('executionList').appendChild(btn);
-    } else if (!nextToken && loadMoreBtn) {
+    } else if (!hasMore && loadMoreBtn) {
       loadMoreBtn.remove();
     }
   } catch (error) {
@@ -256,24 +296,133 @@ function updateStats(executions) {
   }
 }
 
+async function loadTrendChart(repoFullName) {
+  const container = document.getElementById('trendChartContainer');
+  if (!repoFullName) {
+    hideTrendChart();
+    return;
+  }
+
+  try {
+    const response = await fetch(`${apiBase}/stats/${repoFullName}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      hideTrendChart();
+      return;
+    }
+
+    const data = await response.json();
+    const scores = data?.trends?.riskScores ?? [];
+
+    if (scores.length < 2) {
+      hideTrendChart();
+      return;
+    }
+
+    container.style.display = 'block';
+
+    if (trendChartInstance) {
+      trendChartInstance.destroy();
+      trendChartInstance = null;
+    }
+
+    const chartFactory = window.Chart;
+    if (!chartFactory) {
+      hideTrendChart();
+      return;
+    }
+
+    const canvas = document.getElementById('trendChart');
+    trendChartInstance = new chartFactory(canvas, {
+      type: 'line',
+      data: {
+        labels: scores.map((item) => `PR #${item.prNumber}`),
+        datasets: [
+          {
+            label: 'Risk Score',
+            data: scores.map((item) => item.riskScore),
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => items[0]?.label || '',
+              label: (item) => `Risk: ${item.raw}/100`,
+            },
+          },
+        },
+        scales: {
+          y: {
+            min: 0,
+            max: 100,
+            title: { display: true, text: 'Risk Score', color: '#666' },
+            grid: { color: 'rgba(0, 0, 0, 0.08)' },
+            ticks: { color: '#666' },
+          },
+          x: {
+            grid: { display: false },
+            ticks: { color: '#666', maxRotation: 45 },
+          },
+        },
+      },
+    });
+  } catch (error) {
+    console.warn('Failed to load trend chart:', error);
+    hideTrendChart();
+  }
+}
+
+function hideTrendChart() {
+  const container = document.getElementById('trendChartContainer');
+  if (container) {
+    container.style.display = 'none';
+  }
+  if (trendChartInstance) {
+    trendChartInstance.destroy();
+    trendChartInstance = null;
+  }
+}
+
 function applyFilters() {
-  const repo = document.getElementById('repoFilter').value.trim();
-  const status = document.getElementById('statusFilter').value;
-
-  currentFilters = {};
-  if (repo) currentFilters.repo = repo;
-  if (status) currentFilters.status = status;
-
-  nextToken = null;
-  loadExecutions();
+  currentOffset = 0;
+  void loadExecutions();
 }
 
 function clearFilters() {
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) searchInput.value = '';
+
   document.getElementById('repoFilter').value = '';
   document.getElementById('statusFilter').value = '';
-  currentFilters = {};
-  nextToken = null;
-  loadExecutions();
+
+  const authorFilter = document.getElementById('authorFilter');
+  if (authorFilter) authorFilter.value = '';
+  const dateFrom = document.getElementById('dateFrom');
+  if (dateFrom) dateFrom.value = '';
+  const dateTo = document.getElementById('dateTo');
+  if (dateTo) dateTo.value = '';
+  const riskMin = document.getElementById('riskMin');
+  if (riskMin) riskMin.value = '';
+  const riskMax = document.getElementById('riskMax');
+  if (riskMax) riskMax.value = '';
+  const findingTypeFilter = document.getElementById('findingTypeFilter');
+  if (findingTypeFilter) findingTypeFilter.value = '';
+
+  currentOffset = 0;
+  void loadExecutions();
+  hideTrendChart();
 }
 
 async function viewExecution(executionId) {
