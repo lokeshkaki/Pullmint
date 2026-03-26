@@ -32,13 +32,13 @@ jest.mock('@pullmint/shared/error-handling', () => ({
   retryWithBackoff: jest.fn((fn: () => unknown) => fn()),
 }));
 
-jest.mock('@anthropic-ai/sdk', () => ({
-  default: jest.fn().mockImplementation(() => ({
-    messages: {
-      create: jest.fn().mockResolvedValue({
-        content: [{ type: 'text', text: 'Module handles user authentication' }],
-      }),
-    },
+jest.mock('@pullmint/shared/llm', () => ({
+  createLLMProvider: jest.fn(() => ({
+    chat: jest.fn().mockResolvedValue({
+      text: 'Module narrative for testing.',
+      inputTokens: 80,
+      outputTokens: 40,
+    }),
   })),
 }));
 

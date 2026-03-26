@@ -2,14 +2,10 @@ import { Job } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
-import { getConfig } from '@pullmint/shared/config';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { retryWithBackoff } from '@pullmint/shared/error-handling';
+import { createLLMProvider, LLMProvider } from '@pullmint/shared/llm';
 import * as nodePath from 'path';
-
-type AnthropicConstructor = new (options: {
-  apiKey: string;
-}) => Parameters<typeof generateModuleNarrative>[0];
 
 type BatchModule = { modulePath: string; entryPoint: string; files: string[] };
 
@@ -90,17 +86,6 @@ type NarrativeInput = {
   entryPointContent: string;
 };
 
-type NarrativeClient = {
-  messages: {
-    create: (input: {
-      model: string;
-      max_tokens: number;
-      system: string;
-      messages: { role: 'user'; content: string }[];
-    }) => Promise<{ content: Array<{ type?: string; text?: string }> }>;
-  };
-};
-
 const BUG_FIX_KEYWORDS = ['fix:', 'bug', 'hotfix', 'patch'];
 const ENTRY_POINT_NAMES = new Set([
   'index.ts',
@@ -115,6 +100,8 @@ const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.py', '.go', '.rs']);
 const MIN_FILES_PER_MODULE = 3;
 const NARRATIVE_MODEL = 'claude-haiku-4-5-20251001';
 const MAX_ENTRY_POINT_CHARS = 3000;
+
+let llmProvider: LLMProvider | null = null;
 
 async function fetchFileTree(
   octokit: OctokitClient,
@@ -258,7 +245,7 @@ function detectModules(filePaths: string[]): ModuleBoundary[] {
 }
 
 async function generateModuleNarrative(
-  client: NarrativeClient,
+  client: LLMProvider,
   input: NarrativeInput
 ): Promise<string> {
   const entryPointContent =
@@ -276,29 +263,23 @@ ${entryPointContent}
 
 Write a concise architecture narrative (150-200 words) covering: purpose, key responsibilities, known risk areas, and what breaks when this module changes.`;
 
+  const fallbackNarrative = `Module at ${input.modulePath} containing ${input.files.length} files: ${input.files.join(', ')}.`;
+
   try {
-    const response = await client.messages.create({
+    const response = await client.chat({
       model: NARRATIVE_MODEL,
-      max_tokens: 400,
-      system:
+      maxTokens: 400,
+      systemPrompt:
         'You are a senior software architect writing codebase documentation. Write concise, factual architecture narratives. Do not use bullet points. Write in prose.',
-      messages: [{ role: 'user', content: userMessage }],
+      userMessage,
     });
 
-    const text = response.content
-      .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-      .map((block) => block.text ?? '')
-      .join('')
-      .trim();
-
-    if (text) {
-      return text;
-    }
+    return response.text || fallbackNarrative;
   } catch {
     // Fall back to deterministic narrative below.
   }
 
-  return `Module at ${input.modulePath} containing ${input.files.length} files: ${input.files.join(', ')}.`;
+  return fallbackNarrative;
 }
 
 function generateEmbedding(text: string): number[] {
@@ -471,10 +452,9 @@ async function handleBatch(msg: {
   const { repoFullName, modules } = msg;
   console.info('[repo-indexing] batch start', { repoFullName, moduleCount: modules.length });
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const anthropicModule = require('@anthropic-ai/sdk') as { default: AnthropicConstructor };
-  const apiKey = getConfig('ANTHROPIC_API_KEY');
-  const anthropicClient = new anthropicModule.default({ apiKey });
+  if (!llmProvider) {
+    llmProvider = createLLMProvider();
+  }
 
   const octokit = (await getGitHubInstallationClient(repoFullName)) as unknown as OctokitClient;
   const [owner, repo] = repoFullName.split('/');
@@ -493,7 +473,7 @@ async function handleBatch(msg: {
         // Proceed without entry point content
       }
 
-      const narrativeText = await generateModuleNarrative(anthropicClient, {
+      const narrativeText = await generateModuleNarrative(llmProvider, {
         modulePath: mod.modulePath,
         entryPoint: mod.entryPoint,
         files: mod.files,
@@ -643,10 +623,9 @@ async function handleIncremental(msg: {
   );
 
   if (affectedModules.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const anthropicModule = require('@anthropic-ai/sdk') as { default: AnthropicConstructor };
-    const apiKey = getConfig('ANTHROPIC_API_KEY');
-    const anthropicClient = new anthropicModule.default({ apiKey });
+    if (!llmProvider) {
+      llmProvider = createLLMProvider();
+    }
 
     for (const mod of affectedModules) {
       try {
@@ -665,7 +644,7 @@ async function handleIncremental(msg: {
           // Proceed without entry point content
         }
 
-        const narrativeText = await generateModuleNarrative(anthropicClient, {
+        const narrativeText = await generateModuleNarrative(llmProvider, {
           modulePath: mod.modulePath,
           entryPoint: mod.entryPoint,
           files: mod.files,
