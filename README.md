@@ -6,7 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Pullmint reviews every PR with specialized AI agents, scores risk, and auto-deploys low-risk changes to staging — all with full traceability.
+Pullmint reviews every PR with specialized AI agents, posts inline review comments on specific code lines, scores risk, and auto-deploys low-risk changes to staging — all with per-repo configurability and adaptive learning.
 
 ## How It Works
 
@@ -15,10 +15,12 @@ PR opened → Webhook → 4 AI agents analyze in parallel → Risk score → Aut
 ```
 
 1. **Multi-agent analysis** — Architecture, Security, Performance, and Maintainability agents review the diff in parallel using Claude
-2. **Risk scoring** — Findings are deduplicated, weighted, and synthesized into a 0–100 risk score with adaptive signal weights that learn from deployment outcomes
-3. **Deployment gating** — Low-risk PRs auto-deploy to staging; high-risk PRs are held for review
-4. **Post-deploy monitoring** — Tracks deployment health and auto-rolls back on failure
-5. **Real-time dashboard** — Live execution status via SSE, Kanban risk board, calibration metrics
+2. **Inline PR review** — Findings posted as inline comments anchored to specific diff lines, with a summary in the review body
+3. **Incremental analysis** — On force-pushes, only re-analyzes agents whose relevant files changed, reusing prior results for the rest
+4. **Risk scoring** — Findings are deduplicated, weighted, and synthesized into a 0–100 risk score with adaptive signal weights that learn from deployment outcomes
+5. **Deployment gating** — Low-risk PRs auto-deploy to staging; high-risk PRs are held for review
+6. **Post-deploy monitoring** — Tracks deployment health and auto-rolls back on failure
+7. **Real-time dashboard** — Live execution status via SSE, filtering, search, risk trend charts, Kanban risk board
 
 ## Quick Start
 
@@ -32,6 +34,18 @@ docker compose up
 
 The dashboard is at `http://localhost:3001`. See the [Development Guide](docs/DEVELOPMENT.md) for full setup.
 
+### Per-Repo Configuration
+
+Drop a `.pullmint.yml` in your repo root to customize analysis:
+
+```yaml
+severity_threshold: medium     # minimum severity in PR comments
+ignore_paths: ["generated/**"] # paths to exclude from analysis
+agents:
+  performance: false           # skip performance agent for this repo
+auto_approve_below: 25         # risk score auto-approval threshold
+```
+
 ## Tech Stack
 
 | Layer          | Technology                    |
@@ -42,7 +56,7 @@ The dashboard is at `http://localhost:3001`. See the [Development Guide](docs/DE
 | Queue/Events   | Redis 7 (BullMQ + Pub/Sub)    |
 | Object Storage | MinIO (S3-compatible)         |
 | Dashboard      | Nginx + vanilla JS SPA        |
-| AI             | Claude Sonnet 4.6 + Haiku 4.5 |
+| AI             | Pluggable LLM provider (Anthropic Claude shipped) |
 | ORM            | Drizzle                       |
 | CI/CD          | GitHub Actions → GHCR         |
 
@@ -52,7 +66,7 @@ The dashboard is at `http://localhost:3001`. See the [Development Guide](docs/DE
 services/
 ├── api/            # Fastify HTTP server (webhooks, dashboard API, SSE)
 ├── workers/        # BullMQ processors (analysis, synthesis, deployment, calibration)
-├── shared/         # Database schema, queue config, types, utilities
+├── shared/         # Database schema, queue config, LLM provider, types, utilities
 ├── dashboard/      # Nginx reverse proxy + static file serving
 └── dashboard-ui/   # Static SPA (HTML/CSS/JS)
 ```
