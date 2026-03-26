@@ -349,7 +349,13 @@ describe('processAnalysisJob (dispatcher)', () => {
     mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
       data: {
         content: Buffer.from(
-          ['agents:', '  architecture: false', '  security: false', '  performance: false', '  style: false'].join('\n')
+          [
+            'agents:',
+            '  architecture: false',
+            '  security: false',
+            '  performance: false',
+            '  style: false',
+          ].join('\n')
         ).toString('base64'),
       },
     });

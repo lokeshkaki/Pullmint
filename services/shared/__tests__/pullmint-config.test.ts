@@ -1,8 +1,4 @@
-import {
-  DEFAULT_CONFIG,
-  filterFindingsBySeverity,
-  pullmintConfigSchema,
-} from '../pullmint-config';
+import { DEFAULT_CONFIG, filterFindingsBySeverity, pullmintConfigSchema } from '../pullmint-config';
 
 describe('pullmintConfigSchema', () => {
   it('parses a valid full config', () => {
