@@ -686,11 +686,22 @@ function buildReviewPayload(
     if (meta.cached === true) {
       body += ` | 📦 cached`;
     }
+
+    let rerunAgents: string[] = [];
     if (meta.incremental === true) {
       body += ` | 🔄 incremental`;
+      if (Array.isArray(meta.rerunAgents)) {
+        rerunAgents = meta.rerunAgents.filter(
+          (agent): agent is string => typeof agent === 'string'
+        );
+      }
     }
 
     body += '\n\n';
+
+    if (meta.incremental === true) {
+      body += `🔄 Incremental — re-analyzed ${rerunAgents.length} agent${rerunAgents.length === 1 ? '' : 's'} for changed files\n\n`;
+    }
   }
 
   if (comments.length > 0) {
