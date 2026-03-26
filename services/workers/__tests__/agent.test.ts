@@ -19,44 +19,34 @@ jest.mock('@pullmint/shared/error-handling', () => ({
   retryWithBackoff: jest.fn((fn: () => Promise<unknown>) => fn()),
   createStructuredError: jest.fn(),
 }));
-jest.mock('@anthropic-ai/sdk', () => {
-  return {
-    __esModule: true,
-    default: jest.fn().mockImplementation(() => ({
-      messages: {
-        // Lazily dereference mockCreate so tests can override via mockResolvedValueOnce
-        create: jest.fn((...args: unknown[]) => mockCreate(...args)),
-      },
-    })),
-  };
-});
+jest.mock('@pullmint/shared/llm', () => ({
+  createLLMProvider: jest.fn(() => ({
+    chat: jest.fn((...args: unknown[]) => mockCreate(...args)),
+  })),
+}));
 
 import { processAgentJob, AgentJobData } from '../src/processors/agent';
 import { Job } from 'bullmq';
 import { getObject } from '@pullmint/shared/storage';
 
 const DEFAULT_ARCH_RESPONSE = {
-  content: [
-    {
-      type: 'text',
-      text: JSON.stringify({
-        findings: [
-          {
-            type: 'architecture',
-            severity: 'high',
-            title: 'Tight coupling detected',
-            description: 'Module A is tightly coupled to Module B',
-            file: 'src/moduleA.ts',
-            line: 42,
-            suggestion: 'Introduce an interface',
-          },
-        ],
-        riskScore: 45,
-        summary: 'One architectural concern found',
-      }),
-    },
-  ],
-  usage: { input_tokens: 150, output_tokens: 60 },
+  text: JSON.stringify({
+    findings: [
+      {
+        type: 'architecture',
+        severity: 'high',
+        title: 'Tight coupling detected',
+        description: 'Module A is tightly coupled to Module B',
+        file: 'src/moduleA.ts',
+        line: 42,
+        suggestion: 'Introduce an interface',
+      },
+    ],
+    riskScore: 45,
+    summary: 'One architectural concern found',
+  }),
+  inputTokens: 150,
+  outputTokens: 60,
 };
 
 function makeAgentJob(agentType: string, overrides?: Partial<AgentJobData>): Job<AgentJobData> {
@@ -100,36 +90,32 @@ describe('processAgentJob', () => {
   it('should filter out findings with wrong type', async () => {
     // Override mockCreate to return mixed-type findings for this test
     mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            findings: [
-              {
-                type: 'security',
-                severity: 'critical',
-                title: 'Injection vulnerability',
-                description: 'SQL injection risk',
-                file: null,
-                line: null,
-                suggestion: 'Use parameterized queries',
-              },
-              {
-                type: 'architecture',
-                severity: 'medium',
-                title: 'Coupling violation',
-                description: 'Modules are too tightly coupled',
-                file: null,
-                line: null,
-                suggestion: 'Decouple via interface',
-              },
-            ],
-            riskScore: 60,
-            summary: 'Mixed findings returned',
-          }),
-        },
-      ],
-      usage: { input_tokens: 100, output_tokens: 50 },
+      text: JSON.stringify({
+        findings: [
+          {
+            type: 'security',
+            severity: 'critical',
+            title: 'Injection vulnerability',
+            description: 'SQL injection risk',
+            file: null,
+            line: null,
+            suggestion: 'Use parameterized queries',
+          },
+          {
+            type: 'architecture',
+            severity: 'medium',
+            title: 'Coupling violation',
+            description: 'Modules are too tightly coupled',
+            file: null,
+            line: null,
+            suggestion: 'Decouple via interface',
+          },
+        ],
+        riskScore: 60,
+        summary: 'Mixed findings returned',
+      }),
+      inputTokens: 100,
+      outputTokens: 50,
     });
 
     const result = await processAgentJob(makeAgentJob('architecture'));
@@ -140,8 +126,9 @@ describe('processAgentJob', () => {
 
   it('should return empty findings on parse failure', async () => {
     mockCreate.mockResolvedValueOnce({
-      content: [{ type: 'text', text: 'not valid json at all !!!!' }],
-      usage: { input_tokens: 100, output_tokens: 10 },
+      text: 'not valid json at all !!!!',
+      inputTokens: 100,
+      outputTokens: 10,
     });
 
     const result = await processAgentJob(makeAgentJob('security'));
@@ -160,17 +147,17 @@ describe('processAgentJob', () => {
 
   it('should include repoKnowledge in user prompt when provided', async () => {
     // Capture what was passed to the LLM create call
-    let capturedInput: { messages?: Array<{ content: string }> } | undefined;
-    mockCreate.mockImplementationOnce((input: { messages?: Array<{ content: string }> }) => {
+    let capturedInput:
+      | {
+          userMessage?: string;
+        }
+      | undefined;
+    mockCreate.mockImplementationOnce((input: { userMessage?: string }) => {
       capturedInput = input;
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ findings: [], riskScore: 10, summary: 'No issues' }),
-          },
-        ],
-        usage: { input_tokens: 50, output_tokens: 20 },
+        text: JSON.stringify({ findings: [], riskScore: 10, summary: 'No issues' }),
+        inputTokens: 50,
+        outputTokens: 20,
       };
     });
 
@@ -180,7 +167,7 @@ describe('processAgentJob', () => {
       })
     );
 
-    expect(capturedInput?.messages?.[0]?.content).toContain('test knowledge');
+    expect(capturedInput?.userMessage).toContain('test knowledge');
   });
 
   it('injects info finding when diff is truncated', async () => {

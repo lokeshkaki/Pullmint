@@ -1,45 +1,14 @@
 import { Job } from 'bullmq';
-import { getConfig } from '@pullmint/shared/config';
 import { getObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { retryWithBackoff } from '@pullmint/shared/error-handling';
 import type { Finding } from '@pullmint/shared/types';
+import { createLLMProvider, LLMProvider } from '@pullmint/shared/llm';
 import { getArchitecturePrompt } from '../prompts/architecture';
 import { getSecurityPrompt } from '../prompts/security';
 import { getPerformancePrompt } from '../prompts/performance';
 import { getMaintainabilityPrompt } from '../prompts/maintainability';
 import { parseDiff, filterDiff, getMaxDiffChars, type FilteredDiff } from '../diff-filter';
-
-type AnthropicMessageInput = {
-  model: string;
-  max_tokens: number;
-  system?: string;
-  messages: { role: 'user'; content: string }[];
-  temperature?: number;
-};
-
-type AnthropicClient = {
-  messages: {
-    create: (input: AnthropicMessageInput) => Promise<AnthropicMessageResponse>;
-  };
-};
-
-type AnthropicConstructor = new (options: { apiKey: string }) => AnthropicClient;
-
-type AnthropicUsage = {
-  input_tokens?: number;
-  output_tokens?: number;
-};
-
-type AnthropicContentBlock = {
-  type?: string;
-  text?: string;
-};
-
-type AnthropicMessageResponse = {
-  content: AnthropicContentBlock[];
-  usage?: AnthropicUsage;
-};
 
 // Agent type → prompt function mapping
 const AGENT_PROMPTS: Record<string, () => string> = {
@@ -57,7 +26,7 @@ const AGENT_MODELS: Record<string, string> = {
   style: process.env.LLM_MAINTAINABILITY_MODEL || 'claude-haiku-4-5-20251001',
 };
 
-let anthropicClient: AnthropicClient | undefined;
+let llmProvider: LLMProvider | null = null;
 
 export interface AgentJobData {
   executionId: string;
@@ -99,13 +68,8 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
     throw new Error(`Unknown agent type: ${agentType}`);
   }
 
-  // Initialize Anthropic client (lazy, same pattern as analysis.ts)
-  if (!anthropicClient) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const anthropicModule = require('@anthropic-ai/sdk') as { default: AnthropicConstructor };
-    const Anthropic = anthropicModule.default;
-    const apiKey = getConfig('ANTHROPIC_API_KEY');
-    anthropicClient = new Anthropic({ apiKey });
+  if (!llmProvider) {
+    llmProvider = createLLMProvider();
   }
 
   // Fetch diff from MinIO
@@ -130,25 +94,19 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
   // Call LLM with retry (same pattern as analysis.ts)
   const maxTokens = parseInt(process.env.LLM_MAX_TOKENS || '2000', 10);
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
   const response = await retryWithBackoff(
-    async () => {
-      return anthropicClient!.messages.create({
+    async () =>
+      llmProvider!.chat({
         model,
-        max_tokens: maxTokens,
-        system: promptFn(),
-        messages: [{ role: 'user', content: userContent }],
+        maxTokens,
+        systemPrompt: promptFn(),
+        userMessage: userContent,
         temperature: 0.3,
-      });
-    },
+      }),
     { maxAttempts: 3, baseDelayMs: 2000, maxDelayMs: 10000, backoffMultiplier: 2, jitter: true }
   );
 
-  // Parse response (same logic as parseAnalysis in analysis.ts)
-  const responseText = response.content
-    .filter((block: AnthropicContentBlock) => block.type === 'text')
-    .map((block: AnthropicContentBlock) => block.text ?? '')
-    .join('');
+  const responseText = response.text;
 
   const parsed = parseAgentResponse(responseText, agentType);
 
@@ -170,7 +128,7 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
   }
 
   // Calculate tokens
-  const tokens = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
+  const tokens = response.inputTokens + response.outputTokens;
   const latencyMs = Date.now() - startTime;
 
   const result: AgentResult = {

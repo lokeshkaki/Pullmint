@@ -1,6 +1,8 @@
 import type { Job } from 'bullmq';
 import type { SynthesisJobData } from '../src/processors/synthesis';
 
+let mockChat: jest.Mock;
+
 jest.mock('@pullmint/shared/db', () => ({
   getDb: jest.fn(),
   schema: {
@@ -73,14 +75,9 @@ jest.mock('../src/dedup', () => ({
   deduplicateFindings: jest.fn((findings: unknown[]) => findings),
 }));
 
-jest.mock('@anthropic-ai/sdk', () => ({
-  default: jest.fn().mockImplementation(() => ({
-    messages: {
-      create: jest.fn().mockResolvedValue({
-        content: [{ type: 'text', text: 'This PR has moderate architectural concerns.' }],
-        usage: { input_tokens: 50, output_tokens: 20 },
-      }),
-    },
+jest.mock('@pullmint/shared/llm', () => ({
+  createLLMProvider: jest.fn(() => ({
+    chat: jest.fn((...args: unknown[]) => mockChat(...args)),
   })),
 }));
 
@@ -166,6 +163,11 @@ describe('processSynthesisJob', () => {
     jest.resetModules();
 
     jest.clearAllMocks();
+    mockChat = jest.fn().mockResolvedValue({
+      text: 'Synthesized summary of findings.',
+      inputTokens: 50,
+      outputTokens: 30,
+    });
     buildMockDb();
     (jest.requireMock('@pullmint/shared/db') as { getDb: jest.Mock }).getDb.mockReturnValue(mockDb);
 
@@ -249,13 +251,7 @@ describe('processSynthesisJob', () => {
     });
     await processSynthesisJob(job);
 
-    const Anthropic = jest.requireMock('@anthropic-ai/sdk').default;
-    if (Anthropic.mock.results.length > 0) {
-      const instance = Anthropic.mock.results[0]?.value;
-      if (instance) {
-        expect(instance.messages.create).not.toHaveBeenCalled();
-      }
-    }
+    expect(mockChat).not.toHaveBeenCalled();
   });
 
   it('calls deduplicateFindings on combined agent findings', async () => {

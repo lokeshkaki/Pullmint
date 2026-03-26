@@ -12,6 +12,7 @@ export * from './error-handling';
 export * from './schemas';
 export * from './github-app';
 export * from './risk-evaluator';
+export * from './llm';
 
 // Schema exports
 export * from './schema';
