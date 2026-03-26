@@ -9,7 +9,10 @@ jest.mock('@pullmint/shared/db', () => ({
       executionId: 'executionId',
       repoFullName: 'repoFullName',
       prNumber: 'prNumber',
+      author: 'author',
       status: 'status',
+      riskScore: 'riskScore',
+      findings: 'findings',
       createdAt: 'createdAt',
       deploymentStartedAt: 'deploymentStartedAt',
     },
@@ -78,6 +81,44 @@ function buildSelectChain(rows: unknown[] = []) {
       }),
     }),
   });
+}
+
+function buildStatsDbMock({
+  trendRows,
+  summaryRows,
+  onTrendLimit,
+}: {
+  trendRows: unknown[];
+  summaryRows: unknown[];
+  onTrendLimit?: jest.Mock;
+}) {
+  const trendLimit = jest.fn().mockImplementation((value: number) => {
+    if (onTrendLimit) {
+      onTrendLimit(value);
+    }
+    return Promise.resolve(trendRows);
+  });
+
+  const trendOrderBy = jest.fn().mockReturnValue({
+    limit: trendLimit,
+  });
+
+  const trendWhere = jest.fn().mockReturnValue({
+    orderBy: trendOrderBy,
+  });
+
+  const summaryWhere = jest.fn().mockResolvedValue(summaryRows);
+
+  const trendFrom = jest.fn().mockReturnValue({ where: trendWhere });
+  const summaryFrom = jest.fn().mockReturnValue({ where: summaryWhere });
+
+  return {
+    select: jest
+      .fn()
+      .mockReturnValueOnce({ from: trendFrom })
+      .mockReturnValueOnce({ from: summaryFrom }),
+    trendLimit,
+  };
 }
 
 async function buildApp() {
@@ -459,6 +500,304 @@ describe('Dashboard Routes', () => {
         headers: { authorization: VALID_AUTH },
       });
       expect(response.statusCode).toBe(200);
+    });
+
+    it('filters by search term (repo name substring)', async () => {
+      const expected = { ...sampleExecution, repoFullName: 'org/frontend', executionId: 'exec-fe' };
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({ select: buildSelectChain([expected]) });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions?search=frontend',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        executions: { repoFullName: string }[];
+        count: number;
+      };
+      expect(body.count).toBe(1);
+      expect(body.executions[0]?.repoFullName).toBe('org/frontend');
+    });
+
+    it('filters by search term (PR number)', async () => {
+      const expected = { ...sampleExecution, prNumber: 42, executionId: 'exec-pr-42' };
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({ select: buildSelectChain([expected]) });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions?search=42',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        executions: { prNumber: number }[];
+        count: number;
+      };
+      expect(body.count).toBe(1);
+      expect(body.executions[0]?.prNumber).toBe(42);
+    });
+
+    it('filters by date range', async () => {
+      const expected = {
+        ...sampleExecution,
+        executionId: 'exec-date-range',
+        createdAt: new Date('2026-03-24T10:00:00.000Z'),
+      };
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({ select: buildSelectChain([expected]) });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions?dateFrom=2026-03-24&dateTo=2026-03-25',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as { count: number };
+      expect(body.count).toBe(1);
+    });
+
+    it('filters by author', async () => {
+      const expected = { ...sampleExecution, executionId: 'exec-author', author: 'alice' };
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({ select: buildSelectChain([expected]) });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions?author=alice',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        executions: { author: string }[];
+      };
+      expect(body.executions[0]?.author).toBe('alice');
+    });
+
+    it('filters by risk score range', async () => {
+      const expected = { ...sampleExecution, executionId: 'exec-risk', riskScore: 72 };
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({ select: buildSelectChain([expected]) });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions?riskMin=50&riskMax=80',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        executions: { riskScore: number }[];
+      };
+      expect(body.executions[0]?.riskScore).toBe(72);
+    });
+
+    it('filters by finding type via JSONB containment', async () => {
+      const expected = {
+        ...sampleExecution,
+        executionId: 'exec-finding-type',
+        findings: [{ type: 'security', severity: 'high', title: 'test finding' }],
+      };
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({ select: buildSelectChain([expected]) });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions?findingType=security',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        executions: { findings?: { type?: string }[] }[];
+      };
+      expect(body.executions[0]?.findings?.[0]?.type).toBe('security');
+    });
+
+    it('combines multiple filters', async () => {
+      const expected = {
+        ...sampleExecution,
+        executionId: 'exec-combined-filter',
+        repoFullName: 'org/repo',
+        author: 'alice',
+        riskScore: 35,
+      };
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({ select: buildSelectChain([expected]) });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions?repo=org%2Frepo&author=alice&riskMin=30',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as { count: number };
+      expect(body.count).toBe(1);
+    });
+  });
+
+  describe('GET /dashboard/stats/:owner/:repo', () => {
+    it('returns trend data in chronological order', async () => {
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      const trendRows = [
+        { prNumber: 5, riskScore: 50, createdAt: new Date('2026-03-25T00:00:00.000Z') },
+        { prNumber: 4, riskScore: 40, createdAt: new Date('2026-03-24T00:00:00.000Z') },
+        { prNumber: 3, riskScore: 30, createdAt: new Date('2026-03-23T00:00:00.000Z') },
+        { prNumber: 2, riskScore: 20, createdAt: new Date('2026-03-22T00:00:00.000Z') },
+        { prNumber: 1, riskScore: 10, createdAt: new Date('2026-03-21T00:00:00.000Z') },
+      ];
+
+      getDb.mockReturnValue(
+        buildStatsDbMock({
+          trendRows,
+          summaryRows: [
+            {
+              total: 5,
+              avgRisk: 30,
+              confirmedCount: 3,
+              rolledBackCount: 2,
+            },
+          ],
+        })
+      );
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/stats/org/repo',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        trends: { riskScores: { prNumber: number }[] };
+      };
+      expect(body.trends.riskScores.map((item) => item.prNumber)).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('returns at most 30 entries', async () => {
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      const onTrendLimit = jest.fn();
+      const trendRows = Array.from({ length: 30 }, (_, index) => ({
+        prNumber: index + 1,
+        riskScore: index,
+        createdAt: new Date(`2026-03-${String((index % 28) + 1).padStart(2, '0')}T00:00:00.000Z`),
+      }));
+
+      getDb.mockReturnValue(
+        buildStatsDbMock({
+          trendRows,
+          summaryRows: [
+            {
+              total: 30,
+              avgRisk: 15,
+              confirmedCount: 20,
+              rolledBackCount: 10,
+            },
+          ],
+          onTrendLimit,
+        })
+      );
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/stats/org/repo',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        trends: { riskScores: unknown[] };
+      };
+      expect(onTrendLimit).toHaveBeenCalledWith(30);
+      expect(body.trends.riskScores.length).toBeLessThanOrEqual(30);
+    });
+
+    it('returns summary statistics', async () => {
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+
+      getDb.mockReturnValue(
+        buildStatsDbMock({
+          trendRows: [
+            {
+              prNumber: 101,
+              riskScore: 58,
+              createdAt: new Date('2026-03-24T00:00:00.000Z'),
+            },
+          ],
+          summaryRows: [
+            {
+              total: 10,
+              avgRisk: 57.4,
+              confirmedCount: 7,
+              rolledBackCount: 3,
+            },
+          ],
+        })
+      );
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/stats/org/repo',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        summary: { totalExecutions: number; avgRiskScore: number; successRate: number };
+      };
+      expect(body.summary.totalExecutions).toBe(10);
+      expect(body.summary.avgRiskScore).toBe(57);
+      expect(body.summary.successRate).toBe(70);
+    });
+
+    it('handles repo with no executions', async () => {
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+
+      getDb.mockReturnValue(
+        buildStatsDbMock({
+          trendRows: [],
+          summaryRows: [
+            {
+              total: 0,
+              avgRisk: null,
+              confirmedCount: 0,
+              rolledBackCount: 0,
+            },
+          ],
+        })
+      );
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/stats/org/empty-repo',
+        headers: { authorization: VALID_AUTH },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body) as {
+        trends: { riskScores: unknown[] };
+        summary: { totalExecutions: number; avgRiskScore: number; successRate: number };
+      };
+      expect(body.trends.riskScores).toHaveLength(0);
+      expect(body.summary.totalExecutions).toBe(0);
+      expect(body.summary.avgRiskScore).toBe(0);
+      expect(body.summary.successRate).toBe(0);
+    });
+
+    it('requires auth token', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/stats/org/repo',
+      });
+
+      expect(response.statusCode).toBe(401);
     });
   });
 
