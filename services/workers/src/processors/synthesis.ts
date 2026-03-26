@@ -7,29 +7,13 @@ import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
 import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
+import { createLLMProvider, LLMProvider } from '@pullmint/shared/llm';
 import { deduplicateFindings } from '../dedup';
 import { buildAnalysisCheckpoint } from '../checkpoint';
 import type { Finding, AgentResultMeta, PREvent } from '@pullmint/shared/types';
 import type { AgentResult } from './agent';
 
-type AnthropicClient = {
-  messages: {
-    create: (input: {
-      model: string;
-      max_tokens: number;
-      system?: string;
-      messages: { role: 'user'; content: string }[];
-      temperature?: number;
-    }) => Promise<{
-      content: Array<{ type?: string; text?: string }>;
-      usage?: { input_tokens?: number; output_tokens?: number };
-    }>;
-  };
-};
-
-type AnthropicConstructor = new (options: { apiKey: string }) => AnthropicClient;
-
-let anthropicClient: AnthropicClient | undefined;
+let llmProvider: LLMProvider | null = null;
 
 export interface SynthesisJobData {
   executionId: string;
@@ -185,12 +169,8 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
     const synthesisStartTime = Date.now();
 
     if (dedupedFindings.length > 0) {
-      if (!anthropicClient) {
-        const apiKey = getConfig('ANTHROPIC_API_KEY');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const anthropicModule = require('@anthropic-ai/sdk') as { default: AnthropicConstructor };
-        const Anthropic = anthropicModule.default;
-        anthropicClient = new Anthropic({ apiKey });
+      if (!llmProvider) {
+        llmProvider = createLLMProvider();
       }
 
       const findingsSummaryInput = dedupedFindings
@@ -201,26 +181,20 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
       try {
         const summaryResponse = await retryWithBackoff(
-          async () => {
-            return anthropicClient!.messages.create({
+          async () =>
+            llmProvider!.chat({
               model: 'claude-haiku-4-5-20251001',
-              max_tokens: 300,
-              system:
+              maxTokens: 300,
+              systemPrompt:
                 'Given these code review findings from multiple specialized reviewers, write a 2-3 sentence summary of the most important issues for the PR author. Be direct and specific. Do not list every finding — highlight what matters most.',
-              messages: [{ role: 'user', content: findingsSummaryInput }],
+              userMessage: findingsSummaryInput,
               temperature: 0.3,
-            });
-          },
+            }),
           { maxAttempts: 3, baseDelayMs: 2000, maxDelayMs: 10000 }
         );
 
-        synthesizedSummary = summaryResponse.content
-          .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-          .map((block) => block.text ?? '')
-          .join('');
-
-        synthesisTokens =
-          (summaryResponse.usage?.input_tokens ?? 0) + (summaryResponse.usage?.output_tokens ?? 0);
+        synthesizedSummary = summaryResponse.text;
+        synthesisTokens = summaryResponse.inputTokens + summaryResponse.outputTokens;
       } catch (summaryError) {
         console.warn('Failed to generate LLM summary, continuing without it:', summaryError);
       }
