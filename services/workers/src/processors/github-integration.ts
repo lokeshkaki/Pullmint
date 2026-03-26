@@ -9,6 +9,7 @@ import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
 import { publishExecutionUpdate, publishEvent } from '@pullmint/shared/execution-events';
 import { FindingSchema } from '@pullmint/shared/schemas';
+import { parseDiff, isLineInDiff, ParsedDiff } from '../diff-filter';
 import { z } from 'zod';
 import type { ExecutionUpdateEvent } from '@pullmint/shared/execution-events';
 import type {
@@ -39,6 +40,20 @@ interface AnalysisCompleteData extends PREvent, AnalysisResult {
   s3Key?: string;
   findingsCount?: number;
 }
+
+interface ReviewComment {
+  path: string;
+  line: number;
+  side: 'RIGHT';
+  body: string;
+}
+
+interface ReviewPayload {
+  body: string;
+  comments: ReviewComment[];
+}
+
+const MAX_INLINE_COMMENTS = 30;
 
 const octokitClients = new Map<string, Awaited<ReturnType<typeof getGitHubInstallationClient>>>();
 
@@ -131,26 +146,56 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
     : ((detail.findings as Finding[] | undefined) ?? []);
   const resolvedDetail: AnalysisCompleteData = { ...detail, findings };
 
+  const analysisBucket = getConfigOptional('ANALYSIS_RESULTS_BUCKET') ?? 'pullmint-analysis';
+  const diffKey = `diffs/${detail.executionId}.diff`;
+  let parsedDiff: ParsedDiff = {
+    files: [],
+    totalFiles: 0,
+    totalAddedLines: 0,
+    totalRemovedLines: 0,
+  };
+  try {
+    const rawDiff = await getObject(analysisBucket, diffKey);
+    if (rawDiff) {
+      parsedDiff = parseDiff(rawDiff);
+    }
+  } catch (err) {
+    // If diff fetch fails, all findings go to body — graceful degradation
+    console.warn(
+      { err, executionId: detail.executionId },
+      'Failed to fetch diff for inline comments'
+    );
+  }
+
   // Initialize GitHub client
   const octokit = await getOctokitClient(detail.repoFullName);
 
-  // Post PR comment
-  const commentBody = buildCommentBody(resolvedDetail, { checkpoint: checkpoint1, dashboardUrl });
+  // Post PR review with inline comments
+  const payload = buildReviewPayload(resolvedDetail, parsedDiff, {
+    checkpoint: checkpoint1,
+    dashboardUrl: dashboardUrl ? `${dashboardUrl}/executions/${detail.executionId}` : undefined,
+  });
   const [owner, repo] = detail.repoFullName.split('/');
 
   await retryWithBackoff(
     async () => {
-      await octokit.rest.issues.createComment({
+      const createReview = octokit.rest.pulls.createReview as unknown as (
+        params: Record<string, unknown>
+      ) => Promise<unknown>;
+
+      await createReview({
         owner,
         repo,
-        issue_number: detail.prNumber,
-        body: commentBody,
+        pull_number: detail.prNumber,
+        event: 'COMMENT',
+        body: payload.body,
+        comments: payload.comments,
       });
     },
     { maxAttempts: 3, baseDelayMs: 1000 }
   );
 
-  console.log(`Successfully posted comment to PR #${detail.prNumber}`);
+  console.log(`Successfully posted review to PR #${detail.prNumber}`);
 
   // Auto-approve if low risk
   if (detail.riskScore < config.autoApproveRiskThreshold) {
@@ -514,13 +559,78 @@ function parseCsv(value: string): string[] {
     .filter((item) => item.length > 0);
 }
 
-export function buildCommentBody(analysis: AnalysisCompleteData, opts?: CommentOpts): string {
-  const { findings, riskScore, metadata } = analysis;
-  let body = `## Pullmint Analysis Results\n\n`;
+function getSeverityEmoji(severity: string): string {
+  const map: Record<string, string> = {
+    critical: '🔴',
+    high: '🟠',
+    medium: '🟡',
+    low: '🔵',
+    info: '⚪',
+  };
+  return map[severity] ?? '⚪';
+}
 
-  const riskLevel = getRiskLevel(riskScore);
-  const riskEmoji = getRiskEmoji(riskLevel);
-  body += `**Risk Score:** ${riskScore}/100 ${riskEmoji} (${riskLevel})\n\n`;
+function groupBySeverity(findings: Finding[]): [string, Finding[]][] {
+  const order = ['critical', 'high', 'medium', 'low', 'info'];
+  const groups = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    if (!groups.has(finding.severity)) {
+      groups.set(finding.severity, []);
+    }
+    groups.get(finding.severity)?.push(finding);
+  }
+  return order
+    .filter((severity) => groups.has(severity))
+    .map((severity) => [severity, groups.get(severity) ?? []]);
+}
+
+function buildReviewPayload(
+  analysis: AnalysisCompleteData,
+  parsedDiff: ParsedDiff,
+  opts?: { checkpoint?: ValidatedCheckpointRecord; dashboardUrl?: string }
+): ReviewPayload {
+  const findings: Finding[] = analysis.findings ?? [];
+  const riskScore = analysis.riskScore ?? 0;
+
+  // Partition findings into inline-able vs body-only
+  const inlineFindings: Array<Finding & { file: string; line: number }> = [];
+  const bodyFindings: Finding[] = [];
+
+  for (const finding of findings) {
+    if (
+      typeof finding.file === 'string' &&
+      typeof finding.line === 'number' &&
+      isLineInDiff(parsedDiff, finding.file, finding.line)
+    ) {
+      inlineFindings.push(finding as Finding & { file: string; line: number });
+    } else {
+      bodyFindings.push(finding);
+    }
+  }
+
+  // Enforce inline comment cap — overflow lowest-severity to body
+  const severityOrder = ['critical', 'high', 'medium', 'low', 'info'];
+  inlineFindings.sort(
+    (a, b) => severityOrder.indexOf(a.severity) - severityOrder.indexOf(b.severity)
+  );
+
+  const capped = inlineFindings.slice(0, MAX_INLINE_COMMENTS);
+  const overflow = inlineFindings.slice(MAX_INLINE_COMMENTS);
+  bodyFindings.push(...overflow);
+
+  // Build inline comments
+  const comments: ReviewComment[] = capped.map((finding) => {
+    const severityEmoji = getSeverityEmoji(finding.severity);
+    let commentBody = `${severityEmoji} **[${finding.type}]** ${finding.title}\n\n${finding.description}`;
+    if (finding.suggestion) {
+      commentBody += `\n\n**Suggestion:** ${finding.suggestion}`;
+    }
+    return { path: finding.file, line: finding.line, side: 'RIGHT', body: commentBody };
+  });
+
+  const riskEmoji = riskScore >= 60 ? '🔴' : riskScore >= 30 ? '🟡' : '🟢';
+  let body = `## Pullmint Analysis Results\n\n`;
+  body += `**Risk Score:** ${riskEmoji} ${riskScore}/100\n\n`;
 
   if (opts?.checkpoint) {
     const pct = Math.round(opts.checkpoint.confidence * 100);
@@ -530,43 +640,80 @@ export function buildCommentBody(analysis: AnalysisCompleteData, opts?: CommentO
     }
   }
 
-  if (metadata?.cached) {
-    body += `_Analysis completed in ${metadata.processingTime}ms (cached)_\n\n`;
-  } else if (metadata) {
-    body += `_Analysis completed in ${metadata.processingTime}ms using ${metadata.tokensUsed} tokens_\n\n`;
+  // Add metadata from analysis.metadata
+  if (analysis.metadata) {
+    const meta = analysis.metadata as unknown as Record<string, unknown>;
+    const totalLatencyMs =
+      typeof meta.totalLatencyMs === 'number'
+        ? meta.totalLatencyMs
+        : typeof meta.processingTime === 'number'
+          ? meta.processingTime
+          : undefined;
+    const totalTokens =
+      typeof meta.totalTokens === 'number'
+        ? meta.totalTokens
+        : typeof meta.tokensUsed === 'number'
+          ? meta.tokensUsed
+          : undefined;
+
+    if (totalLatencyMs !== undefined) {
+      body += `⏱️ ${totalLatencyMs}ms`;
+    }
+    if (totalTokens !== undefined) {
+      body += ` | 🔤 ${totalTokens} tokens`;
+    }
+    if (meta.cached === true) {
+      body += ` | 📦 cached`;
+    }
+    if (meta.incremental === true) {
+      body += ` | 🔄 incremental`;
+    }
+
+    body += '\n\n';
   }
 
-  if (!findings || findings.length === 0) {
-    body += `### No Issues Found\n\nGreat work! No architecture or design issues detected.\n\n`;
-  } else {
-    body += `### Findings (${findings.length})\n\n`;
-    const groups = [
-      { label: 'Critical', items: findings.filter((f) => f.severity === 'critical'), emoji: '🔴' },
-      { label: 'High', items: findings.filter((f) => f.severity === 'high'), emoji: '🟠' },
-      { label: 'Medium', items: findings.filter((f) => f.severity === 'medium'), emoji: '🟡' },
-      { label: 'Low', items: findings.filter((f) => f.severity === 'low'), emoji: '🔵' },
-      { label: 'Info', items: findings.filter((f) => f.severity === 'info'), emoji: '⚪' },
-    ];
-    for (const group of groups) {
-      if (group.items.length > 0) {
-        body += `#### ${group.emoji} ${group.label} (${group.items.length})\n\n`;
-        for (const finding of group.items) {
-          body += `**${finding.title}**\n\n${finding.description}\n\n`;
-          if (finding.suggestion) {
-            body += `_Suggestion:_ ${finding.suggestion}\n\n`;
-          }
-          body += `---\n\n`;
+  if (comments.length > 0) {
+    body += `📝 ${comments.length} finding${comments.length === 1 ? '' : 's'} posted as inline comments.\n\n`;
+  }
+
+  // Group remaining body findings by severity
+  if (bodyFindings.length > 0) {
+    const grouped = groupBySeverity(bodyFindings);
+    for (const [severity, items] of grouped) {
+      body += `### ${getSeverityEmoji(severity)} ${severity.charAt(0).toUpperCase() + severity.slice(1)}\n\n`;
+      for (const finding of items) {
+        body += `**${finding.title}**\n${finding.description}`;
+        if (finding.suggestion) {
+          body += `\n*Suggestion: ${finding.suggestion}*`;
         }
+        body += '\n\n---\n\n';
       }
     }
+  } else if (comments.length === 0) {
+    body += '✅ No issues found.\n\n';
   }
 
-  body += `\n---\n`;
-  const execUrl = opts?.dashboardUrl
-    ? `${opts.dashboardUrl}/executions/${analysis.executionId}`
-    : '#';
-  body += `<sub>Powered by Pullmint | [View Execution Details](${execUrl})</sub>`;
-  return body;
+  if (opts?.dashboardUrl) {
+    body += `[View full analysis](${opts.dashboardUrl})\n`;
+  }
+
+  return { body, comments };
+}
+
+export function buildCommentBody(analysis: AnalysisCompleteData, opts?: CommentOpts): string {
+  const parsedDiff: ParsedDiff = {
+    files: [],
+    totalFiles: 0,
+    totalAddedLines: 0,
+    totalRemovedLines: 0,
+  };
+
+  return buildReviewPayload(analysis, parsedDiff, {
+    checkpoint: opts?.checkpoint,
+    dashboardUrl: opts?.dashboardUrl
+      ? `${opts.dashboardUrl}/executions/${analysis.executionId}`
+      : undefined,
+  }).body;
 }
 
 export function getRiskLevel(score: number): string {

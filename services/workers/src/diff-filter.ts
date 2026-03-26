@@ -275,3 +275,32 @@ export function getMaxDiffChars(agentType: string): number {
 
   return defaults[agentType] ?? 60_000;
 }
+
+/**
+ * Checks whether an absolute line number in the new file falls within
+ * a diff hunk for the given file path. GitHub's PR Review API requires
+ * that inline comments reference lines present in the diff.
+ */
+export function isLineInDiff(parsed: ParsedDiff, filePath: string, absoluteLine: number): boolean {
+  const file = parsed.files.find((f) => f.path === filePath);
+  if (!file) {
+    return false;
+  }
+
+  for (const hunk of file.hunks) {
+    // Parse @@ -X,Y +A,B @@ header to extract new-file range
+    const match = hunk.header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (!match) {
+      continue;
+    }
+
+    const newStart = parseInt(match[1], 10);
+    const newCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
+
+    if (absoluteLine >= newStart && absoluteLine < newStart + newCount) {
+      return true;
+    }
+  }
+
+  return false;
+}
