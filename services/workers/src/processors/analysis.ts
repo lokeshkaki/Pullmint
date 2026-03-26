@@ -1,11 +1,11 @@
 import { FlowProducer, Job } from 'bullmq';
 import type { ConnectionOptions } from 'bullmq';
 import YAML from 'yaml';
-import { eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES, getRedisConnection } from '@pullmint/shared/queue';
 import { getConfig, getConfigOptional } from '@pullmint/shared/config';
-import { putObject } from '@pullmint/shared/storage';
+import { getObject, putObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import {
@@ -17,9 +17,12 @@ import { hashContent } from '@pullmint/shared/utils';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
 import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { buildAnalysisCheckpoint } from '../checkpoint';
+import { filterDiff, getChangedFiles, getMaxDiffChars, parseDiff } from '../diff-filter';
 import type { PREvent, Finding } from '@pullmint/shared/types';
+import type { AgentResult } from './agent';
 
 let flowProducer: FlowProducer | undefined;
+const INCREMENTAL_THRESHOLD = parseFloat(process.env.INCREMENTAL_ANALYSIS_THRESHOLD || '0.5');
 type OctokitClient = Awaited<ReturnType<typeof getGitHubInstallationClient>>;
 type LogFn = (message: string) => void | Promise<unknown>;
 
@@ -254,6 +257,154 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       configuredAgentTypes.push('security');
     }
 
+    const fullAgentTypes: Array<keyof PullmintConfig['agents']> = [...configuredAgentTypes];
+    let priorAgentResults: Record<string, AgentResult> | null = null;
+    let rerunAgentTypes: Array<keyof PullmintConfig['agents']> = [...configuredAgentTypes];
+    let isIncremental = false;
+
+    if (job.name === 'pr.synchronize') {
+      try {
+        const inProgress = await db
+          .select({ executionId: schema.executions.executionId })
+          .from(schema.executions)
+          .where(
+            and(
+              eq(schema.executions.repoFullName, prEvent.repoFullName),
+              eq(schema.executions.prNumber, prEvent.prNumber),
+              inArray(schema.executions.status, ['pending', 'analyzing']),
+              ne(schema.executions.executionId, prEvent.executionId)
+            )
+          )
+          .limit(1);
+
+        if (inProgress.length === 0) {
+          const priorRows = await db
+            .select({
+              executionId: schema.executions.executionId,
+              s3Key: schema.executions.s3Key,
+            })
+            .from(schema.executions)
+            .where(
+              and(
+                eq(schema.executions.repoFullName, prEvent.repoFullName),
+                eq(schema.executions.prNumber, prEvent.prNumber),
+                eq(schema.executions.status, 'completed'),
+                ne(schema.executions.executionId, prEvent.executionId)
+              )
+            )
+            .orderBy(desc(schema.executions.createdAt))
+            .limit(1);
+
+          const prior = priorRows[0];
+          if (prior?.s3Key) {
+            const analysisBucket =
+              getConfigOptional('ANALYSIS_RESULTS_BUCKET') ?? 'pullmint-analysis';
+            const priorResultsRaw = await getObject(analysisBucket, prior.s3Key);
+
+            if (priorResultsRaw) {
+              const priorData = JSON.parse(priorResultsRaw) as {
+                findings?: Finding[];
+                agentMeta?: Record<string, Record<string, unknown>>;
+                agentResults?: Record<string, Record<string, unknown>>;
+              };
+
+              const priorDiffKey = `diffs/${prior.executionId}.diff`;
+              const priorDiffRaw = await getObject(analysisBucket, priorDiffKey);
+
+              if (priorDiffRaw) {
+                const priorParsed = parseDiff(priorDiffRaw);
+                const newParsed = parseDiff(diff);
+
+                const delta = getChangedFiles(priorParsed, newParsed);
+                const totalFiles = new Set([
+                  ...priorParsed.files.map((file) => file.path),
+                  ...newParsed.files.map((file) => file.path),
+                ]).size;
+
+                const changedCount =
+                  delta.added.length + delta.removed.length + delta.modified.length;
+                const deltaRatio = totalFiles > 0 ? changedCount / totalFiles : 1;
+
+                if (deltaRatio <= INCREMENTAL_THRESHOLD && changedCount > 0) {
+                  const changedFileSet = new Set([
+                    ...delta.added,
+                    ...delta.modified,
+                    ...delta.removed,
+                  ]);
+
+                  const priorMeta = priorData.agentMeta ?? priorData.agentResults ?? {};
+                  const priorFindings = Array.isArray(priorData.findings) ? priorData.findings : [];
+                  const storedPriorResults: Record<string, AgentResult> = {};
+
+                  for (const agentType of fullAgentTypes) {
+                    const meta = priorMeta[agentType];
+                    if (!meta) {
+                      continue;
+                    }
+
+                    storedPriorResults[agentType] = {
+                      agentType,
+                      findings: priorFindings.filter((finding) => finding.type === agentType),
+                      riskScore: typeof meta.riskScore === 'number' ? meta.riskScore : 50,
+                      summary: typeof meta.summary === 'string' ? meta.summary : '',
+                      model: typeof meta.model === 'string' ? meta.model : 'unknown',
+                      tokens: typeof meta.tokens === 'number' ? meta.tokens : 0,
+                      latencyMs: typeof meta.latencyMs === 'number' ? meta.latencyMs : 0,
+                      status: meta.status === 'failed' ? 'failed' : 'completed',
+                    };
+                  }
+
+                  const agentsToRerun: Array<keyof PullmintConfig['agents']> = [];
+                  const carriedForward: Record<string, AgentResult> = {};
+
+                  for (const agentType of fullAgentTypes) {
+                    const maxChars = getMaxDiffChars(agentType);
+                    const filtered = filterDiff(newParsed, agentType, maxChars);
+                    const excludedSet = new Set(filtered.excludedFilePaths);
+                    const agentFiles = newParsed.files
+                      .map((file) => file.path)
+                      .filter((path) => !excludedSet.has(path));
+
+                    const hasChanges = agentFiles.some((filePath) => changedFileSet.has(filePath));
+                    const priorResult = storedPriorResults[agentType];
+
+                    if (hasChanges || !priorResult || priorResult.status === 'failed') {
+                      agentsToRerun.push(agentType);
+                    } else {
+                      carriedForward[agentType] = priorResult;
+                    }
+                  }
+
+                  if (agentsToRerun.length < fullAgentTypes.length) {
+                    isIncremental = true;
+                    priorAgentResults = carriedForward;
+                    rerunAgentTypes = agentsToRerun;
+
+                    await publishExecutionUpdate(prEvent.executionId, {
+                      metadata: {
+                        incremental: true,
+                        rerunAgents: agentsToRerun,
+                        carriedForwardAgents: Object.keys(carriedForward),
+                        changedFiles: [...changedFileSet],
+                        priorExecutionId: prior.executionId,
+                      },
+                    });
+
+                    configuredAgentTypes.length = 0;
+                    configuredAgentTypes.push(...agentsToRerun);
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        isIncremental = false;
+        priorAgentResults = null;
+        rerunAgentTypes = [...configuredAgentTypes];
+      }
+    }
+
     // 9. Create BullMQ Flow
     const childJobData = {
       executionId: prEvent.executionId,
@@ -278,17 +429,27 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       opts: { failParentOnFailure: false },
     }));
 
+    const synthesizerData = {
+      executionId: prEvent.executionId,
+      prEvent: childJobData.prEvent,
+      diffRef,
+      agentTypes: isIncremental
+        ? [...rerunAgentTypes, ...Object.keys(priorAgentResults ?? {})]
+        : fullAgentTypes,
+      cacheKey,
+      ...(isIncremental && priorAgentResults
+        ? {
+            priorAgentResults,
+            rerunAgentTypes,
+          }
+        : {}),
+    };
+
     const producer = getFlowProducer();
     await producer.add({
       name: 'synthesize',
       queueName: QUEUE_NAMES.SYNTHESIS,
-      data: {
-        executionId: prEvent.executionId,
-        prEvent: childJobData.prEvent,
-        diffRef,
-        agentTypes: configuredAgentTypes,
-        cacheKey,
-      },
+      data: synthesizerData,
       children,
     });
 
