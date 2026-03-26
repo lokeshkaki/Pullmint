@@ -599,14 +599,16 @@ describe('processGitHubIntegrationJob', () => {
       const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
         getObject: jest.Mock;
       };
-      getObject.mockResolvedValue([
-        'diff --git a/src/foo.ts b/src/foo.ts',
-        '--- a/src/foo.ts',
-        '+++ b/src/foo.ts',
-        '@@ -10,2 +10,4 @@ function test() {',
-        ' existing line',
-        '+new line',
-      ].join('\n'));
+      getObject.mockResolvedValue(
+        [
+          'diff --git a/src/foo.ts b/src/foo.ts',
+          '--- a/src/foo.ts',
+          '+++ b/src/foo.ts',
+          '@@ -10,2 +10,4 @@ function test() {',
+          ' existing line',
+          '+new line',
+        ].join('\n')
+      );
 
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
@@ -630,9 +632,7 @@ describe('processGitHubIntegrationJob', () => {
       expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
         expect.objectContaining({
           event: 'COMMENT',
-          comments: [
-            expect.objectContaining({ path: 'src/foo.ts', line: 11, side: 'RIGHT' }),
-          ],
+          comments: [expect.objectContaining({ path: 'src/foo.ts', line: 11, side: 'RIGHT' })],
         })
       );
     });
@@ -667,14 +667,16 @@ describe('processGitHubIntegrationJob', () => {
       const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
         getObject: jest.Mock;
       };
-      getObject.mockResolvedValue([
-        'diff --git a/src/foo.ts b/src/foo.ts',
-        '--- a/src/foo.ts',
-        '+++ b/src/foo.ts',
-        '@@ -10,2 +10,2 @@ function test() {',
-        ' existing line',
-        '+new line',
-      ].join('\n'));
+      getObject.mockResolvedValue(
+        [
+          'diff --git a/src/foo.ts b/src/foo.ts',
+          '--- a/src/foo.ts',
+          '+++ b/src/foo.ts',
+          '@@ -10,2 +10,2 @@ function test() {',
+          ' existing line',
+          '+new line',
+        ].join('\n')
+      );
 
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
@@ -707,14 +709,16 @@ describe('processGitHubIntegrationJob', () => {
       const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
         getObject: jest.Mock;
       };
-      getObject.mockResolvedValue([
-        'diff --git a/src/foo.ts b/src/foo.ts',
-        '--- a/src/foo.ts',
-        '+++ b/src/foo.ts',
-        '@@ -1,1 +1,120 @@ function test() {',
-        ' existing line',
-        '+new line',
-      ].join('\n'));
+      getObject.mockResolvedValue(
+        [
+          'diff --git a/src/foo.ts b/src/foo.ts',
+          '--- a/src/foo.ts',
+          '+++ b/src/foo.ts',
+          '@@ -1,1 +1,120 @@ function test() {',
+          ' existing line',
+          '+new line',
+        ].join('\n')
+      );
 
       const findings = Array.from({ length: 40 }, (_, i) => ({
         type: 'style' as const,
