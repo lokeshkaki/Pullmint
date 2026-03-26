@@ -29,6 +29,7 @@ jest.mock('@pullmint/shared/config', () => ({
 
 jest.mock('@pullmint/shared/storage', () => ({
   putObject: jest.fn().mockResolvedValue(undefined),
+  getObject: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('@pullmint/shared/tracing', () => ({
@@ -96,6 +97,12 @@ function buildMockDb() {
   mockReturning = jest.fn().mockResolvedValue([]);
   mockLimit = jest.fn().mockResolvedValue([]);
 
+  const orderBy = jest.fn().mockReturnValue({ limit: mockLimit });
+  const whereResult = {
+    limit: mockLimit,
+    orderBy,
+  };
+
   const makeWhereResult = () =>
     Object.assign(Promise.resolve(undefined) as Promise<unknown>, {
       returning: mockReturning,
@@ -105,7 +112,7 @@ function buildMockDb() {
   mockDb = {
     select: jest.fn().mockReturnValue({
       from: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({ limit: mockLimit }),
+        where: jest.fn().mockReturnValue(whereResult),
       }),
     }),
     update: jest.fn().mockReturnValue({
@@ -138,9 +145,9 @@ beforeEach(() => {
   ).getGitHubInstallationClient.mockResolvedValue(mockOctokit);
 });
 
-function makePRJob(overrides: Record<string, unknown> = {}): Job {
+function makePRJob(overrides: Record<string, unknown> = {}, name = 'pr.opened'): Job {
   return {
-    name: 'pr.opened',
+    name,
     data: {
       executionId: 'exec-1',
       repoFullName: 'org/repo',
@@ -510,5 +517,303 @@ describe('processAnalysisJob (dispatcher)', () => {
       'exec-1',
       expect.objectContaining({ status: 'failed' })
     );
+  });
+
+  describe('incremental analysis on synchronize', () => {
+    it('reuses prior results when delta is small', async () => {
+      mockLimit.mockResolvedValueOnce([]); // cache miss
+      mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+      mockLimit.mockResolvedValueOnce([]); // no in-progress execution
+      mockLimit.mockResolvedValueOnce([
+        { executionId: 'prev-exec', s3Key: 'executions/prev-exec/analysis.json' },
+      ]); // prior completed execution
+
+      const priorDiff = [
+        'diff --git a/src/main.ts b/src/main.ts',
+        '--- a/src/main.ts',
+        '+++ b/src/main.ts',
+        '@@ -1 +1 @@',
+        '-old-main',
+        '+new-main',
+        'diff --git a/src/service.ts b/src/service.ts',
+        '--- a/src/service.ts',
+        '+++ b/src/service.ts',
+        '@@ -1 +1 @@',
+        '-old-service',
+        '+new-service',
+        'diff --git a/docs/notes.md b/docs/notes.md',
+        '--- a/docs/notes.md',
+        '+++ b/docs/notes.md',
+        '@@ -1 +1 @@',
+        '-old-docs',
+        '+docs-v1',
+      ].join('\n');
+
+      const newDiff = [
+        'diff --git a/src/main.ts b/src/main.ts',
+        '--- a/src/main.ts',
+        '+++ b/src/main.ts',
+        '@@ -1 +1 @@',
+        '-old-main',
+        '+new-main',
+        'diff --git a/src/service.ts b/src/service.ts',
+        '--- a/src/service.ts',
+        '+++ b/src/service.ts',
+        '@@ -1 +1 @@',
+        '-old-service',
+        '+new-service',
+        'diff --git a/docs/notes.md b/docs/notes.md',
+        '--- a/docs/notes.md',
+        '+++ b/docs/notes.md',
+        '@@ -1 +1 @@',
+        '-old-docs',
+        '+docs-v2',
+      ];
+
+      while (newDiff.length < 250) {
+        newDiff.push(`+padding ${newDiff.length}`);
+      }
+
+      mockOctokit.rest.pulls.get.mockResolvedValue({ data: newDiff.join('\n') });
+
+      const priorFindings = [
+        {
+          type: 'architecture',
+          severity: 'medium',
+          title: 'Architecture finding',
+          description: 'arch detail',
+        },
+        {
+          type: 'security',
+          severity: 'low',
+          title: 'Security finding',
+          description: 'sec detail',
+        },
+        {
+          type: 'performance',
+          severity: 'low',
+          title: 'Performance finding',
+          description: 'perf detail',
+        },
+        {
+          type: 'style',
+          severity: 'info',
+          title: 'Style finding',
+          description: 'style detail',
+        },
+      ];
+
+      const priorResultPayload = {
+        findings: priorFindings,
+        agentResults: {
+          architecture: {
+            riskScore: 70,
+            model: 'm1',
+            tokens: 10,
+            latencyMs: 20,
+            status: 'completed',
+          },
+          security: { riskScore: 40, model: 'm2', tokens: 11, latencyMs: 21, status: 'completed' },
+          performance: {
+            riskScore: 30,
+            model: 'm3',
+            tokens: 12,
+            latencyMs: 22,
+            status: 'completed',
+          },
+          style: { riskScore: 20, model: 'm4', tokens: 13, latencyMs: 23, status: 'completed' },
+        },
+      };
+
+      const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
+        getObject: jest.Mock;
+      };
+      getObject.mockImplementation((_bucket: string, key: string) => {
+        if (key === 'executions/prev-exec/analysis.json') {
+          return JSON.stringify(priorResultPayload);
+        }
+        if (key === 'diffs/prev-exec.diff') {
+          return priorDiff;
+        }
+        return null;
+      });
+
+      await processAnalysisJob(makePRJob({}, 'pr.synchronize'));
+
+      const flowCall = mockFlowAdd.mock.calls[0][0] as {
+        children: Array<{ name: string }>;
+        data: {
+          agentTypes: string[];
+          priorAgentResults?: Record<string, unknown>;
+          rerunAgentTypes?: string[];
+        };
+      };
+
+      expect(flowCall.children.map((child) => child.name)).toEqual([
+        'architecture',
+        'security',
+        'style',
+      ]);
+      expect(flowCall.data.agentTypes).toEqual([
+        'architecture',
+        'security',
+        'style',
+        'performance',
+      ]);
+      expect(flowCall.data.priorAgentResults).toEqual(
+        expect.objectContaining({ performance: expect.any(Object) })
+      );
+      expect(flowCall.data.rerunAgentTypes).toEqual(['architecture', 'security', 'style']);
+
+      const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishExecutionUpdate: jest.Mock;
+      };
+      expect(publishExecutionUpdate).toHaveBeenCalledWith(
+        'exec-1',
+        expect.objectContaining({
+          metadata: expect.objectContaining({ incremental: true }),
+        })
+      );
+    });
+
+    it('falls back to full analysis when no prior execution exists', async () => {
+      mockLimit.mockResolvedValueOnce([]); // cache miss
+      mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+      mockLimit.mockResolvedValueOnce([]); // no in-progress execution
+      mockLimit.mockResolvedValueOnce([]); // no completed prior execution
+
+      await processAnalysisJob(makePRJob({}, 'pr.synchronize'));
+
+      const flowCall = mockFlowAdd.mock.calls[0][0] as { children: Array<{ name: string }> };
+      expect(flowCall.children.map((child) => child.name)).toEqual([
+        'architecture',
+        'security',
+        'performance',
+        'style',
+      ]);
+    });
+
+    it('falls back to full analysis when delta exceeds threshold', async () => {
+      mockLimit.mockResolvedValueOnce([]); // cache miss
+      mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+      mockLimit.mockResolvedValueOnce([]); // no in-progress execution
+      mockLimit.mockResolvedValueOnce([
+        { executionId: 'prev-exec', s3Key: 'executions/prev-exec/analysis.json' },
+      ]);
+
+      const priorDiff = [
+        'diff --git a/src/a.ts b/src/a.ts',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+        'diff --git a/src/b.ts b/src/b.ts',
+        '--- a/src/b.ts',
+        '+++ b/src/b.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n');
+
+      const newDiff = [
+        'diff --git a/src/c.ts b/src/c.ts',
+        '--- a/src/c.ts',
+        '+++ b/src/c.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+        'diff --git a/src/d.ts b/src/d.ts',
+        '--- a/src/d.ts',
+        '+++ b/src/d.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ];
+      while (newDiff.length < 250) {
+        newDiff.push(`+padding ${newDiff.length}`);
+      }
+      mockOctokit.rest.pulls.get.mockResolvedValue({ data: newDiff.join('\n') });
+
+      const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
+        getObject: jest.Mock;
+      };
+      getObject.mockImplementation((_bucket: string, key: string) => {
+        if (key === 'executions/prev-exec/analysis.json') {
+          return JSON.stringify({ findings: [], agentResults: {} });
+        }
+        if (key === 'diffs/prev-exec.diff') {
+          return priorDiff;
+        }
+        return null;
+      });
+
+      await processAnalysisJob(makePRJob({}, 'pr.synchronize'));
+
+      const flowCall = mockFlowAdd.mock.calls[0][0] as {
+        children: Array<{ name: string }>;
+        data: { priorAgentResults?: Record<string, unknown> };
+      };
+      expect(flowCall.children.map((child) => child.name)).toEqual([
+        'architecture',
+        'security',
+        'performance',
+        'style',
+      ]);
+      expect(flowCall.data.priorAgentResults).toBeUndefined();
+    });
+
+    it('falls back to full analysis when prior execution is in-progress', async () => {
+      mockLimit.mockResolvedValueOnce([]); // cache miss
+      mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+      mockLimit.mockResolvedValueOnce([{ executionId: 'other-exec' }]); // in progress
+
+      await processAnalysisJob(makePRJob({}, 'pr.synchronize'));
+
+      const flowCall = mockFlowAdd.mock.calls[0][0] as { children: Array<{ name: string }> };
+      expect(flowCall.children.map((child) => child.name)).toEqual([
+        'architecture',
+        'security',
+        'performance',
+        'style',
+      ]);
+    });
+
+    it('falls back to full analysis on pr.opened events', async () => {
+      mockLimit.mockResolvedValueOnce([]); // cache miss
+      mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+
+      await processAnalysisJob(makePRJob({}, 'pr.opened'));
+
+      const flowCall = mockFlowAdd.mock.calls[0][0] as {
+        data: { priorAgentResults?: Record<string, unknown>; rerunAgentTypes?: string[] };
+      };
+      expect(flowCall.data.priorAgentResults).toBeUndefined();
+      expect(flowCall.data.rerunAgentTypes).toBeUndefined();
+    });
+
+    it('falls back gracefully on MinIO fetch error', async () => {
+      mockLimit.mockResolvedValueOnce([]); // cache miss
+      mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+      mockLimit.mockResolvedValueOnce([]); // no in-progress execution
+      mockLimit.mockResolvedValueOnce([
+        { executionId: 'prev-exec', s3Key: 'executions/prev-exec/analysis.json' },
+      ]);
+
+      const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
+        getObject: jest.Mock;
+      };
+      getObject.mockRejectedValue(new Error('minio failure'));
+
+      await expect(processAnalysisJob(makePRJob({}, 'pr.synchronize'))).resolves.toBeUndefined();
+
+      const flowCall = mockFlowAdd.mock.calls[0][0] as { children: Array<{ name: string }> };
+      expect(flowCall.children.map((child) => child.name)).toEqual([
+        'architecture',
+        'security',
+        'performance',
+        'style',
+      ]);
+    });
   });
 });

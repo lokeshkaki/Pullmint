@@ -29,6 +29,8 @@ export interface SynthesisJobData {
   diffRef: string;
   agentTypes: string[];
   cacheKey: string;
+  priorAgentResults?: Record<string, AgentResult>;
+  rerunAgentTypes?: string[];
 }
 
 const BASE_WEIGHTS: Record<string, number> = {
@@ -67,6 +69,9 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
   try {
     const childrenValues = await job.getChildrenValues();
 
+    const priorResults = job.data.priorAgentResults ?? {};
+    const mergedResultsByAgent: Record<string, AgentResult> = { ...priorResults };
+
     const agentResults: AgentResult[] = [];
     const agentMeta: Record<string, AgentResultMeta> = {};
 
@@ -77,6 +82,14 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
       const result = value as AgentResult;
       if (typeof result.agentType !== 'string') {
+        continue;
+      }
+
+      mergedResultsByAgent[result.agentType] = result;
+    }
+
+    for (const result of Object.values(mergedResultsByAgent)) {
+      if (!result || typeof result.agentType !== 'string') {
         continue;
       }
 
@@ -254,6 +267,12 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
         skippedAgents,
         calibrationApplied: calibrationFactor,
         cached: false,
+        ...(job.data.rerunAgentTypes
+          ? {
+              incremental: true,
+              rerunAgents: job.data.rerunAgentTypes,
+            }
+          : {}),
       },
     });
 
@@ -264,6 +283,22 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
       findingsCount: dedupedFindings.length,
       s3Key,
       summary: synthesizedSummary,
+      metadata: {
+        agentResults: agentMeta,
+        synthesisTokens,
+        synthesisLatencyMs,
+        totalFindings: allFindings.length,
+        dedupedFindings: dedupedFindings.length,
+        skippedAgents,
+        calibrationApplied: calibrationFactor,
+        cached: false,
+        ...(job.data.rerunAgentTypes
+          ? {
+              incremental: true,
+              rerunAgents: job.data.rerunAgentTypes,
+            }
+          : {}),
+      },
     } as Record<string, unknown>);
 
     console.log(

@@ -31,6 +31,12 @@ export interface FilteredDiff {
   originalCharCount: number;
 }
 
+export interface DiffDelta {
+  added: string[];
+  removed: string[];
+  modified: string[];
+}
+
 const EXCLUSION_PATTERNS: Record<string, string[]> = {
   architecture: ['*.lock', '*.min.js', '*.min.css', '*.generated.*'],
   security: ['__tests__', '__mocks__', '*.test.*', '*.spec.*', '*.stories.*', '*.mock.*'],
@@ -167,6 +173,38 @@ export function parseDiff(raw: string): ParsedDiff {
     totalAddedLines,
     totalRemovedLines,
   };
+}
+
+export function getChangedFiles(oldParsed: ParsedDiff, newParsed: ParsedDiff): DiffDelta {
+  const oldFileMap = new Map<string, string>();
+  for (const file of oldParsed.files) {
+    oldFileMap.set(file.path, file.rawContent);
+  }
+
+  const newFileMap = new Map<string, string>();
+  for (const file of newParsed.files) {
+    newFileMap.set(file.path, file.rawContent);
+  }
+
+  const added: string[] = [];
+  const removed: string[] = [];
+  const modified: string[] = [];
+
+  for (const [path, content] of newFileMap) {
+    if (!oldFileMap.has(path)) {
+      added.push(path);
+    } else if (oldFileMap.get(path) !== content) {
+      modified.push(path);
+    }
+  }
+
+  for (const path of oldFileMap.keys()) {
+    if (!newFileMap.has(path)) {
+      removed.push(path);
+    }
+  }
+
+  return { added, removed, modified };
 }
 
 export function getFileExclusions(agentType: string): RegExp[] {
