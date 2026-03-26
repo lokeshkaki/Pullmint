@@ -34,6 +34,19 @@ docker compose up
 
 The dashboard is at `http://localhost:3001`. See the [Development Guide](docs/DEVELOPMENT.md) for full setup.
 
+### LLM Provider Configuration
+
+Pullmint supports multiple LLM providers through `LLM_PROVIDER`.
+
+| Provider      | `LLM_PROVIDER` value | Required environment variables |
+| ------------- | -------------------- | ------------------------------ |
+| Anthropic     | `anthropic`          | `ANTHROPIC_API_KEY`            |
+| OpenAI        | `openai`             | `OPENAI_API_KEY`               |
+| Google Gemini | `google`             | `GOOGLE_API_KEY`               |
+
+Optional for OpenAI-compatible endpoints: `OPENAI_BASE_URL`.
+When switching providers, set per-agent model overrides such as `LLM_ARCHITECTURE_MODEL`, `LLM_SECURITY_MODEL`, `LLM_PERFORMANCE_MODEL`, and `LLM_MAINTAINABILITY_MODEL`. See `.env.example` for full examples.
+
 ### Per-Repo Configuration
 
 Drop a `.pullmint.yml` in your repo root to customize analysis:
