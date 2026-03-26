@@ -16,7 +16,8 @@
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.10.1",
     "picomatch": "^4.0.4",
-    "yaml": "^2.8.3"
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
