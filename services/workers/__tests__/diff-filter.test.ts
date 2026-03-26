@@ -184,6 +184,43 @@ describe('filterDiff', () => {
     expect(result.includedFiles).toBe(2);
   });
 
+  it('excludes files matching user ignore paths', () => {
+    const parsed = buildParsedDiff([
+      { path: 'generated/client.ts', body: 'generated body', changeCount: 3 },
+      { path: 'src/app.ts', body: 'app body', changeCount: 2 },
+    ]);
+
+    const result = filterDiff(parsed, 'architecture', 50_000, ['generated/**']);
+
+    expect(result.diff).toContain('src/app.ts');
+    expect(result.diff).not.toContain('generated/client.ts');
+    expect(result.excludedFilePaths).toContain('generated/client.ts');
+  });
+
+  it('does not change behavior for an empty ignore path list', () => {
+    const parsed = buildParsedDiff([
+      { path: 'src/one.ts', body: 'small', changeCount: 1 },
+      { path: 'src/two.ts', body: 'small', changeCount: 1 },
+    ]);
+
+    const withoutIgnorePaths = filterDiff(parsed, 'architecture', 50_000);
+    const withEmptyIgnorePaths = filterDiff(parsed, 'architecture', 50_000, []);
+
+    expect(withEmptyIgnorePaths).toEqual(withoutIgnorePaths);
+  });
+
+  it('does not change behavior when ignore paths are undefined', () => {
+    const parsed = buildParsedDiff([
+      { path: 'src/one.ts', body: 'small', changeCount: 1 },
+      { path: 'src/two.ts', body: 'small', changeCount: 1 },
+    ]);
+
+    const withoutIgnorePaths = filterDiff(parsed, 'architecture', 50_000);
+    const withUndefinedIgnorePaths = filterDiff(parsed, 'architecture', 50_000, undefined);
+
+    expect(withUndefinedIgnorePaths).toEqual(withoutIgnorePaths);
+  });
+
   it('preserves original diff ordering in output', () => {
     const parsed = buildParsedDiff([
       { path: 'src/first.ts', body: 'first body', changeCount: 2 },
