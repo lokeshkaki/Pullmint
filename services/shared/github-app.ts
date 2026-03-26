@@ -51,6 +51,18 @@ type GitHubRestClient = {
           statuses: { context?: string; state?: string }[];
         };
       }>;
+      getContent: (params: {
+        owner: string;
+        repo: string;
+        path: string;
+        ref?: string;
+      }) => Promise<{
+        data:
+          | {
+              content?: string;
+            }
+          | unknown;
+      }>;
     };
     checks: {
       listForRef: (params: { owner: string; repo: string; ref: string }) => Promise<{

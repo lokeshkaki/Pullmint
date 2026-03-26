@@ -3,6 +3,12 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfigOptional } from '@pullmint/shared/config';
+import {
+  DEFAULT_CONFIG,
+  filterFindingsBySeverity,
+  pullmintConfigSchema,
+  type PullmintConfig,
+} from '@pullmint/shared/pullmint-config';
 import { getObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
@@ -128,7 +134,10 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
 
   // Fetch execution record for checkpoint data
   const [execution] = await db
-    .select({ checkpoints: schema.executions.checkpoints })
+    .select({
+      checkpoints: schema.executions.checkpoints,
+      metadata: schema.executions.metadata,
+    })
     .from(schema.executions)
     .where(eq(schema.executions.executionId, detail.executionId))
     .limit(1);
@@ -137,6 +146,12 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   const checkpoint1 = Array.isArray(checkpoints)
     ? (checkpoints[0] as ValidatedCheckpointRecord | undefined)
     : undefined;
+  const repoConfigResult = pullmintConfigSchema.safeParse(
+    (execution?.metadata as Record<string, unknown> | undefined)?.repoConfig
+  );
+  const repoConfig: PullmintConfig = repoConfigResult.success
+    ? repoConfigResult.data
+    : DEFAULT_CONFIG;
 
   const dashboardUrl = getConfigOptional('DASHBOARD_URL') ?? '';
 
@@ -144,6 +159,8 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   const findings: Finding[] = detail.s3Key
     ? await fetchFindingsFromStorage(detail.s3Key)
     : ((detail.findings as Finding[] | undefined) ?? []);
+  const filteredFindings = filterFindingsBySeverity(findings, repoConfig.severity_threshold);
+  const reviewDetail: AnalysisCompleteData = { ...detail, findings: filteredFindings };
   const resolvedDetail: AnalysisCompleteData = { ...detail, findings };
 
   const analysisBucket = getConfigOptional('ANALYSIS_RESULTS_BUCKET') ?? 'pullmint-analysis';
@@ -171,7 +188,7 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   const octokit = await getOctokitClient(detail.repoFullName);
 
   // Post PR review with inline comments
-  const payload = buildReviewPayload(resolvedDetail, parsedDiff, {
+  const payload = buildReviewPayload(reviewDetail, parsedDiff, {
     checkpoint: checkpoint1,
     dashboardUrl: dashboardUrl ? `${dashboardUrl}/executions/${detail.executionId}` : undefined,
   });
@@ -198,7 +215,11 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   console.log(`Successfully posted review to PR #${detail.prNumber}`);
 
   // Auto-approve if low risk
-  if (detail.riskScore < config.autoApproveRiskThreshold) {
+  const autoApproveThreshold =
+    repoConfig.auto_approve_below ??
+    Number(getConfigOptional('AUTO_APPROVE_RISK_THRESHOLD') ?? config.autoApproveRiskThreshold);
+
+  if (detail.riskScore < autoApproveThreshold) {
     try {
       await retryWithBackoff(
         async () => {

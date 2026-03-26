@@ -1,3 +1,5 @@
+import picomatch from 'picomatch';
+
 export interface DiffHunk {
   filePath: string;
   header: string;
@@ -187,7 +189,12 @@ function matchesAnyExclusion(path: string, exclusions: RegExp[]): boolean {
   return exclusions.some((regex) => segments.some((segment) => regex.test(segment)));
 }
 
-export function filterDiff(parsed: ParsedDiff, agentType: string, maxChars: number): FilteredDiff {
+export function filterDiff(
+  parsed: ParsedDiff,
+  agentType: string,
+  maxChars: number,
+  userIgnorePaths?: string[]
+): FilteredDiff {
   const originalCharCount = parsed.files.map((file) => file.rawContent).join('\n').length;
   if (parsed.files.length === 0) {
     return {
@@ -211,7 +218,25 @@ export function filterDiff(parsed: ParsedDiff, agentType: string, maxChars: numb
   const excludedByPattern = indexedFiles.filter(({ file }) =>
     matchesAnyExclusion(file.path, exclusions)
   );
-  const candidates = indexedFiles.filter(({ file }) => !matchesAnyExclusion(file.path, exclusions));
+  const excludedFilePaths = excludedByPattern.map(({ file }) => file.path);
+  let candidates = indexedFiles.filter(({ file }) => !matchesAnyExclusion(file.path, exclusions));
+
+  if (userIgnorePaths && userIgnorePaths.length > 0) {
+    const userMatcher = picomatch(userIgnorePaths);
+    const userExcluded: string[] = [];
+
+    candidates = candidates.filter(({ file }) => {
+      const normalizedPath = file.path.replace(/\\/g, '/');
+      if (userMatcher(normalizedPath)) {
+        userExcluded.push(file.path);
+        return false;
+      }
+
+      return true;
+    });
+
+    excludedFilePaths.push(...userExcluded);
+  }
 
   const prioritized = [...candidates].sort((a, b) => {
     if (b.changeCount !== a.changeCount) {
@@ -243,13 +268,13 @@ export function filterDiff(parsed: ParsedDiff, agentType: string, maxChars: numb
   const includedFilesInOriginalOrder = candidates.filter(({ index }) => selectedIndices.has(index));
   const diff = includedFilesInOriginalOrder.map(({ file }) => file.rawContent).join('\n');
 
-  const excludedFilePaths = [...excludedByPattern.map(({ file }) => file.path), ...excludedBySize];
+  const allExcludedFilePaths = [...excludedFilePaths, ...excludedBySize];
 
   return {
     diff,
     includedFiles: includedFilesInOriginalOrder.length,
-    excludedFiles: excludedFilePaths.length,
-    excludedFilePaths,
+    excludedFiles: allExcludedFilePaths.length,
+    excludedFilePaths: allExcludedFilePaths,
     wasTruncated,
     originalCharCount,
   };

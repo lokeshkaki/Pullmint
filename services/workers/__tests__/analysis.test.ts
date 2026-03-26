@@ -87,6 +87,7 @@ let mockReturning: jest.Mock;
 const mockOctokit = {
   rest: {
     pulls: { get: jest.fn() },
+    repos: { getContent: jest.fn() },
     checks: { listForRef: jest.fn() },
   },
 };
@@ -157,6 +158,7 @@ function makePRJob(overrides: Record<string, unknown> = {}): Job {
 describe('processAnalysisJob (dispatcher)', () => {
   // Use dynamic import so mocks are resolved
   let processAnalysisJob: (job: Job) => Promise<void>;
+  let fetchRepoConfig: typeof import('../src/processors/analysis').fetchRepoConfig;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -166,6 +168,7 @@ describe('processAnalysisJob (dispatcher)', () => {
     (jest.requireMock('@pullmint/shared/db') as { getDb: jest.Mock }).getDb.mockReturnValue(mockDb);
     const largeDiff = Array.from({ length: 250 }, (_, i) => `+line ${i}`).join('\n');
     mockOctokit.rest.pulls.get.mockResolvedValue({ data: largeDiff });
+    mockOctokit.rest.repos.getContent.mockRejectedValue({ status: 404 });
     mockOctokit.rest.checks.listForRef.mockResolvedValue({
       data: { check_runs: [{ conclusion: 'success' }] },
     });
@@ -175,6 +178,87 @@ describe('processAnalysisJob (dispatcher)', () => {
 
     const mod = await import('../src/processors/analysis');
     processAnalysisJob = mod.processAnalysisJob;
+    fetchRepoConfig = mod.fetchRepoConfig;
+  });
+
+  it('parses a valid .pullmint.yml config file', async () => {
+    mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
+      data: {
+        content: Buffer.from(
+          ['severity_threshold: medium', 'ignore_paths:', '  - generated/**'].join('\n')
+        ).toString('base64'),
+      },
+    });
+
+    const result = await fetchRepoConfig(mockOctokit as never, 'org', 'repo', 'abc123');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        severity_threshold: 'medium',
+        ignore_paths: ['generated/**'],
+      })
+    );
+  });
+
+  it('returns defaults when YAML is invalid', async () => {
+    const logWarning = jest.fn();
+    mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
+      data: {
+        content: Buffer.from('severity_threshold: [').toString('base64'),
+      },
+    });
+
+    const result = await fetchRepoConfig(mockOctokit as never, 'org', 'repo', 'abc123', logWarning);
+
+    expect(result).toEqual({
+      severity_threshold: 'low',
+      ignore_paths: [],
+      agents: {
+        architecture: true,
+        security: true,
+        performance: true,
+        style: true,
+      },
+    });
+    expect(logWarning).toHaveBeenCalled();
+  });
+
+  it('returns defaults when .pullmint.yml is missing', async () => {
+    mockOctokit.rest.repos.getContent.mockRejectedValueOnce({ status: 404 });
+
+    const result = await fetchRepoConfig(mockOctokit as never, 'org', 'repo', 'abc123');
+
+    expect(result).toEqual({
+      severity_threshold: 'low',
+      ignore_paths: [],
+      agents: {
+        architecture: true,
+        security: true,
+        performance: true,
+        style: true,
+      },
+    });
+  });
+
+  it('returns defaults when config fetch fails with a server error', async () => {
+    const logWarning = jest.fn();
+    mockOctokit.rest.repos.getContent.mockRejectedValueOnce({ status: 500, message: 'boom' });
+
+    const result = await fetchRepoConfig(mockOctokit as never, 'org', 'repo', 'abc123', logWarning);
+
+    expect(result).toEqual({
+      severity_threshold: 'low',
+      ignore_paths: [],
+      agents: {
+        architecture: true,
+        security: true,
+        performance: true,
+        style: true,
+      },
+    });
+    expect(logWarning).toHaveBeenCalledWith(
+      expect.stringContaining('Warning: Failed to load .pullmint.yml')
+    );
   });
 
   it('creates a BullMQ Flow with 4 agents on cache miss (large diff)', async () => {
@@ -238,6 +322,47 @@ describe('processAnalysisJob (dispatcher)', () => {
     const childNames = flowCall.children.map((c) => c.name);
     expect(childNames).not.toContain('performance');
     expect(childNames).not.toContain('style');
+  });
+
+  it('disables configured agents from .pullmint.yml', async () => {
+    mockLimit.mockResolvedValueOnce([]);
+    mockReturning.mockResolvedValueOnce([{ counter: 1 }]);
+    mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
+      data: {
+        content: Buffer.from(['agents:', '  performance: false'].join('\n')).toString('base64'),
+      },
+    });
+
+    await processAnalysisJob(makePRJob());
+
+    const flowCall = mockFlowAdd.mock.calls[0][0] as {
+      children: Array<{ name: string; data: { userIgnorePaths?: string[] } }>;
+    };
+    const childNames = flowCall.children.map((child) => child.name);
+
+    expect(childNames).toEqual(['architecture', 'security', 'style']);
+  });
+
+  it('keeps security enabled when all agents are disabled', async () => {
+    mockLimit.mockResolvedValueOnce([]);
+    mockReturning.mockResolvedValueOnce([{ counter: 1 }]);
+    mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
+      data: {
+        content: Buffer.from(
+          ['agents:', '  architecture: false', '  security: false', '  performance: false', '  style: false'].join('\n')
+        ).toString('base64'),
+      },
+    });
+
+    await processAnalysisJob(makePRJob());
+
+    const flowCall = mockFlowAdd.mock.calls[0][0] as {
+      children: Array<{ name: string }>;
+      data: { agentTypes: string[] };
+    };
+
+    expect(flowCall.children.map((child) => child.name)).toEqual(['security']);
+    expect(flowCall.data.agentTypes).toEqual(['security']);
   });
 
   it('uses cached result and skips Flow on cache hit', async () => {
@@ -310,6 +435,13 @@ describe('processAnalysisJob (dispatcher)', () => {
   it('passes diffRef and agentTypes in Flow data', async () => {
     mockLimit.mockResolvedValueOnce([]); // cache miss
     mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+    mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
+      data: {
+        content: Buffer.from(
+          ['ignore_paths:', '  - generated/**', '  - vendor/**'].join('\n')
+        ).toString('base64'),
+      },
+    });
 
     await processAnalysisJob(makePRJob());
 
@@ -325,6 +457,7 @@ describe('processAnalysisJob (dispatcher)', () => {
           agentType: string;
           diffRef: string;
           executionId: string;
+          userIgnorePaths?: string[];
         };
         opts: { failParentOnFailure: false };
       }>;
@@ -347,6 +480,7 @@ describe('processAnalysisJob (dispatcher)', () => {
           agentType: expect.any(String),
           diffRef: expect.stringContaining('exec-1'),
           executionId: 'exec-1',
+          userIgnorePaths: ['generated/**', 'vendor/**'],
         })
       );
       expect(child.opts).toEqual({ failParentOnFailure: false });

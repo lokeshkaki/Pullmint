@@ -42,6 +42,7 @@ export interface AgentJobData {
   agentType: string;
   diffRef: string; // MinIO key where diff is stored
   repoKnowledge?: string; // Optional module narratives
+  userIgnorePaths?: string[];
 }
 
 export interface AgentResult {
@@ -56,7 +57,7 @@ export interface AgentResult {
 }
 
 export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResult> {
-  const { executionId, prEvent, agentType, diffRef, repoKnowledge } = job.data;
+  const { executionId, prEvent, agentType, diffRef, repoKnowledge, userIgnorePaths } = job.data;
   const startTime = Date.now();
 
   addTraceAnnotations({ executionId, agentType });
@@ -81,7 +82,7 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
   // Build user prompt (same format as buildAnalysisPrompt in analysis.ts)
   const maxChars = getMaxDiffChars(agentType);
   const parsedDiff = parseDiff(diff);
-  const filtered: FilteredDiff = filterDiff(parsedDiff, agentType, maxChars);
+  const filtered: FilteredDiff = filterDiff(parsedDiff, agentType, maxChars, userIgnorePaths);
 
   const truncatedDiff = filtered.diff;
 
