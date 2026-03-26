@@ -3,7 +3,7 @@ import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig } from '@pullmint/shared/config';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { PRExecutionSchema } from '@pullmint/shared/schemas';
 
@@ -89,49 +89,80 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
   app.get('/dashboard/executions', async (request, reply) => {
     addTraceAnnotations({ path: '/dashboard/executions' });
     try {
-      const query = request.query as Record<string, string | undefined>;
-      const limit = Math.min(parseInt(query.limit || `${DEFAULT_LIMIT}`, 10), MAX_LIMIT);
-      const offset = parseInt(query.offset || '0', 10);
-      const repo = query.repo;
-      const status = query.status;
+      const {
+        limit: limitRaw = `${DEFAULT_LIMIT}`,
+        offset: offsetRaw = '0',
+        repo,
+        status,
+        search,
+        dateFrom,
+        dateTo,
+        author,
+        riskMin,
+        riskMax,
+        findingType,
+      } = request.query as Record<string, string | undefined>;
+
+      const parsedLimit = Number.parseInt(limitRaw, 10);
+      const parsedOffset = Number.parseInt(offsetRaw, 10);
+      const limit = Math.min(Number.isNaN(parsedLimit) ? DEFAULT_LIMIT : parsedLimit, MAX_LIMIT);
+      const offset = Number.isNaN(parsedOffset) ? 0 : parsedOffset;
+
+      const conditions: SQL[] = [];
+
+      if (repo) {
+        conditions.push(eq(schema.executions.repoFullName, repo));
+      }
+      if (status) {
+        conditions.push(eq(schema.executions.status, status));
+      }
+      if (search) {
+        const searchTerm = search.trim();
+        if (searchTerm) {
+          if (/^\d+$/.test(searchTerm)) {
+            conditions.push(eq(schema.executions.prNumber, Number.parseInt(searchTerm, 10)));
+          } else {
+            conditions.push(sql`${schema.executions.repoFullName} ILIKE ${`%${searchTerm}%`}`);
+          }
+        }
+      }
+      if (dateFrom) {
+        conditions.push(sql`${schema.executions.createdAt} >= ${dateFrom}`);
+      }
+      if (dateTo) {
+        conditions.push(sql`${schema.executions.createdAt} <= ${dateTo}`);
+      }
+      if (author) {
+        conditions.push(sql`${schema.executions.author} ILIKE ${`%${author}%`}`);
+      }
+      if (riskMin !== undefined) {
+        const parsedRiskMin = Number(riskMin);
+        if (!Number.isNaN(parsedRiskMin)) {
+          conditions.push(sql`${schema.executions.riskScore} >= ${parsedRiskMin}`);
+        }
+      }
+      if (riskMax !== undefined) {
+        const parsedRiskMax = Number(riskMax);
+        if (!Number.isNaN(parsedRiskMax)) {
+          conditions.push(sql`${schema.executions.riskScore} <= ${parsedRiskMax}`);
+        }
+      }
+      if (findingType) {
+        conditions.push(
+          sql`${schema.executions.findings}::jsonb @> ${JSON.stringify([{ type: findingType }])}::jsonb`
+        );
+      }
+
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
       const db = getDb();
-      let executions: unknown[];
-
-      if (repo && status) {
-        executions = await db
-          .select()
-          .from(schema.executions)
-          .where(
-            and(eq(schema.executions.repoFullName, repo), eq(schema.executions.status, status))
-          )
-          .orderBy(desc(schema.executions.createdAt))
-          .limit(limit)
-          .offset(offset);
-      } else if (repo) {
-        executions = await db
-          .select()
-          .from(schema.executions)
-          .where(eq(schema.executions.repoFullName, repo))
-          .orderBy(desc(schema.executions.createdAt))
-          .limit(limit)
-          .offset(offset);
-      } else if (status) {
-        executions = await db
-          .select()
-          .from(schema.executions)
-          .where(eq(schema.executions.status, status))
-          .orderBy(desc(schema.executions.createdAt))
-          .limit(limit)
-          .offset(offset);
-      } else {
-        executions = await db
-          .select()
-          .from(schema.executions)
-          .orderBy(desc(schema.executions.createdAt))
-          .limit(limit)
-          .offset(offset);
-      }
+      const executions = await db
+        .select()
+        .from(schema.executions)
+        .where(whereClause)
+        .orderBy(desc(schema.executions.createdAt))
+        .limit(limit)
+        .offset(offset);
 
       const parsed = parseExecutionList(executions);
       return reply.status(200).send({
@@ -139,6 +170,80 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
         count: parsed.length,
         limit,
         offset,
+      });
+    } catch (error) {
+      console.error('Dashboard API error:', error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // GET /dashboard/stats/:owner/:repo
+  app.get<{
+    Params: { owner: string; repo: string };
+  }>('/dashboard/stats/:owner/:repo', async (request, reply) => {
+    const { owner, repo } = request.params;
+    const repoFullName = `${owner}/${repo}`;
+    addTraceAnnotations({ path: '/dashboard/stats/:owner/:repo', repoFullName });
+
+    try {
+      const db = getDb();
+
+      const trendRows = await db
+        .select({
+          prNumber: schema.executions.prNumber,
+          riskScore: schema.executions.riskScore,
+          createdAt: schema.executions.createdAt,
+        })
+        .from(schema.executions)
+        .where(
+          and(
+            eq(schema.executions.repoFullName, repoFullName),
+            inArray(schema.executions.status, ['confirmed', 'rolled-back', 'completed']),
+            sql`${schema.executions.riskScore} IS NOT NULL`
+          )
+        )
+        .orderBy(desc(schema.executions.createdAt))
+        .limit(30);
+
+      trendRows.reverse();
+
+      const summaryRows = await db
+        .select({
+          total: sql<number>`COUNT(*)`,
+          avgRisk: sql<number>`AVG(${schema.executions.riskScore})`,
+          confirmedCount: sql<number>`COUNT(*) FILTER (WHERE ${schema.executions.status} = 'confirmed')`,
+          rolledBackCount: sql<number>`COUNT(*) FILTER (WHERE ${schema.executions.status} = 'rolled-back')`,
+        })
+        .from(schema.executions)
+        .where(
+          and(
+            eq(schema.executions.repoFullName, repoFullName),
+            sql`${schema.executions.riskScore} IS NOT NULL`
+          )
+        );
+
+      const summary = summaryRows[0];
+      const total = Number(summary?.total ?? 0);
+      const confirmed = Number(summary?.confirmedCount ?? 0);
+      const rolledBack = Number(summary?.rolledBackCount ?? 0);
+
+      return reply.send({
+        repoFullName,
+        trends: {
+          riskScores: trendRows.map((row) => ({
+            prNumber: row.prNumber,
+            riskScore: row.riskScore,
+            createdAt: row.createdAt,
+          })),
+        },
+        summary: {
+          totalExecutions: total,
+          avgRiskScore: Math.round(Number(summary?.avgRisk ?? 0)),
+          successRate:
+            confirmed + rolledBack > 0
+              ? Math.round((confirmed / (confirmed + rolledBack)) * 100)
+              : 0,
+        },
       });
     } catch (error) {
       console.error('Dashboard API error:', error);

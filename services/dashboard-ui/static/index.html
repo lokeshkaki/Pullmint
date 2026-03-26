@@ -22,31 +22,69 @@
       </nav>
 
       <div id="executions-view">
-        <div class="filters">
-          <div class="filter-group">
-            <label>Repository</label>
-            <input type="text" id="repoFilter" placeholder="owner/repo" />
-          </div>
-          <div class="filter-group">
-            <label>Status</label>
-            <select id="statusFilter">
-              <option value="">All</option>
+        <div class="filter-bar">
+          <div class="filter-row">
+            <input
+              type="text"
+              id="searchInput"
+              class="filter-input"
+              placeholder="Search repo or PR #..."
+            />
+            <input type="text" id="repoFilter" class="filter-input" placeholder="owner/repo" />
+            <select id="statusFilter" class="filter-select">
+              <option value="">All statuses</option>
               <option value="pending">Pending</option>
               <option value="analyzing">Analyzing</option>
               <option value="completed">Completed</option>
               <option value="failed">Failed</option>
               <option value="deploying">Deploying</option>
               <option value="deployed">Deployed</option>
+              <option value="monitoring">Monitoring</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="rolled-back">Rolled Back</option>
             </select>
           </div>
-          <div class="filter-group">
-            <label>&nbsp;</label>
-            <button id="applyFiltersBtn">Apply Filters</button>
+          <div class="filter-row">
+            <input type="text" id="authorFilter" class="filter-input" placeholder="Author..." />
+            <label class="filter-label">From:</label>
+            <input type="date" id="dateFrom" class="filter-input filter-date" />
+            <label class="filter-label">To:</label>
+            <input type="date" id="dateTo" class="filter-input filter-date" />
+            <label class="filter-label">Risk:</label>
+            <input
+              type="number"
+              id="riskMin"
+              class="filter-input filter-small"
+              min="0"
+              max="100"
+              placeholder="0"
+            />
+            <span class="filter-separator">-</span>
+            <input
+              type="number"
+              id="riskMax"
+              class="filter-input filter-small"
+              min="0"
+              max="100"
+              placeholder="100"
+            />
+            <select id="findingTypeFilter" class="filter-select">
+              <option value="">All types</option>
+              <option value="architecture">Architecture</option>
+              <option value="security">Security</option>
+              <option value="performance">Performance</option>
+              <option value="style">Style</option>
+            </select>
           </div>
-          <div class="filter-group">
-            <label>&nbsp;</label>
-            <button id="clearFiltersBtn">Clear</button>
+          <div class="filter-actions">
+            <button id="applyFiltersBtn" class="btn btn-primary">Apply</button>
+            <button id="clearFiltersBtn" class="btn btn-secondary">Clear</button>
           </div>
+        </div>
+
+        <div class="trend-chart-container" id="trendChartContainer" style="display: none">
+          <h3 class="trend-title">Risk Score Trend</h3>
+          <canvas id="trendChart"></canvas>
         </div>
 
         <div class="stats" id="stats">
@@ -145,6 +183,7 @@
     </div>
     <!-- /.container -->
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
     <script src="dashboard.js" defer></script>
   </body>
 </html>
