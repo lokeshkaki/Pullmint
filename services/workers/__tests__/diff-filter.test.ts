@@ -3,6 +3,7 @@ import {
   getFileExclusions,
   filterDiff,
   getMaxDiffChars,
+  isLineInDiff,
   type ParsedDiff,
 } from '../src/diff-filter';
 
@@ -197,6 +198,43 @@ describe('filterDiff', () => {
 
     expect(firstIndex).toBeLessThan(secondIndex);
     expect(secondIndex).toBeLessThan(thirdIndex);
+  });
+});
+
+describe('isLineInDiff', () => {
+  const rawDiff = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -10,5 +10,7 @@ function existing() {
+ unchanged line
++added line 1
++added line 2
+ unchanged line
+`;
+
+  it('returns true for a line within a hunk range', () => {
+    const parsed = parseDiff(rawDiff);
+    expect(isLineInDiff(parsed, 'src/foo.ts', 11)).toBe(true);
+  });
+
+  it('returns false for a line outside all hunks', () => {
+    const parsed = parseDiff(rawDiff);
+    expect(isLineInDiff(parsed, 'src/foo.ts', 50)).toBe(false);
+  });
+
+  it('returns false for an unknown file path', () => {
+    const parsed = parseDiff(rawDiff);
+    expect(isLineInDiff(parsed, 'src/bar.ts', 11)).toBe(false);
+  });
+
+  it('returns false for empty parsed diff', () => {
+    const empty: ParsedDiff = {
+      files: [],
+      totalFiles: 0,
+      totalAddedLines: 0,
+      totalRemovedLines: 0,
+    };
+    expect(isLineInDiff(empty, 'src/foo.ts', 10)).toBe(false);
   });
 });
 

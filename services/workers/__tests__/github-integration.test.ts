@@ -193,14 +193,20 @@ function makeDeploymentStatusJob(status: string, overrides: Record<string, unkno
 
 describe('processGitHubIntegrationJob', () => {
   describe('analysis.complete routing', () => {
-    it('posts PR comment on analysis complete', async () => {
+    it('posts PR review comment on analysis complete', async () => {
       mockLimit.mockResolvedValue([{ checkpoints: [] }]); // execution lookup
       // update returning to indicate approval (not already approved)
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
 
       await processGitHubIntegrationJob(makeAnalysisCompleteJob());
 
-      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'COMMENT',
+          body: expect.stringContaining('Pullmint Analysis Results'),
+          comments: expect.any(Array),
+        })
+      );
     });
 
     it('uses separate Octokit clients for different repositories', async () => {
@@ -352,8 +358,10 @@ describe('processGitHubIntegrationJob', () => {
       );
 
       warnSpy.mockRestore();
-      expect(getObject).not.toHaveBeenCalled();
-      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
+      expect(getObject).toHaveBeenCalledWith('pullmint-analysis', 'diffs/exec-1.diff');
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'COMMENT' })
+      );
     });
 
     it('throws when storage returns empty body for s3 findings', async () => {
@@ -413,7 +421,9 @@ describe('processGitHubIntegrationJob', () => {
       );
 
       warnSpy.mockRestore();
-      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'COMMENT' })
+      );
     });
 
     it('logs auto-approve failures but continues processing', async () => {
@@ -427,7 +437,9 @@ describe('processGitHubIntegrationJob', () => {
         return undefined;
       });
 
-      mockOctokit.rest.pulls.createReview.mockRejectedValue(new Error('approval failed'));
+      mockOctokit.rest.pulls.createReview
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new Error('approval failed'));
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
 
@@ -436,8 +448,12 @@ describe('processGitHubIntegrationJob', () => {
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 5 }));
 
       errorSpy.mockRestore();
-      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
-      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'COMMENT' })
+      );
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'APPROVE' })
+      );
     });
 
     it('blocks deployment when required checks are not passing', async () => {
@@ -572,7 +588,200 @@ describe('processGitHubIntegrationJob', () => {
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 30 }));
 
       errorSpy.mockRestore();
-      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'COMMENT' })
+      );
+    });
+  });
+
+  describe('inline review comments', () => {
+    it('posts findings with file/line as inline comments', async () => {
+      const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
+        getObject: jest.Mock;
+      };
+      getObject.mockResolvedValue(
+        [
+          'diff --git a/src/foo.ts b/src/foo.ts',
+          '--- a/src/foo.ts',
+          '+++ b/src/foo.ts',
+          '@@ -10,2 +10,4 @@ function test() {',
+          ' existing line',
+          '+new line',
+        ].join('\n')
+      );
+
+      mockLimit.mockResolvedValue([{ checkpoints: [] }]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      await processGitHubIntegrationJob(
+        makeAnalysisCompleteJob({
+          findings: [
+            {
+              type: 'architecture',
+              severity: 'high',
+              title: 'Inline finding',
+              description: 'Found on changed line',
+              file: 'src/foo.ts',
+              line: 11,
+              suggestion: 'Apply fix',
+            },
+          ],
+        })
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'COMMENT',
+          comments: [expect.objectContaining({ path: 'src/foo.ts', line: 11, side: 'RIGHT' })],
+        })
+      );
+    });
+
+    it('puts findings without file/line in review body', async () => {
+      mockLimit.mockResolvedValue([{ checkpoints: [] }]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      await processGitHubIntegrationJob(
+        makeAnalysisCompleteJob({
+          findings: [
+            {
+              type: 'security',
+              severity: 'medium',
+              title: 'No location finding',
+              description: 'General concern',
+            },
+          ],
+        })
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'COMMENT',
+          comments: [],
+          body: expect.stringContaining('No location finding'),
+        })
+      );
+    });
+
+    it('puts findings with line outside diff in review body', async () => {
+      const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
+        getObject: jest.Mock;
+      };
+      getObject.mockResolvedValue(
+        [
+          'diff --git a/src/foo.ts b/src/foo.ts',
+          '--- a/src/foo.ts',
+          '+++ b/src/foo.ts',
+          '@@ -10,2 +10,2 @@ function test() {',
+          ' existing line',
+          '+new line',
+        ].join('\n')
+      );
+
+      mockLimit.mockResolvedValue([{ checkpoints: [] }]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      await processGitHubIntegrationJob(
+        makeAnalysisCompleteJob({
+          findings: [
+            {
+              type: 'performance',
+              severity: 'high',
+              title: 'Outside diff finding',
+              description: 'Line not in diff',
+              file: 'src/foo.ts',
+              line: 50,
+            },
+          ],
+        })
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'COMMENT',
+          comments: [],
+          body: expect.stringContaining('Outside diff finding'),
+        })
+      );
+    });
+
+    it('caps inline comments at MAX_INLINE_COMMENTS', async () => {
+      const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
+        getObject: jest.Mock;
+      };
+      getObject.mockResolvedValue(
+        [
+          'diff --git a/src/foo.ts b/src/foo.ts',
+          '--- a/src/foo.ts',
+          '+++ b/src/foo.ts',
+          '@@ -1,1 +1,120 @@ function test() {',
+          ' existing line',
+          '+new line',
+        ].join('\n')
+      );
+
+      const findings = Array.from({ length: 40 }, (_, i) => ({
+        type: 'style' as const,
+        severity: 'high' as const,
+        title: `Finding ${i + 1}`,
+        description: `Description ${i + 1}`,
+        file: 'src/foo.ts',
+        line: i + 1,
+      }));
+
+      mockLimit.mockResolvedValue([{ checkpoints: [] }]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      await processGitHubIntegrationJob(makeAnalysisCompleteJob({ findings }));
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'COMMENT',
+          comments: expect.arrayContaining([
+            expect.objectContaining({ path: 'src/foo.ts', side: 'RIGHT' }),
+          ]),
+          body: expect.stringContaining('Finding 40'),
+        })
+      );
+
+      const reviewCalls = mockOctokit.rest.pulls.createReview.mock.calls;
+      const commentCall = reviewCalls
+        .map((call) => call[0] as { event?: string; comments?: unknown[] })
+        .find((call) => call.event === 'COMMENT');
+      expect(commentCall?.comments).toHaveLength(30);
+    });
+
+    it('degrades gracefully when diff fetch fails', async () => {
+      const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
+        getObject: jest.Mock;
+      };
+      getObject.mockRejectedValue(new Error('diff read failed'));
+
+      mockLimit.mockResolvedValue([{ checkpoints: [] }]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      await processGitHubIntegrationJob(
+        makeAnalysisCompleteJob({
+          findings: [
+            {
+              type: 'architecture',
+              severity: 'medium',
+              title: 'Fallback finding',
+              description: 'Should remain in body',
+              file: 'src/foo.ts',
+              line: 12,
+            },
+          ],
+        })
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'COMMENT',
+          comments: [],
+          body: expect.stringContaining('Fallback finding'),
+        })
+      );
     });
   });
 
@@ -701,7 +910,7 @@ describe('processGitHubIntegrationJob', () => {
 
       expect(body).toContain('Confidence:** 81%');
       expect(body).toContain('Missing signals:_ incident_history');
-      expect(body).toContain('(cached)');
+      expect(body).toContain('cached');
     });
 
     it('renders findings suggestion and non-cached metadata details', () => {
@@ -720,8 +929,8 @@ describe('processGitHubIntegrationJob', () => {
         metadata: { processingTime: 87, tokensUsed: 321 },
       } as unknown as Parameters<typeof buildCommentBody>[0]);
 
-      expect(body).toContain('_Suggestion:_ Extract a shared boundary.');
-      expect(body).toContain('using 321 tokens');
+      expect(body).toContain('*Suggestion: Extract a shared boundary.*');
+      expect(body).toContain('321 tokens');
     });
 
     it('returns medium risk emoji', () => {
