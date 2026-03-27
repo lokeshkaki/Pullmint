@@ -25,6 +25,9 @@ jest.mock('@pullmint/shared/notifications', () => ({
 }));
 
 import { getDb } from '@pullmint/shared/db';
+const { sendNotification } = jest.requireMock('@pullmint/shared/notifications') as {
+  sendNotification: jest.Mock;
+};
 
 const AUTH = { Authorization: 'Bearer test-token' };
 
@@ -231,8 +234,6 @@ describe('POST /dashboard/notifications/:id/test', () => {
     const db = buildMockDb(channel);
     db.limit = jest.fn().mockResolvedValue([channel]);
     (getDb as jest.Mock).mockReturnValue(db);
-
-    const { sendNotification } = await import('@pullmint/shared/notifications');
 
     const app = await buildApp();
     const res = await app.inject({

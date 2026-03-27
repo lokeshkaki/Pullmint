@@ -808,7 +808,7 @@ describe('processGitHubIntegrationJob', () => {
           ],
           riskScore: 50,
           metadata: { processingTime: 1, tokensUsed: 1, cached: false },
-        },
+        } as unknown as Parameters<typeof buildReviewPayload>[0],
         parsedDiff
       );
 
@@ -851,7 +851,7 @@ describe('processGitHubIntegrationJob', () => {
           ],
           riskScore: 50,
           metadata: { processingTime: 1, tokensUsed: 1, cached: false },
-        },
+        } as unknown as Parameters<typeof buildReviewPayload>[0],
         parsedDiff
       );
 
@@ -885,7 +885,7 @@ describe('processGitHubIntegrationJob', () => {
           findings: [],
           riskScore: 10,
           metadata: { processingTime: 1, tokensUsed: 1, cached: false },
-        },
+        } as unknown as Parameters<typeof buildReviewPayload>[0],
         { files: [], totalFiles: 0, totalAddedLines: 0, totalRemovedLines: 0 },
         { resolvedFindings: resolved }
       );
@@ -910,7 +910,7 @@ describe('processGitHubIntegrationJob', () => {
           findings: [],
           riskScore: 10,
           metadata: { processingTime: 1, tokensUsed: 1, cached: false },
-        },
+        } as unknown as Parameters<typeof buildReviewPayload>[0],
         { files: [], totalFiles: 0, totalAddedLines: 0, totalRemovedLines: 0 },
         { lifecycleStats }
       );
@@ -933,7 +933,7 @@ describe('processGitHubIntegrationJob', () => {
           findings: [],
           riskScore: 10,
           metadata: { processingTime: 1, tokensUsed: 1, cached: false },
-        },
+        } as unknown as Parameters<typeof buildReviewPayload>[0],
         { files: [], totalFiles: 0, totalAddedLines: 0, totalRemovedLines: 0 }
       );
 
