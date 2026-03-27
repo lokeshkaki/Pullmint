@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig } from '@pullmint/shared/config';
+import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
@@ -9,6 +10,11 @@ import { PRExecutionSchema } from '@pullmint/shared/schemas';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
+const TERMINAL_STATUSES = ['completed', 'failed', 'confirmed', 'rolled-back'] as const;
+
+function isTerminalStatus(status: string): status is (typeof TERMINAL_STATUSES)[number] {
+  return (TERMINAL_STATUSES as readonly string[]).includes(status);
+}
 
 const ExecutionListRecordSchema = z
   .object({
@@ -251,6 +257,95 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
     }
   });
 
+  // GET /dashboard/executions/:executionId/rerun-history (must be before /:executionId)
+  app.get('/dashboard/executions/:executionId/rerun-history', async (request, reply) => {
+    const { executionId } = request.params as { executionId: string };
+    addTraceAnnotations({ path: '/dashboard/executions/:executionId/rerun-history', executionId });
+
+    try {
+      const db = getDb();
+      const targetRows = await db
+        .select()
+        .from(schema.executions)
+        .where(eq(schema.executions.executionId, executionId))
+        .limit(1);
+      const target = targetRows[0];
+
+      if (!target) {
+        return reply.status(404).send({ error: 'Execution not found' });
+      }
+
+      let rootId = executionId;
+      let current = target;
+      let hops = 0;
+
+      while (hops < 20) {
+        const parentId = current.metadata?.rerunOf;
+        if (typeof parentId !== 'string') {
+          break;
+        }
+
+        const parentRows = await db
+          .select()
+          .from(schema.executions)
+          .where(eq(schema.executions.executionId, parentId))
+          .limit(1);
+        const parent = parentRows[0];
+
+        if (!parent) {
+          break;
+        }
+
+        current = parent;
+        rootId = parentId;
+        hops++;
+      }
+
+      const rootRows =
+        rootId === executionId
+          ? [target]
+          : await db
+              .select()
+              .from(schema.executions)
+              .where(eq(schema.executions.executionId, rootId))
+              .limit(1);
+      const root = rootRows[0];
+
+      if (!root) {
+        return reply.status(404).send({ error: 'Execution not found' });
+      }
+
+      const children = await db
+        .select()
+        .from(schema.executions)
+        .where(sql`${schema.executions.metadata}->>'rerunOf' = ${rootId}`)
+        .orderBy(schema.executions.createdAt);
+
+      const chain = [root, ...children].map((exec, idx, entries) => {
+        const previous = idx > 0 ? entries[idx - 1] : null;
+        const riskScoreDelta =
+          exec.riskScore != null && previous?.riskScore != null
+            ? Math.round((exec.riskScore - previous.riskScore) * 10) / 10
+            : null;
+
+        return {
+          executionId: exec.executionId,
+          status: exec.status,
+          riskScore: exec.riskScore,
+          createdAt: exec.createdAt,
+          isCurrentExecution: exec.executionId === executionId,
+          rerunOf: exec.metadata?.rerunOf ?? null,
+          riskScoreDelta,
+        };
+      });
+
+      return reply.status(200).send({ chain, rootExecutionId: rootId });
+    } catch (error) {
+      console.error('Dashboard API error:', error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
   // GET /dashboard/executions/:executionId/checkpoints (must be before /:executionId)
   app.get('/dashboard/executions/:executionId/checkpoints', async (request, reply) => {
     const { executionId } = request.params as { executionId: string };
@@ -330,6 +425,210 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
       // TODO: publish re-evaluation event when on-demand checkpoint mechanism is defined
 
       return reply.status(202).send({ message: 'Re-evaluation logged' });
+    } catch (error) {
+      console.error('Dashboard API error:', error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // POST /dashboard/executions/:executionId/rerun
+  app.post('/dashboard/executions/:executionId/rerun', async (request, reply) => {
+    const { executionId } = request.params as { executionId: string };
+    addTraceAnnotations({ path: '/dashboard/executions/:executionId/rerun', executionId });
+
+    try {
+      const db = getDb();
+
+      const rows = await db
+        .select()
+        .from(schema.executions)
+        .where(eq(schema.executions.executionId, executionId))
+        .limit(1);
+      const original = rows[0];
+
+      if (!original) {
+        return reply.status(404).send({ error: 'Execution not found' });
+      }
+
+      if (!isTerminalStatus(original.status)) {
+        return reply.status(409).send({
+          error:
+            'Execution is not in a terminal state. Re-run is only allowed after analysis completes.',
+          currentStatus: original.status,
+        });
+      }
+
+      const dedupKey = `rerun:${executionId}`;
+      const existing = await db
+        .select()
+        .from(schema.webhookDedup)
+        .where(eq(schema.webhookDedup.deliveryId, dedupKey))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return reply.status(429).send({
+          error: 'Rate limit: wait 1 minute before re-running this execution again.',
+        });
+      }
+
+      await db.insert(schema.webhookDedup).values({
+        deliveryId: dedupKey,
+        expiresAt: new Date(Date.now() + 60 * 1000),
+      });
+
+      const newExecutionId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await db.insert(schema.executions).values({
+        executionId: newExecutionId,
+        repoFullName: original.repoFullName,
+        prNumber: original.prNumber,
+        headSha: original.headSha,
+        baseSha: original.baseSha ?? undefined,
+        author: original.author ?? undefined,
+        title: original.title ?? undefined,
+        orgId: original.orgId ?? undefined,
+        status: 'pending',
+        metadata: { rerunOf: executionId },
+      });
+
+      await addJob(QUEUE_NAMES.ANALYSIS, 'pr.opened', {
+        executionId: newExecutionId,
+        prNumber: original.prNumber,
+        repoFullName: original.repoFullName,
+        headSha: original.headSha,
+        baseSha: original.baseSha ?? '',
+        author: original.author ?? 'unknown',
+        title: original.title ?? '',
+        orgId: original.orgId ?? '',
+      });
+
+      console.log(`Re-run triggered: ${executionId} -> ${newExecutionId}`);
+      return reply.status(202).send({ executionId: newExecutionId, status: 'pending' });
+    } catch (error) {
+      console.error('Dashboard API error:', error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // POST /dashboard/repos/:owner/:repo/prs/:number/rerun
+  app.post<{
+    Params: { owner: string; repo: string; number: string };
+  }>('/dashboard/repos/:owner/:repo/prs/:number/rerun', async (request, reply) => {
+    const { owner, repo, number } = request.params;
+    const repoFullName = `${owner}/${repo}`;
+    const prNumber = parseInt(number, 10);
+    addTraceAnnotations({
+      path: '/dashboard/repos/:owner/:repo/prs/:number/rerun',
+      repoFullName,
+      prNumber,
+    });
+
+    if (Number.isNaN(prNumber) || prNumber <= 0) {
+      return reply.status(400).send({ error: 'Invalid PR number' });
+    }
+
+    try {
+      const db = getDb();
+
+      const latestRows = await db
+        .select()
+        .from(schema.executions)
+        .where(
+          and(
+            eq(schema.executions.repoFullName, repoFullName),
+            eq(schema.executions.prNumber, prNumber)
+          )
+        )
+        .orderBy(desc(schema.executions.createdAt))
+        .limit(1);
+      const latest = latestRows[0];
+
+      if (!latest) {
+        return reply.status(404).send({ error: 'No prior analysis found for this PR' });
+      }
+
+      const dedupKey = `rerun-latest:${repoFullName}:${prNumber}`;
+      const existing = await db
+        .select()
+        .from(schema.webhookDedup)
+        .where(eq(schema.webhookDedup.deliveryId, dedupKey))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return reply.status(429).send({
+          error: 'Rate limit: wait 1 minute before re-running this PR again.',
+        });
+      }
+
+      await db.insert(schema.webhookDedup).values({
+        deliveryId: dedupKey,
+        expiresAt: new Date(Date.now() + 60 * 1000),
+      });
+
+      let currentHeadSha: string;
+      let currentBaseSha: string;
+      let prAuthor: string;
+      let prTitle: string;
+
+      try {
+        const octokit = await getGitHubInstallationClient(repoFullName);
+        const prData = await octokit.rest.pulls.get({
+          owner,
+          repo,
+          pull_number: prNumber,
+        });
+        const pr = prData.data as {
+          head: { sha: string };
+          base: { sha: string };
+          user: { login: string };
+          title: string;
+        };
+
+        currentHeadSha = pr.head.sha;
+        currentBaseSha = pr.base.sha;
+        prAuthor = pr.user.login;
+        prTitle = pr.title;
+      } catch (githubError) {
+        console.error('Failed to fetch PR from GitHub:', githubError);
+        return reply.status(502).send({ error: 'Failed to fetch current PR state from GitHub' });
+      }
+
+      const newExecutionId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await db.insert(schema.executions).values({
+        executionId: newExecutionId,
+        repoFullName,
+        prNumber,
+        headSha: currentHeadSha,
+        baseSha: currentBaseSha,
+        author: prAuthor,
+        title: prTitle,
+        orgId: latest.orgId ?? undefined,
+        status: 'pending',
+        metadata: {
+          rerunOf: latest.executionId,
+          rerunType: 'latest-head',
+          requestedHeadSha: currentHeadSha,
+        },
+      });
+
+      await addJob(QUEUE_NAMES.ANALYSIS, 'pr.opened', {
+        executionId: newExecutionId,
+        prNumber,
+        repoFullName,
+        headSha: currentHeadSha,
+        baseSha: currentBaseSha,
+        author: prAuthor,
+        title: prTitle,
+        orgId: latest.orgId ?? '',
+      });
+
+      console.log(
+        `Re-run (latest HEAD) triggered for ${repoFullName}#${prNumber}: ${newExecutionId}`
+      );
+      return reply.status(202).send({
+        executionId: newExecutionId,
+        status: 'pending',
+        headSha: currentHeadSha,
+      });
     } catch (error) {
       console.error('Dashboard API error:', error);
       return reply.status(500).send({ error: 'Internal server error' });
