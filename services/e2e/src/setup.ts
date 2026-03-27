@@ -1,6 +1,5 @@
 // services/e2e/src/setup.ts — runs ONCE before all tests (separate process)
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { generateKeyPairSync } from 'crypto';
 
 export default async function globalSetup(): Promise<void> {
   // Check that containers are up
@@ -39,14 +38,17 @@ export default async function globalSetup(): Promise<void> {
 }
 
 /**
- * Load the test RSA private key for GitHub App JWT signing.
- * This key is committed to the repo under services/e2e/src/fixtures/ — it is NOT a real secret.
- * All GitHub API calls in e2e tests are intercepted by nock and never reach real GitHub.
+ * Use an ephemeral test RSA private key for GitHub App JWT signing.
+ * This avoids committing private key material to the repository.
  */
 function loadTestPrivateKey(): string {
   if (process.env.E2E_GITHUB_PRIVATE_KEY) {
     return process.env.E2E_GITHUB_PRIVATE_KEY;
   }
-  const keyPath = join(__dirname, 'fixtures', 'test-rsa-key.pem');
-  return readFileSync(keyPath, 'utf-8');
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  });
+  return privateKey;
 }
