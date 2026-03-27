@@ -8,7 +8,6 @@ import { getConfig, getConfigOptional } from '@pullmint/shared/config';
 import { getObject, putObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
-import { checkBudget } from '@pullmint/shared/cost-tracker';
 import {
   DEFAULT_CONFIG,
   pullmintConfigSchema,
@@ -241,42 +240,6 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       return;
     }
 
-    // 6b. Per-repo monthly budget check
-    if (repoConfig.monthly_budget_usd) {
-      const budget = await checkBudget(db, prEvent.repoFullName, repoConfig.monthly_budget_usd);
-
-      if (!budget.allowed) {
-        console.warn(
-          `Monthly budget exceeded for ${prEvent.repoFullName}: ` +
-            `$${budget.usedUsd.toFixed(2)} / $${budget.budgetUsd.toFixed(2)}`
-        );
-
-        await publishExecutionUpdate(prEvent.executionId, {
-          status: 'completed',
-          findings: [] as unknown[],
-          riskScore: 0,
-          metadata: {
-            budgetExceeded: true,
-            budgetUsedUsd: budget.usedUsd,
-            budgetLimitUsd: budget.budgetUsd,
-            cached: false,
-          },
-        });
-
-        await addJob(QUEUE_NAMES.GITHUB_INTEGRATION, 'budget.exceeded', {
-          ...prEvent,
-          executionId: prEvent.executionId,
-          budgetUsedUsd: budget.usedUsd,
-          budgetLimitUsd: budget.budgetUsd,
-        } as Record<string, unknown>);
-
-        console.log(
-          `Budget-skipped analysis for PR #${prEvent.prNumber} in ${prEvent.repoFullName}`
-        );
-        return;
-      }
-    }
-
     // 7. Store diff in MinIO for agents to read
     const diffRef = `diffs/${prEvent.executionId}.diff`;
     await putObject(config.analysisBucket, diffRef, diff);
@@ -483,21 +446,53 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       userIgnorePaths: repoConfig.ignore_paths,
     };
 
-    const children = configuredAgentTypes.map((agentType) => ({
+    const builtInChildren = configuredAgentTypes.map((agentType) => ({
       name: agentType,
       queueName: QUEUE_NAMES.AGENT,
       data: { ...childJobData, agentType },
       opts: { failParentOnFailure: false },
     }));
 
+    // Collect custom agents and build their children
+    const customAgents = repoConfig.custom_agents ?? [];
+    const customAgentChildren = customAgents.map((customAgent) => ({
+      name: customAgent.name,
+      queueName: QUEUE_NAMES.AGENT,
+      data: {
+        ...childJobData,
+        agentType: customAgent.type,
+        customAgentConfig: {
+          prompt: customAgent.prompt,
+          model: customAgent.model,
+          includePaths: customAgent.include_paths,
+          excludePaths: customAgent.exclude_paths,
+          maxDiffChars: customAgent.max_diff_chars,
+          severityFilter: customAgent.severity_filter,
+        },
+      },
+      opts: { failParentOnFailure: false },
+    }));
+
+    const children = [...builtInChildren, ...customAgentChildren];
+
+    // Collect custom agent weights for synthesizer
+    const customAgentWeights: Record<string, number> = {};
+    for (const customAgent of customAgents) {
+      customAgentWeights[customAgent.type] = customAgent.weight;
+    }
     const synthesizerData: SynthesisJobData = {
       executionId: prEvent.executionId,
       prEvent: childJobData.prEvent,
       diffRef,
       agentTypes: isIncremental
-        ? [...rerunAgentTypes, ...Object.keys(priorAgentResults ?? {})]
-        : fullAgentTypes,
+        ? [
+            ...rerunAgentTypes,
+            ...Object.keys(priorAgentResults ?? {}),
+            ...customAgents.map((a) => a.type),
+          ]
+        : [...(fullAgentTypes as string[]), ...customAgents.map((a) => a.type)],
       cacheKey,
+      customAgentWeights,
       priorExecutionId,
       ...(isIncremental && priorAgentResults
         ? {
@@ -516,7 +511,8 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     });
 
     console.log(
-      `Dispatched ${configuredAgentTypes.length} agents for PR #${prEvent.prNumber} (${isSmallDiff ? 'small' : 'full'} diff, ${diffLineCount} lines)`
+      `Dispatched ${configuredAgentTypes.length} built-in + ${customAgentChildren.length} custom agents ` +
+        `for PR #${prEvent.prNumber} (${isSmallDiff ? 'small' : 'full'} diff, ${diffLineCount} lines)`
     );
   } catch (error) {
     const structuredError = createStructuredError(

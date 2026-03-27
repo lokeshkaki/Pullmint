@@ -414,3 +414,85 @@ describe('getMaxDiffChars', () => {
     expect(getMaxDiffChars('performance')).toBe(60_000);
   });
 });
+
+describe('filterDiff with includePaths', () => {
+  const rawDiff = [
+    'diff --git a/src/components/Button.tsx b/src/components/Button.tsx',
+    '--- a/src/components/Button.tsx',
+    '+++ b/src/components/Button.tsx',
+    '@@ -1,3 +1,4 @@',
+    ' line1',
+    '+added line',
+    'diff --git a/src/api/routes.ts b/src/api/routes.ts',
+    '--- a/src/api/routes.ts',
+    '+++ b/src/api/routes.ts',
+    '@@ -1,2 +1,2 @@',
+    '-old api code',
+    '+new api code',
+    'diff --git a/styles/main.css b/styles/main.css',
+    '--- a/styles/main.css',
+    '+++ b/styles/main.css',
+    '@@ -1,1 +1,2 @@',
+    ' body {}',
+    '+.button { color: red; }',
+  ].join('\n');
+
+  it('includes only files matching includePaths', () => {
+    const parsed = parseDiff(rawDiff);
+    const result = filterDiff(parsed, 'accessibility', 200000, undefined, [
+      'src/components/**',
+      'styles/**',
+    ]);
+
+    expect(result.includedFiles).toBe(2);
+    const includedPaths = result.diff
+      .split('\n')
+      .filter((line) => line.startsWith('diff --git'))
+      .map((line) => line.match(/b\/(.+)$/)?.[1]);
+
+    expect(includedPaths).toContain('src/components/Button.tsx');
+    expect(includedPaths).toContain('styles/main.css');
+    expect(includedPaths).not.toContain('src/api/routes.ts');
+  });
+
+  it('counts excluded files correctly when includePaths filters files', () => {
+    const parsed = parseDiff(rawDiff);
+    const result = filterDiff(parsed, 'accessibility', 200000, undefined, ['src/components/**']);
+
+    expect(result.includedFiles).toBe(1);
+    expect(result.excludedFiles).toBe(2);
+    expect(result.excludedFilePaths).toContain('src/api/routes.ts');
+    expect(result.excludedFilePaths).toContain('styles/main.css');
+  });
+
+  it('applies includePaths after userIgnorePaths', () => {
+    const parsed = parseDiff(rawDiff);
+    // ignore_paths excludes Button.tsx; includePaths would include it but ignorePaths wins first
+    const result = filterDiff(
+      parsed,
+      'accessibility',
+      200000,
+      ['src/components/**'],
+      ['src/components/**', 'styles/**']
+    );
+
+    // Button.tsx is excluded by userIgnorePaths; styles/main.css passes include filter
+    expect(result.includedFiles).toBe(1);
+    const included = result.diff;
+    expect(included).not.toContain('Button.tsx');
+    expect(included).toContain('styles/main.css');
+  });
+
+  it('returns all non-excluded files when includePaths is undefined', () => {
+    const parsed = parseDiff(rawDiff);
+    const result = filterDiff(parsed, 'accessibility', 200000);
+    expect(result.includedFiles).toBe(3);
+  });
+
+  it('returns no files when includePaths matches nothing', () => {
+    const parsed = parseDiff(rawDiff);
+    const result = filterDiff(parsed, 'accessibility', 200000, undefined, ['nonexistent/**']);
+    expect(result.includedFiles).toBe(0);
+    expect(result.excludedFiles).toBe(3);
+  });
+});

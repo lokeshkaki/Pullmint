@@ -231,7 +231,8 @@ export function filterDiff(
   parsed: ParsedDiff,
   agentType: string,
   maxChars: number,
-  userIgnorePaths?: string[]
+  userIgnorePaths?: string[],
+  includePaths?: string[]
 ): FilteredDiff {
   const originalCharCount = parsed.files.map((file) => file.rawContent).join('\n').length;
   if (parsed.files.length === 0) {
@@ -274,6 +275,22 @@ export function filterDiff(
     });
 
     excludedFilePaths.push(...userExcluded);
+  }
+
+  if (includePaths && includePaths.length > 0) {
+    const includeMatcher = picomatch(includePaths);
+    const includeExcluded: string[] = [];
+
+    candidates = candidates.filter(({ file }) => {
+      const normalizedPath = file.path.replace(/\\/g, '/');
+      if (!includeMatcher(normalizedPath)) {
+        includeExcluded.push(file.path);
+        return false;
+      }
+      return true;
+    });
+
+    excludedFilePaths.push(...includeExcluded);
   }
 
   const prioritized = [...candidates].sort((a, b) => {

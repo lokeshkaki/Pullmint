@@ -16,13 +16,38 @@ const agentsConfigSchema = z
     style: true,
   });
 
+export const customAgentSchema = z.object({
+  name: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z][a-z0-9-]*$/, 'name must be lowercase kebab-case'),
+  type: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z][a-z0-9-]*$/, 'type must be lowercase kebab-case'),
+  prompt: z
+    .string()
+    .min(50, 'prompt must be at least 50 characters')
+    .max(10000, 'prompt must not exceed 10000 characters'),
+  model: z.string().optional(),
+  include_paths: z.array(z.string()).optional(),
+  exclude_paths: z.array(z.string()).optional(),
+  weight: z.number().min(0.01).max(0.5).default(0.1),
+  max_diff_chars: z.number().min(10000).max(200000).default(60000),
+  severity_filter: severityThresholdSchema.optional(),
+});
+
+export type CustomAgentConfig = z.infer<typeof customAgentSchema>;
+
 export const pullmintConfigSchema = z
   .object({
     severity_threshold: severityThresholdSchema.default('low'),
     ignore_paths: z.array(z.string()).default([]),
     agents: agentsConfigSchema,
     auto_approve_below: z.number().min(0).max(100).optional(),
-    monthly_budget_usd: z.number().positive().optional(),
+    custom_agents: z.array(customAgentSchema).max(5).default([]),
   })
   .strict();
 
