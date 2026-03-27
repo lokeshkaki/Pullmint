@@ -63,6 +63,18 @@ export interface Finding {
   file?: string;
   line?: number;
   suggestion?: string;
+  fingerprint?: string;
+  lifecycle?: 'new' | 'persisted' | 'resolved';
+}
+
+export interface FindingLifecycleResult {
+  findings: Finding[];
+  resolved: Finding[];
+  stats: {
+    new: number;
+    persisted: number;
+    resolved: number;
+  };
 }
 
 export interface AnalysisResult {
