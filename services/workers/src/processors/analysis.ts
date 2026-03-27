@@ -8,6 +8,7 @@ import { getConfig, getConfigOptional } from '@pullmint/shared/config';
 import { getObject, putObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
+import { checkBudget } from '@pullmint/shared/cost-tracker';
 import {
   DEFAULT_CONFIG,
   pullmintConfigSchema,
@@ -237,6 +238,42 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       } as Record<string, unknown>);
 
       return;
+    }
+
+    // 6b. Per-repo monthly budget check
+    if (repoConfig.monthly_budget_usd) {
+      const budget = await checkBudget(db, prEvent.repoFullName, repoConfig.monthly_budget_usd);
+
+      if (!budget.allowed) {
+        console.warn(
+          `Monthly budget exceeded for ${prEvent.repoFullName}: ` +
+            `$${budget.usedUsd.toFixed(2)} / $${budget.budgetUsd.toFixed(2)}`
+        );
+
+        await publishExecutionUpdate(prEvent.executionId, {
+          status: 'completed',
+          findings: [] as unknown[],
+          riskScore: 0,
+          metadata: {
+            budgetExceeded: true,
+            budgetUsedUsd: budget.usedUsd,
+            budgetLimitUsd: budget.budgetUsd,
+            cached: false,
+          },
+        });
+
+        await addJob(QUEUE_NAMES.GITHUB_INTEGRATION, 'budget.exceeded', {
+          ...prEvent,
+          executionId: prEvent.executionId,
+          budgetUsedUsd: budget.usedUsd,
+          budgetLimitUsd: budget.budgetUsd,
+        } as Record<string, unknown>);
+
+        console.log(
+          `Budget-skipped analysis for PR #${prEvent.prNumber} in ${prEvent.repoFullName}`
+        );
+        return;
+      }
     }
 
     // 7. Store diff in MinIO for agents to read

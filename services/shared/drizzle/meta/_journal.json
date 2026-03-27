@@ -15,6 +15,13 @@
       "when": 1774220435428,
       "tag": "0001_yellow_invisible_woman",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774580674339,
+      "tag": "0002_shiny_tattoo",
+      "breakpoints": true
     }
   ]
 }
