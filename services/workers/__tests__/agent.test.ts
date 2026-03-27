@@ -157,7 +157,9 @@ describe('processAgentJob', () => {
   });
 
   it('should throw for unknown agent type', async () => {
-    await expect(processAgentJob(makeAgentJob('unknown'))).rejects.toThrow('Unknown agent type');
+    await expect(processAgentJob(makeAgentJob('unknown'))).rejects.toThrow(
+      'Custom agent type "unknown" has no customAgentConfig in job data'
+    );
   });
 
   it('should fetch diff from MinIO using diffRef', async () => {
@@ -218,5 +220,148 @@ describe('processAgentJob', () => {
     } finally {
       delete process.env.LLM_MAX_DIFF_CHARS_ARCHITECTURE;
     }
+  });
+});
+
+describe('custom agent processing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreate = jest.fn().mockResolvedValue({
+      text: JSON.stringify({
+        findings: [
+          {
+            type: 'accessibility',
+            severity: 'high',
+            title: 'Missing alt text',
+            description: 'Image element lacks alt attribute',
+            file: 'src/components/Logo.tsx',
+            line: 12,
+          },
+        ],
+        riskScore: 30,
+        summary: 'One accessibility issue found.',
+      }),
+      inputTokens: 100,
+      outputTokens: 50,
+    });
+  });
+
+  function makeCustomAgentJob(overrides?: Partial<AgentJobData>): Job<AgentJobData> {
+    return {
+      id: 'test-custom-agent',
+      name: 'accessibility',
+      data: {
+        executionId: 'owner/repo#1#abc1234',
+        prEvent: {
+          prNumber: 1,
+          repoFullName: 'owner/repo',
+          headSha: 'abc1234',
+          baseSha: 'def5678',
+          author: 'testuser',
+          title: 'feat: add accessible button',
+          orgId: 'org-1',
+        },
+        agentType: 'accessibility',
+        diffRef: 'diffs/test-diff.txt',
+        customAgentConfig: {
+          prompt: 'You are an accessibility expert. Analyze the code changes for WCAG compliance issues and missing ARIA attributes in all changed components.',
+          model: 'claude-haiku-4-5-20251001',
+          includePaths: ['src/components/**', '**/*.css'],
+          excludePaths: ['**/*.test.*'],
+          maxDiffChars: 50000,
+        },
+        ...overrides,
+      },
+    } as unknown as Job<AgentJobData>;
+  }
+
+  it('routes custom agentType to custom prompt instead of throwing', async () => {
+    const result = await processAgentJob(makeCustomAgentJob());
+    expect(result.agentType).toBe('accessibility');
+    expect(result.status).toBe('completed');
+  });
+
+  it('wraps custom prompt with response format frame before sending to LLM', async () => {
+    let capturedSystemPrompt: string | undefined;
+    mockCreate.mockImplementationOnce((input: { systemPrompt?: string }) => {
+      capturedSystemPrompt = input.systemPrompt;
+      return {
+        text: JSON.stringify({ findings: [], riskScore: 0, summary: '' }),
+        inputTokens: 10,
+        outputTokens: 10,
+      };
+    });
+
+    await processAgentJob(makeCustomAgentJob());
+
+    expect(capturedSystemPrompt).toContain('accessibility expert');
+    expect(capturedSystemPrompt).toContain('Response Format');
+    expect(capturedSystemPrompt).toContain('"type": must be "accessibility"');
+  });
+
+  it('filters findings that do not match the custom agentType', async () => {
+    mockCreate.mockResolvedValueOnce({
+      text: JSON.stringify({
+        findings: [
+          { type: 'accessibility', severity: 'high', title: 'Missing alt', description: 'img lacks alt' },
+          { type: 'security', severity: 'critical', title: 'XSS', description: 'Input not sanitized' },
+        ],
+        riskScore: 60,
+        summary: 'Mixed findings.',
+      }),
+      inputTokens: 100,
+      outputTokens: 50,
+    });
+
+    const result = await processAgentJob(makeCustomAgentJob());
+    // Expecting 2: the main accessibility finding + the info finding about partial diff analysis
+    expect(result.findings).toHaveLength(2);
+    const accessibilityFinding = result.findings.find((f) => f.type === 'accessibility' && f.severity === 'high');
+    expect(accessibilityFinding).toBeDefined();
+    expect(accessibilityFinding?.title).toBe('Missing alt');
+    // Security finding should be filtered out; only accessibility findings kept
+    const securityFinding = result.findings.find((f) => f.type === 'security');
+    expect(securityFinding).toBeUndefined();
+  });
+
+  it('throws when customAgentConfig is missing for unknown agentType', async () => {
+    const job = makeCustomAgentJob({ customAgentConfig: undefined });
+    await expect(processAgentJob(job)).rejects.toThrow(
+      'Custom agent type "accessibility" has no customAgentConfig in job data'
+    );
+  });
+
+  it('uses custom model from customAgentConfig', async () => {
+    let capturedModel: string | undefined;
+    mockCreate.mockImplementationOnce((input: { model?: string }) => {
+      capturedModel = input.model;
+      return {
+        text: JSON.stringify({ findings: [], riskScore: 0, summary: '' }),
+        inputTokens: 10,
+        outputTokens: 10,
+      };
+    });
+
+    await processAgentJob(makeCustomAgentJob());
+    expect(capturedModel).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('uses DEFAULT_CUSTOM_AGENT_MODEL when model is not specified in config', async () => {
+    let capturedModel: string | undefined;
+    mockCreate.mockImplementationOnce((input: { model?: string }) => {
+      capturedModel = input.model;
+      return {
+        text: JSON.stringify({ findings: [], riskScore: 0, summary: '' }),
+        inputTokens: 10,
+        outputTokens: 10,
+      };
+    });
+
+    const job = makeCustomAgentJob();
+    job.data.customAgentConfig!.model = undefined;
+    await processAgentJob(job);
+
+    // Should use env var or hardcoded default
+    expect(capturedModel).toBe(process.env.LLM_CUSTOM_AGENT_MODEL ?? 'claude-haiku-4-5-20251001');
   });
 });

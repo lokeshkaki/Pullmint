@@ -568,4 +568,65 @@ describe('processSynthesisJob', () => {
       );
     });
   });
+
+  describe('custom agent weight renormalization', () => {
+    it('includes custom agent in weighted risk score', async () => {
+      const children = {
+        'bull:agent:arch-1': makeAgentResult('architecture', { riskScore: 80 }),
+        'bull:agent:sec-1': makeAgentResult('security', { riskScore: 80 }),
+        'bull:agent:acc-1': {
+          agentType: 'accessibility',
+          findings: [],
+          riskScore: 0,
+          summary: '',
+          model: 'claude-haiku-4-5-20251001',
+          tokens: 50,
+          latencyMs: 200,
+          status: 'completed' as const,
+        },
+      };
+
+      const job = makeSynthesisJob(children, {
+        agentTypes: ['architecture', 'security', 'accessibility'],
+        customAgentWeights: { accessibility: 0.1 },
+      });
+      await processSynthesisJob(job);
+
+      const { putObject } = jest.requireMock('@pullmint/shared/storage') as { putObject: jest.Mock };
+      const storedData = JSON.parse(putObject.mock.calls[0][2] as string) as { riskScore: number };
+
+      // architecture=0.35, security=0.35, accessibility=0.10 → total=0.80
+      // normalized: arch=0.4375, sec=0.4375, acc=0.125
+      // score: 80*0.4375 + 80*0.4375 + 0*0.125 = 70
+      expect(storedData.riskScore).toBe(70);
+    });
+
+    it('handles custom agent failure gracefully via renormalization', async () => {
+      const children = {
+        'bull:agent:arch-1': makeAgentResult('architecture', { riskScore: 60 }),
+        'bull:agent:acc-1': {
+          agentType: 'accessibility',
+          findings: [],
+          riskScore: 0,
+          summary: '',
+          model: 'claude-haiku-4-5-20251001',
+          tokens: 0,
+          latencyMs: 0,
+          status: 'failed' as const,
+        },
+      };
+
+      const job = makeSynthesisJob(children, {
+        agentTypes: ['architecture', 'accessibility'],
+        customAgentWeights: { accessibility: 0.1 },
+      });
+      await processSynthesisJob(job);
+
+      const { putObject } = jest.requireMock('@pullmint/shared/storage') as { putObject: jest.Mock };
+      const storedData = JSON.parse(putObject.mock.calls[0][2] as string) as { riskScore: number };
+
+      // Only architecture completed → normalized weight = 1.0 → score = 60
+      expect(storedData.riskScore).toBe(60);
+    });
+  });
 });
