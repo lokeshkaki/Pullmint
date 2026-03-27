@@ -191,7 +191,51 @@ function makeDeploymentStatusJob(status: string, overrides: Record<string, unkno
   } as unknown as Job;
 }
 
+function makeBudgetExceededJob(overrides: Record<string, unknown> = {}): Job {
+  return {
+    name: 'budget.exceeded',
+    data: {
+      executionId: 'exec-1',
+      repoFullName: 'org/repo',
+      prNumber: 42,
+      budgetUsedUsd: 55,
+      budgetLimitUsd: 50,
+      headSha: 'abc123',
+      baseSha: 'def456',
+      author: 'alice',
+      title: 'feat: test',
+      orgId: 'org-1',
+      ...overrides,
+    },
+  } as unknown as Job;
+}
+
 describe('processGitHubIntegrationJob', () => {
+  describe('budget.exceeded routing', () => {
+    it('posts budget exceeded comment to the PR', async () => {
+      await processGitHubIntegrationJob(makeBudgetExceededJob());
+
+      expect(mockOctokit.rest.issues.createComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: 'org',
+          repo: 'repo',
+          issue_number: 42,
+          body: expect.stringContaining('monthly token budget'),
+        })
+      );
+    });
+
+    it('does not attempt comment when repoFullName is invalid', async () => {
+      await processGitHubIntegrationJob(
+        makeBudgetExceededJob({
+          repoFullName: 'invalid-repo-name',
+        })
+      );
+
+      expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+  });
+
   describe('analysis.complete routing', () => {
     it('posts PR review comment on analysis complete', async () => {
       mockLimit.mockResolvedValue([{ checkpoints: [] }]); // execution lookup
