@@ -19,6 +19,7 @@ jest.mock('@pullmint/shared/queue', () => ({
   QUEUE_NAMES: {
     DEPLOYMENT: 'deployment',
     GITHUB_INTEGRATION: 'github-integration',
+    NOTIFICATION: 'notification',
   },
 }));
 
@@ -255,6 +256,24 @@ describe('processGitHubIntegrationJob', () => {
       );
     });
 
+    it('enqueues analysis.completed notification after posting review', async () => {
+      mockLimit.mockResolvedValue([{ checkpoints: [] }]);
+      mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
+
+      const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+
+      await processGitHubIntegrationJob(makeAnalysisCompleteJob());
+
+      expect(addJob).toHaveBeenCalledWith(
+        'notification',
+        'analysis.completed',
+        expect.objectContaining({
+          event: 'analysis.completed',
+          repoFullName: 'org/repo',
+        })
+      );
+    });
+
     it('uses separate Octokit clients for different repositories', async () => {
       mockLimit.mockResolvedValue([{ checkpoints: [] }]);
       mockReturning.mockResolvedValue([{ executionId: 'exec-1' }]);
@@ -315,7 +334,11 @@ describe('processGitHubIntegrationJob', () => {
 
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 80 }));
 
-      expect(addJob).not.toHaveBeenCalled();
+      expect(addJob).not.toHaveBeenCalledWith(
+        'deployment',
+        'deployment_approved',
+        expect.any(Object)
+      );
       expect(publishExecutionUpdate).toHaveBeenCalledWith(
         'exec-1',
         expect.objectContaining({ status: 'deployment-blocked' })
@@ -335,7 +358,11 @@ describe('processGitHubIntegrationJob', () => {
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 30 }));
 
       consoleSpy.mockRestore();
-      expect(addJob).not.toHaveBeenCalled();
+      expect(addJob).not.toHaveBeenCalledWith(
+        'deployment',
+        'deployment_approved',
+        expect.any(Object)
+      );
       expect(publishEvent).not.toHaveBeenCalled();
     });
 
@@ -634,7 +661,11 @@ describe('processGitHubIntegrationJob', () => {
 
       await processGitHubIntegrationJob(makeAnalysisCompleteJob({ riskScore: 30 }));
 
-      expect(addJob).not.toHaveBeenCalled();
+      expect(addJob).not.toHaveBeenCalledWith(
+        'deployment',
+        'deployment_approved',
+        expect.any(Object)
+      );
       expect(mockOctokit.rest.repos.createDeployment).not.toHaveBeenCalled();
       expect(mockOctokit.rest.issues.addLabels).not.toHaveBeenCalled();
       expect(publishExecutionUpdate).toHaveBeenCalledWith(
