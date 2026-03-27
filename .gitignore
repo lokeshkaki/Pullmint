@@ -75,6 +75,8 @@ temp/
 # Build artifacts
 *.tsbuildinfo
 .eslintcache
+action/dist/
+action/node_modules/
 
 # Generated JS files in source directories
 services/**/*.js
