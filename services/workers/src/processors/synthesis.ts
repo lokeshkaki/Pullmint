@@ -37,6 +37,7 @@ export interface SynthesisJobData {
   cacheKey: string;
   priorAgentResults?: Record<string, AgentResult>;
   rerunAgentTypes?: string[];
+  customAgentWeights?: Record<string, number>;
   priorExecutionId?: string;
 }
 
@@ -228,12 +229,14 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
       security: parseWeight('AGENT_WEIGHT_SECURITY', BASE_WEIGHTS.security),
       performance: parseWeight('AGENT_WEIGHT_PERFORMANCE', BASE_WEIGHTS.performance),
       style: parseWeight('AGENT_WEIGHT_STYLE', BASE_WEIGHTS.style),
+      ...(job.data.customAgentWeights ?? {}),
     };
 
     const activeWeights: Record<string, number> = {};
     for (const result of agentResults) {
-      if (weights[result.agentType] !== undefined) {
-        activeWeights[result.agentType] = weights[result.agentType];
+      const weight = weights[result.agentType];
+      if (weight !== undefined) {
+        activeWeights[result.agentType] = weight;
       }
     }
 
