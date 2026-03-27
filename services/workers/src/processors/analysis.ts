@@ -19,7 +19,7 @@ import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { buildAnalysisCheckpoint } from '../checkpoint';
 import { filterDiff, getChangedFiles, getMaxDiffChars, parseDiff } from '../diff-filter';
 import type { PREvent, Finding } from '@pullmint/shared/types';
-import type { AgentResult, CustomAgentJobConfig } from './agent';
+import type { AgentResult } from './agent';
 import type { SynthesisJobData } from './synthesis';
 
 let flowProducer: FlowProducer | undefined;
@@ -468,7 +468,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
           excludePaths: customAgent.exclude_paths,
           maxDiffChars: customAgent.max_diff_chars,
           severityFilter: customAgent.severity_filter,
-        } as CustomAgentJobConfig,
+        },
       },
       opts: { failParentOnFailure: false },
     }));
@@ -480,7 +480,6 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     for (const customAgent of customAgents) {
       customAgentWeights[customAgent.type] = customAgent.weight;
     }
-
     const synthesizerData: SynthesisJobData = {
       executionId: prEvent.executionId,
       prEvent: childJobData.prEvent,

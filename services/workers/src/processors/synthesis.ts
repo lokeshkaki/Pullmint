@@ -37,7 +37,7 @@ export interface SynthesisJobData {
   cacheKey: string;
   priorAgentResults?: Record<string, AgentResult>;
   rerunAgentTypes?: string[];
-  customAgentWeights?: Record<string, number>; // NEW: weight per custom agent type
+  customAgentWeights?: Record<string, number>;
   priorExecutionId?: string;
 }
 
