@@ -100,6 +100,23 @@ export async function processGitHubIntegrationJob(job: Job): Promise<void> {
 
     console.log(`Ignoring job type: ${jobName}`);
   } catch (error) {
+    try {
+      if (detail.executionId) {
+        await addJob(QUEUE_NAMES.NOTIFICATION, 'analysis.failed', {
+          event: 'analysis.failed',
+          executionId: detail.executionId,
+          repoFullName: (detail as { repoFullName?: string }).repoFullName ?? 'unknown/unknown',
+          prNumber: (detail as { prNumber?: number }).prNumber ?? 0,
+          status: 'failed',
+        });
+      }
+    } catch (notifyErr) {
+      console.error(
+        '[github-integration] Failed to enqueue analysis.failed notification:',
+        notifyErr
+      );
+    }
+
     const structuredError = createStructuredError(
       error instanceof Error ? error : new Error('Unknown error'),
       {
@@ -237,6 +254,25 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   );
 
   console.log(`Successfully posted review to PR #${detail.prNumber}`);
+
+  try {
+    await addJob(QUEUE_NAMES.NOTIFICATION, 'analysis.completed', {
+      event: 'analysis.completed',
+      executionId: detail.executionId,
+      repoFullName: detail.repoFullName,
+      prNumber: detail.prNumber,
+      prTitle: detail.title ?? undefined,
+      author: detail.author ?? undefined,
+      riskScore: detail.riskScore,
+      findingsCount: findings.length,
+      status: 'completed',
+      summary: (execution?.metadata as Record<string, unknown> | undefined)?.summary as
+        | string
+        | undefined,
+    });
+  } catch (err) {
+    console.error('[github-integration] Failed to enqueue notification job:', err);
+  }
 
   // Auto-approve if low risk
   const autoApproveThreshold =

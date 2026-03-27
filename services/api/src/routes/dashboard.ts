@@ -3,6 +3,11 @@ import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig } from '@pullmint/shared/config';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
+import {
+  sendNotification,
+  type NotificationChannel,
+  type NotificationPayload,
+} from '@pullmint/shared/notifications';
 import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { PRExecutionSchema } from '@pullmint/shared/schemas';
@@ -10,6 +15,27 @@ import { registerAnalyticsRoutes } from './analytics';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
+
+const VALID_CHANNEL_TYPES = ['slack', 'discord', 'teams', 'webhook'] as const;
+const VALID_EVENTS = [
+  'analysis.completed',
+  'analysis.failed',
+  'deployment.rolled-back',
+  'budget.exceeded',
+] as const;
+
+const NotificationChannelCreateSchema = z.object({
+  name: z.string().min(1).max(100),
+  channelType: z.enum(VALID_CHANNEL_TYPES),
+  webhookUrl: z.string().url(),
+  repoFilter: z.string().nullable().optional(),
+  events: z.array(z.enum(VALID_EVENTS)).min(1),
+  minRiskScore: z.number().int().min(0).max(100).nullable().optional(),
+  enabled: z.boolean().optional().default(true),
+  secret: z.string().nullable().optional(),
+});
+
+const NotificationChannelUpdateSchema = NotificationChannelCreateSchema.partial();
 
 const ExecutionListRecordSchema = z
   .object({
@@ -462,6 +488,140 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
       console.error('Dashboard API error:', error);
       return reply.status(500).send({ error: 'Internal server error' });
     }
+  });
+
+  // GET /dashboard/notifications
+  app.get('/dashboard/notifications', async (_request, reply) => {
+    const db = getDb();
+    const channels = await db
+      .select()
+      .from(schema.notificationChannels)
+      .orderBy(desc(schema.notificationChannels.createdAt));
+    await reply.send({ channels });
+  });
+
+  // POST /dashboard/notifications
+  app.post('/dashboard/notifications', async (request, reply) => {
+    const parseResult = NotificationChannelCreateSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      await reply
+        .status(400)
+        .send({ error: 'Invalid request body', details: parseResult.error.issues });
+      return;
+    }
+
+    const data = parseResult.data;
+    const db = getDb();
+    const [created] = await db
+      .insert(schema.notificationChannels)
+      .values({
+        name: data.name,
+        channelType: data.channelType,
+        webhookUrl: data.webhookUrl,
+        repoFilter: data.repoFilter ?? null,
+        events: data.events,
+        minRiskScore: data.minRiskScore ?? null,
+        enabled: data.enabled,
+        secret: data.secret ?? null,
+      })
+      .returning();
+
+    await reply.status(201).send({ channel: created });
+  });
+
+  // PUT /dashboard/notifications/:id
+  app.put('/dashboard/notifications/:id', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    if (Number.isNaN(id)) {
+      await reply.status(400).send({ error: 'Invalid channel ID' });
+      return;
+    }
+
+    const parseResult = NotificationChannelUpdateSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      await reply
+        .status(400)
+        .send({ error: 'Invalid request body', details: parseResult.error.issues });
+      return;
+    }
+
+    const data = parseResult.data;
+    const db = getDb();
+    const [updated] = await db
+      .update(schema.notificationChannels)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(schema.notificationChannels.id, id))
+      .returning();
+
+    if (!updated) {
+      await reply.status(404).send({ error: 'Channel not found' });
+      return;
+    }
+
+    await reply.send({ channel: updated });
+  });
+
+  // DELETE /dashboard/notifications/:id
+  app.delete('/dashboard/notifications/:id', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    if (Number.isNaN(id)) {
+      await reply.status(400).send({ error: 'Invalid channel ID' });
+      return;
+    }
+
+    const db = getDb();
+    const [deleted] = await db
+      .delete(schema.notificationChannels)
+      .where(eq(schema.notificationChannels.id, id))
+      .returning();
+
+    if (!deleted) {
+      await reply.status(404).send({ error: 'Channel not found' });
+      return;
+    }
+
+    await reply.status(204).send();
+  });
+
+  // POST /dashboard/notifications/:id/test
+  app.post('/dashboard/notifications/:id/test', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    if (Number.isNaN(id)) {
+      await reply.status(400).send({ error: 'Invalid channel ID' });
+      return;
+    }
+
+    const db = getDb();
+    const [channel] = await db
+      .select()
+      .from(schema.notificationChannels)
+      .where(eq(schema.notificationChannels.id, id))
+      .limit(1);
+
+    if (!channel) {
+      await reply.status(404).send({ error: 'Channel not found' });
+      return;
+    }
+
+    const testPayload: NotificationPayload = {
+      event: 'analysis.completed',
+      executionId: 'test-execution-id',
+      repoFullName: channel.repoFilter ?? 'org/repo',
+      prNumber: 42,
+      prTitle: 'Test PR - Pullmint notification check',
+      author: 'pullmint-bot',
+      riskScore: 35,
+      findingsCount: 3,
+      status: 'completed',
+      summary: 'This is a test notification from Pullmint.',
+      dashboardUrl: undefined,
+      prUrl: 'https://github.com/org/repo/pull/42',
+      timestamp: Date.now(),
+    };
+
+    await sendNotification(channel as NotificationChannel, testPayload);
+
+    await reply.send({ ok: true, message: 'Test notification sent' });
   });
 
   // POST /dashboard/executions/:executionId/re-evaluate
