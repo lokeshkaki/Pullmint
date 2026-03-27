@@ -14,11 +14,27 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            dockerfile: services/api/Dockerfile
+          - service: workers
+            dockerfile: services/workers/Dockerfile
+          - service: dashboard
+            dockerfile: services/dashboard/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
       - name: Set lowercase repository name
         run: echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
@@ -27,32 +43,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push API image
-        uses: docker/build-push-action@v5
+      - name: Build and push ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: services/api/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ env.REPO_LC }}/api:latest
-            ghcr.io/${{ env.REPO_LC }}/api:${{ github.sha }}
-
-      - name: Build and push Workers image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/workers/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ env.REPO_LC }}/workers:latest
-            ghcr.io/${{ env.REPO_LC }}/workers:${{ github.sha }}
-
-      - name: Build and push Dashboard image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/dashboard/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ env.REPO_LC }}/dashboard:latest
-            ghcr.io/${{ env.REPO_LC }}/dashboard:${{ github.sha }}
+            ghcr.io/${{ env.REPO_LC }}/${{ matrix.service }}:latest
+            ghcr.io/${{ env.REPO_LC }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}

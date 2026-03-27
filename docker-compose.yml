@@ -13,9 +13,17 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pullmint"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
   redis:
     image: redis:7-alpine
@@ -26,9 +34,17 @@ services:
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+        reservations:
+          memory: 64m
 
   minio:
     image: minio/minio:latest
@@ -43,9 +59,17 @@ services:
     command: server /data --console-address ":9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+        reservations:
+          memory: 128m
 
   api:
     build:
@@ -61,6 +85,7 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
       DASHBOARD_AUTH_TOKEN: ${DASHBOARD_AUTH_TOKEN:-test-token}
+      NODE_OPTIONS: --max-old-space-size=384
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +93,19 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
   workers:
     build:
@@ -82,6 +120,7 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
+      NODE_OPTIONS: --max-old-space-size=768
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,7 +128,19 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node.*main.js' > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1024m
+        reservations:
+          memory: 512m
 
   workers-analysis:
     build:
@@ -105,6 +156,7 @@ services:
       MINIO_SECRET_KEY: minioadmin
       ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
       WORKER_GROUP: analysis
+      NODE_OPTIONS: --max-old-space-size=384
     depends_on:
       postgres:
         condition: service_healthy
@@ -112,9 +164,21 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node.*main.js' > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     profiles:
       - split
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 256m
 
   workers-integration:
     build:
@@ -130,6 +194,7 @@ services:
       MINIO_SECRET_KEY: minioadmin
       ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
       WORKER_GROUP: integration
+      NODE_OPTIONS: --max-old-space-size=192
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,9 +202,21 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node.*main.js' > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     profiles:
       - split
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+        reservations:
+          memory: 128m
 
   workers-background:
     build:
@@ -155,6 +232,7 @@ services:
       MINIO_SECRET_KEY: minioadmin
       ANALYSIS_RESULTS_BUCKET: pullmint-analysis-results
       WORKER_GROUP: background
+      NODE_OPTIONS: --max-old-space-size=192
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,9 +240,21 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node.*main.js' > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     profiles:
       - split
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+        reservations:
+          memory: 128m
 
   dashboard:
     build:
@@ -174,6 +264,19 @@ services:
       - "3001:80"
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+        reservations:
+          memory: 32m
 
 volumes:
   postgres_data:
