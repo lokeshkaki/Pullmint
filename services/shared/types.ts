@@ -56,7 +56,7 @@ export interface PRExecution {
 }
 
 export interface Finding {
-  type: 'architecture' | 'security' | 'performance' | 'style';
+  type: string; // built-in: 'architecture' | 'security' | 'performance' | 'style'; custom: any kebab-case string
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   title: string;
   description: string;
@@ -79,7 +79,7 @@ export interface FindingLifecycleResult {
 
 export interface AnalysisResult {
   executionId: string;
-  agentType: 'architecture' | 'security' | 'performance' | 'style';
+  agentType: string; // built-in: 'architecture' | 'security' | 'performance' | 'style'; custom: any kebab-case string
   findings: Finding[];
   riskScore: number;
   testsPassed?: boolean;
