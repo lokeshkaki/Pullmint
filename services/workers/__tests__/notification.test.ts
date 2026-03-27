@@ -15,7 +15,6 @@ jest.mock('@pullmint/shared/error-handling', () => ({
 }));
 
 import { getDb } from '@pullmint/shared/db';
-import { sendNotification } from '@pullmint/shared/notifications';
 
 const mockDb = {
   select: jest.fn().mockReturnThis(),
@@ -64,6 +63,9 @@ beforeEach(() => {
   (getDb as jest.Mock).mockReturnValue(mockDb);
 });
 
+const { sendNotification } = jest.requireMock('@pullmint/shared/notifications') as {
+  sendNotification: jest.Mock;
+};
 describe('processNotificationJob', () => {
   it('sends to all matching channels', async () => {
     mockDb.where.mockResolvedValue([slackChannel, discordChannel]);
@@ -110,7 +112,7 @@ describe('processNotificationJob', () => {
   });
 
   it('continues processing remaining channels when one fails', async () => {
-    (sendNotification as jest.Mock)
+    sendNotification
       .mockRejectedValueOnce(new Error('channel 1 failed'))
       .mockResolvedValueOnce(undefined);
 
