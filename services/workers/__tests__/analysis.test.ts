@@ -55,6 +55,16 @@ jest.mock('@pullmint/shared/execution-events', () => ({
   closePublisher: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('@pullmint/shared/cost-tracker', () => ({
+  checkBudget: jest.fn().mockResolvedValue({
+    allowed: true,
+    usedUsd: 0,
+    budgetUsd: 0,
+    remainingUsd: 0,
+  }),
+  recordTokenUsage: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/checkpoint', () => ({
   buildAnalysisCheckpoint: jest.fn().mockResolvedValue({
     checkpoint1: {
@@ -443,6 +453,35 @@ describe('processAnalysisJob (dispatcher)', () => {
       'analysis.complete',
       expect.objectContaining({ riskScore: 50, findingsCount: 0 })
     );
+  });
+
+  it('skips analysis and posts github-integration job when budget exceeded', async () => {
+    mockLimit.mockResolvedValueOnce([]); // cache miss
+    mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+
+    const { checkBudget } = jest.requireMock('@pullmint/shared/cost-tracker') as {
+      checkBudget: jest.Mock;
+    };
+    checkBudget.mockResolvedValueOnce({
+      allowed: false,
+      usedUsd: 55,
+      budgetUsd: 50,
+      remainingUsd: 0,
+    });
+
+    mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
+      data: {
+        content: Buffer.from('monthly_budget_usd: 50').toString('base64'),
+      },
+    });
+
+    await processAnalysisJob(makePRJob({}, 'pr.opened'));
+
+    expect(mockFlowAdd).not.toHaveBeenCalled();
+
+    const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
+    const budgetCall = addJob.mock.calls.find((call: unknown[]) => call[1] === 'budget.exceeded');
+    expect(budgetCall).toBeDefined();
   });
 
   it('passes diffRef and agentTypes in Flow data', async () => {
