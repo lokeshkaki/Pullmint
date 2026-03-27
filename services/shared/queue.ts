@@ -39,6 +39,7 @@ export const QUEUE_NAMES = {
   CALIBRATION: 'calibration',
   REPO_INDEXING: 'repo-indexing',
   CLEANUP: 'cleanup',
+  NOTIFICATION: 'notification',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

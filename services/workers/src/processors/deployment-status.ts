@@ -227,6 +227,20 @@ async function triggerRollback(
     riskScore: (execution.riskScore as number) ?? null,
     updatedAt: Date.now(),
   };
+
+  try {
+    await addJob(QUEUE_NAMES.NOTIFICATION, 'deployment.rolled-back', {
+      event: 'deployment.rolled-back',
+      executionId,
+      repoFullName: execution.repoFullName as string,
+      prNumber: execution.prNumber as number,
+      riskScore: (execution.riskScore as number | undefined) ?? undefined,
+      status: 'rolled-back',
+    });
+  } catch (notifyErr) {
+    console.error('[deployment-status] Failed to enqueue rollback notification:', notifyErr);
+  }
+
   await publishEvent(event);
 }
 

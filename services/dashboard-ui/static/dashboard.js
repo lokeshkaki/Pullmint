@@ -640,6 +640,206 @@ function clearFilters() {
   hideTrendChart();
 }
 
+async function loadNotificationChannels() {
+  try {
+    const response = await fetch(`${apiBase}/notifications`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error('Failed to fetch notification channels');
+    const data = await response.json();
+    renderNotificationChannels(data.channels || []);
+  } catch (err) {
+    console.error('Error loading notification channels:', err);
+    const container = document.getElementById('notifChannelList');
+    if (container) container.innerHTML = '<p class="error">Failed to load channels.</p>';
+  }
+}
+
+function renderNotificationChannels(channels) {
+  const container = document.getElementById('notifChannelList');
+  if (!container) return;
+
+  if (channels.length === 0) {
+    container.innerHTML = '<p>No notification channels configured yet.</p>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.style.width = '100%';
+  table.innerHTML =
+    '<thead><tr>' +
+    '<th>Name</th><th>Type</th><th>Repo Filter</th><th>Events</th>' +
+    '<th>Min Risk</th><th>Enabled</th><th>Actions</th>' +
+    '</tr></thead>';
+
+  const tbody = document.createElement('tbody');
+  channels.forEach((ch) => {
+    const tr = document.createElement('tr');
+
+    const nameTd = document.createElement('td');
+    nameTd.textContent = ch.name;
+
+    const typeTd = document.createElement('td');
+    typeTd.textContent = ch.channelType;
+
+    const repoTd = document.createElement('td');
+    repoTd.textContent = ch.repoFilter || '(all)';
+
+    const eventsTd = document.createElement('td');
+    eventsTd.textContent = (ch.events || []).join(', ');
+
+    const riskTd = document.createElement('td');
+    riskTd.textContent = ch.minRiskScore != null ? String(ch.minRiskScore) : '-';
+
+    const enabledTd = document.createElement('td');
+    enabledTd.textContent = ch.enabled ? 'Yes' : 'No';
+
+    const actionsTd = document.createElement('td');
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => editNotifChannel(ch));
+
+    const testBtn = document.createElement('button');
+    testBtn.textContent = 'Test';
+    testBtn.style.marginLeft = '0.25rem';
+    testBtn.addEventListener('click', () => {
+      void testNotifChannel(ch.id);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.style.marginLeft = '0.25rem';
+    deleteBtn.addEventListener('click', () => {
+      void deleteNotifChannel(ch.id);
+    });
+
+    actionsTd.appendChild(editBtn);
+    actionsTd.appendChild(testBtn);
+    actionsTd.appendChild(deleteBtn);
+
+    tr.appendChild(nameTd);
+    tr.appendChild(typeTd);
+    tr.appendChild(repoTd);
+    tr.appendChild(eventsTd);
+    tr.appendChild(riskTd);
+    tr.appendChild(enabledTd);
+    tr.appendChild(actionsTd);
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  container.innerHTML = '';
+  container.appendChild(table);
+}
+
+function editNotifChannel(ch) {
+  document.getElementById('notif-form-title').textContent = 'Edit Channel';
+  document.getElementById('notifId').value = String(ch.id);
+  document.getElementById('notifName').value = ch.name;
+  document.getElementById('notifType').value = ch.channelType;
+  document.getElementById('notifUrl').value = ch.webhookUrl;
+  document.getElementById('notifRepoFilter').value = ch.repoFilter || '';
+  document.getElementById('notifMinRisk').value =
+    ch.minRiskScore != null ? String(ch.minRiskScore) : '';
+  document.getElementById('notifSecret').value = ch.secret || '';
+  document.getElementById('notifEnabled').checked = ch.enabled;
+
+  const checkboxes = document.querySelectorAll('input[name="notifEvents"]');
+  checkboxes.forEach((cb) => {
+    cb.checked = (ch.events || []).includes(cb.value);
+  });
+
+  document.getElementById('notifForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+function resetNotifForm() {
+  document.getElementById('notif-form-title').textContent = 'Add Channel';
+  document.getElementById('notifId').value = '';
+  document.getElementById('notifForm').reset();
+}
+
+async function saveNotificationChannel(event) {
+  event.preventDefault();
+
+  const id = document.getElementById('notifId').value;
+  const selectedEvents = Array.from(
+    document.querySelectorAll('input[name="notifEvents"]:checked')
+  ).map((cb) => cb.value);
+
+  if (selectedEvents.length === 0) {
+    alert('Select at least one event to subscribe to.');
+    return;
+  }
+
+  const minRiskRaw = document.getElementById('notifMinRisk').value;
+  const body = {
+    name: document.getElementById('notifName').value,
+    channelType: document.getElementById('notifType').value,
+    webhookUrl: document.getElementById('notifUrl').value,
+    repoFilter: document.getElementById('notifRepoFilter').value || null,
+    events: selectedEvents,
+    minRiskScore: minRiskRaw !== '' ? Number(minRiskRaw) : null,
+    enabled: document.getElementById('notifEnabled').checked,
+    secret: document.getElementById('notifSecret').value || null,
+  };
+
+  const isEdit = id !== '';
+  const url = isEdit ? `${apiBase}/notifications/${id}` : `${apiBase}/notifications`;
+  const method = isEdit ? 'PUT' : 'POST';
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      alert('Error saving channel: ' + (err.error || response.statusText));
+      return;
+    }
+    resetNotifForm();
+    await loadNotificationChannels();
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+}
+
+async function testNotifChannel(id) {
+  try {
+    const response = await fetch(`${apiBase}/notifications/${id}/test`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      alert('Test notification sent successfully!');
+    } else {
+      alert('Test failed: ' + (data.error || response.statusText));
+    }
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+}
+
+async function deleteNotifChannel(id) {
+  if (!confirm('Delete this notification channel? This cannot be undone.')) return;
+  try {
+    const response = await fetch(`${apiBase}/notifications/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    if (response.ok || response.status === 204) {
+      await loadNotificationChannels();
+    } else {
+      const data = await response.json().catch(() => ({}));
+      alert('Error deleting: ' + (data.error || response.statusText));
+    }
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+}
+
 async function viewExecution(executionId) {
   try {
     const response = await fetch(`${apiBase}/executions/${executionId}`, {
@@ -905,6 +1105,10 @@ function initializeDashboard() {
   document.getElementById('calibrationRefreshBtn')?.addEventListener('click', loadCalibration);
   document.getElementById('modalCancelBtn')?.addEventListener('click', closeJustificationModal);
   document.getElementById('modalSubmitBtn')?.addEventListener('click', submitOverride);
+  document
+    .getElementById('notifForm')
+    ?.addEventListener('submit', (event) => void saveNotificationChannel(event));
+  document.getElementById('notifCancelBtn')?.addEventListener('click', resetNotifForm);
 
   document.getElementById('applyAnalyticsBtn')?.addEventListener('click', () => {
     void loadAnalytics();
@@ -959,6 +1163,7 @@ function showView(viewId, btn) {
     'calibration-view',
     'analytics-view',
     'costs-view',
+    'notifications-view',
   ].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
@@ -976,6 +1181,7 @@ function showView(viewId, btn) {
   if (viewId === 'calibration-view') loadCalibration();
   if (viewId === 'analytics-view') void loadAnalytics();
   if (viewId === 'costs-view') void loadCostData();
+  if (viewId === 'notifications-view') void loadNotificationChannels();
 }
 
 // ===========================
