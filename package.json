@@ -4,6 +4,7 @@
   "description": "AI-powered pull request analysis and automation for GitHub workflows",
   "private": true,
   "workspaces": [
+    "action",
     "services/shared",
     "services/api",
     "services/workers",
