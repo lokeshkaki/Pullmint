@@ -2,6 +2,7 @@ import { Job } from 'bullmq';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig, getConfigOptional } from '@pullmint/shared/config';
+import { recordTokenUsage } from '@pullmint/shared/cost-tracker';
 import { putObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
@@ -208,6 +209,16 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
         synthesizedSummary = summaryResponse.text;
         synthesisTokens = summaryResponse.inputTokens + summaryResponse.outputTokens;
+
+        // Record token usage for cost tracking (best-effort, non-blocking)
+        void recordTokenUsage(getDb(), {
+          executionId,
+          repoFullName: prEvent.repoFullName,
+          agentType: 'synthesis',
+          model: 'claude-haiku-4-5-20251001',
+          inputTokens: summaryResponse.inputTokens,
+          outputTokens: summaryResponse.outputTokens,
+        });
       } catch (summaryError) {
         console.warn('Failed to generate LLM summary, continuing without it:', summaryError);
       }

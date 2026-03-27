@@ -1,7 +1,9 @@
 import { Job } from 'bullmq';
+import { getDb } from '@pullmint/shared/db';
 import { getObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { retryWithBackoff } from '@pullmint/shared/error-handling';
+import { recordTokenUsage } from '@pullmint/shared/cost-tracker';
 import type { Finding } from '@pullmint/shared/types';
 import { createLLMProvider, LLMProvider } from '@pullmint/shared/llm';
 import { getArchitecturePrompt } from '../prompts/architecture';
@@ -130,6 +132,17 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
 
   // Calculate tokens
   const tokens = response.inputTokens + response.outputTokens;
+
+  // Record token usage for cost tracking (best-effort, non-blocking)
+  void recordTokenUsage(getDb(), {
+    executionId,
+    repoFullName: prEvent.repoFullName,
+    agentType,
+    model,
+    inputTokens: response.inputTokens,
+    outputTokens: response.outputTokens,
+  });
+
   const latencyMs = Date.now() - startTime;
 
   const result: AgentResult = {
