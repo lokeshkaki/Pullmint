@@ -19,6 +19,7 @@
         <button class="nav-tab active" data-view="executions-view">Executions</button>
         <button class="nav-tab" data-view="board-view">Risk Board</button>
         <button class="nav-tab" data-view="calibration-view">Calibration</button>
+        <button class="nav-tab" data-view="analytics-view">Analytics</button>
       </nav>
 
       <div id="executions-view">
@@ -165,6 +166,98 @@
           </div>
         </div>
       </div>
+
+      <!-- Analytics view -->
+      <div id="analytics-view" class="hidden">
+        <!-- Date range filter -->
+        <div class="filter-bar">
+          <div class="filter-row">
+            <label class="filter-label">From:</label>
+            <input type="date" id="analyticsDateFrom" class="filter-input filter-date" />
+            <label class="filter-label">To:</label>
+            <input type="date" id="analyticsDateTo" class="filter-input filter-date" />
+            <button id="applyAnalyticsBtn" class="btn btn-primary">Apply</button>
+            <button id="clearAnalyticsBtn" class="btn btn-secondary">Clear</button>
+          </div>
+        </div>
+
+        <!-- Summary cards -->
+        <div class="stats" id="analyticsSummaryCards">
+          <div class="stat-card">
+            <div class="stat-label">Total PRs Analyzed</div>
+            <div class="stat-value" id="analyticsTotalPRs">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg Risk Score</div>
+            <div class="stat-value" id="analyticsAvgRisk">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Auto-Approved</div>
+            <div class="stat-value" id="analyticsAutoApproved">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Rollback Rate</div>
+            <div class="stat-value" id="analyticsRollbackRate">-</div>
+          </div>
+        </div>
+
+        <!-- Risk trend chart + finding distribution -->
+        <div class="analytics-charts-row">
+          <div class="analytics-chart-card">
+            <div class="filter-row" style="margin-bottom: 0.5rem">
+              <label class="filter-label">Interval:</label>
+              <select id="trendsInterval" class="filter-select">
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+              </select>
+            </div>
+            <h3 class="trend-title">Risk Score Trend</h3>
+            <canvas id="analyticsTrendChart"></canvas>
+          </div>
+          <div class="analytics-chart-card">
+            <h3 class="trend-title">Finding Distribution</h3>
+            <canvas id="analyticsDonutChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Author leaderboard -->
+        <div class="panel-card">
+          <h3 class="panel-title">Author Leaderboard</h3>
+          <table id="analyticsAuthorsTable" class="analytics-table">
+            <thead>
+              <tr>
+                <th data-sort="login">Author</th>
+                <th data-sort="prCount">PRs</th>
+                <th data-sort="avgRiskScore">Avg Risk</th>
+                <th data-sort="rollbackRate">Rollback Rate</th>
+                <th data-sort="topFindingType">Top Finding</th>
+                <th data-sort="trend">Trend</th>
+              </tr>
+            </thead>
+            <tbody id="analyticsAuthorsBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Repo comparison -->
+        <div class="panel-card">
+          <h3 class="panel-title">Repo Comparison</h3>
+          <table id="analyticsReposTable" class="analytics-table">
+            <thead>
+              <tr>
+                <th data-sort="repoFullName">Repo</th>
+                <th data-sort="prCount">PRs</th>
+                <th data-sort="avgRiskScore">Avg Risk</th>
+                <th data-sort="rollbackRate">Rollback Rate</th>
+                <th data-sort="calibrationFactor">Calibration</th>
+                <th>Top Findings</th>
+              </tr>
+            </thead>
+            <tbody id="analyticsReposBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- /#analytics-view -->
 
       <!-- Justification modal for Override action -->
       <div class="modal-overlay" id="justificationModal">
