@@ -12,8 +12,15 @@ jest.mock('@pullmint/shared/config', () => ({
 jest.mock('@pullmint/shared/storage', () => ({
   getObject: jest.fn().mockResolvedValue('diff --git a/file.ts b/file.ts\n+added line'),
 }));
+jest.mock('@pullmint/shared/db', () => ({
+  getDb: jest.fn().mockReturnValue({}),
+  schema: { tokenUsage: {} },
+}));
 jest.mock('@pullmint/shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
+}));
+jest.mock('@pullmint/shared/cost-tracker', () => ({
+  recordTokenUsage: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('@pullmint/shared/error-handling', () => ({
   retryWithBackoff: jest.fn((fn: () => Promise<unknown>) => fn()),
@@ -28,6 +35,7 @@ jest.mock('@pullmint/shared/llm', () => ({
 import { processAgentJob, AgentJobData } from '../src/processors/agent';
 import { Job } from 'bullmq';
 import { getObject } from '@pullmint/shared/storage';
+import { recordTokenUsage } from '@pullmint/shared/cost-tracker';
 
 const DEFAULT_ARCH_RESPONSE = {
   text: JSON.stringify({
@@ -85,6 +93,18 @@ describe('processAgentJob', () => {
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0].type).toBe('architecture');
     expect(result.riskScore).toBe(45);
+  });
+
+  it('calls recordTokenUsage after a successful LLM call', async () => {
+    const job = makeAgentJob('architecture');
+    await processAgentJob(job);
+
+    expect(recordTokenUsage).toHaveBeenCalledTimes(1);
+    const callArgs = (recordTokenUsage as jest.Mock).mock.calls[0][1];
+    expect(callArgs.agentType).toBe('architecture');
+    expect(callArgs.repoFullName).toBe('owner/repo');
+    expect(callArgs.inputTokens).toBe(150);
+    expect(callArgs.outputTokens).toBe(60);
   });
 
   it('should filter out findings with wrong type', async () => {

@@ -56,6 +56,10 @@ jest.mock('@pullmint/shared/execution-events', () => ({
   closePublisher: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('@pullmint/shared/cost-tracker', () => ({
+  recordTokenUsage: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/checkpoint', () => ({
   buildAnalysisCheckpoint: jest.fn().mockResolvedValue({
     checkpoint1: {
@@ -256,6 +260,32 @@ describe('processSynthesisJob', () => {
     await processSynthesisJob(job);
 
     expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('records token usage for synthesis summary calls', async () => {
+    const children = {
+      'bull:agent:arch-1': makeAgentResult('architecture'),
+      'bull:agent:sec-1': makeAgentResult('security'),
+    };
+
+    const job = makeSynthesisJob(children, {
+      agentTypes: ['architecture', 'security'],
+    });
+
+    await processSynthesisJob(job);
+
+    const { recordTokenUsage } = jest.requireMock('@pullmint/shared/cost-tracker') as {
+      recordTokenUsage: jest.Mock;
+    };
+
+    expect(recordTokenUsage).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        executionId: 'exec-1',
+        repoFullName: 'org/repo',
+        agentType: 'synthesis',
+      })
+    );
   });
 
   it('calls deduplicateFindings on combined agent findings', async () => {

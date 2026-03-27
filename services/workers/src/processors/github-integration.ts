@@ -47,6 +47,12 @@ interface AnalysisCompleteData extends PREvent, AnalysisResult {
   findingsCount?: number;
 }
 
+interface BudgetExceededData extends PREvent {
+  executionId: string;
+  budgetUsedUsd: number;
+  budgetLimitUsd: number;
+}
+
 interface ReviewComment {
   path: string;
   line: number;
@@ -65,7 +71,7 @@ const octokitClients = new Map<string, Awaited<ReturnType<typeof getGitHubInstal
 
 export async function processGitHubIntegrationJob(job: Job): Promise<void> {
   const jobName = job.name;
-  const detail = job.data as (AnalysisCompleteData | DeploymentStatusEvent) & {
+  const detail = job.data as (AnalysisCompleteData | DeploymentStatusEvent | BudgetExceededData) & {
     executionId?: string;
     prNumber?: number;
   };
@@ -77,6 +83,11 @@ export async function processGitHubIntegrationJob(job: Job): Promise<void> {
   try {
     if (jobName === 'analysis.complete') {
       await handleAnalysisComplete(detail as AnalysisCompleteData);
+      return;
+    }
+
+    if (jobName === 'budget.exceeded') {
+      await handleBudgetExceeded(detail as BudgetExceededData);
       return;
     }
 
@@ -241,6 +252,50 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
 
   // Trigger deployment if gate passes
   await maybeTriggerDeployment(resolvedDetail, config);
+}
+
+async function handleBudgetExceeded(data: BudgetExceededData): Promise<void> {
+  const { repoFullName, prNumber, executionId, budgetUsedUsd, budgetLimitUsd } = data;
+  const [owner, repo] = repoFullName.split('/');
+  if (!owner || !repo) {
+    console.error(`[budget.exceeded] Invalid repoFullName: ${repoFullName}`);
+    return;
+  }
+
+  const octokit = await getOctokitClient(repoFullName);
+
+  const now = new Date();
+  const resetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const resetDateStr = resetDate.toISOString().split('T')[0];
+
+  const body =
+    `## Pullmint Analysis Skipped\n\n` +
+    `The monthly token budget for this repository has been reached.\n\n` +
+    `**Usage:** $${budgetUsedUsd.toFixed(2)} / $${budgetLimitUsd.toFixed(2)}\n` +
+    `**Budget resets:** ${resetDateStr}\n\n` +
+    `To increase the budget, update \`monthly_budget_usd\` in \`.pullmint.yml\`.`;
+
+  try {
+    await retryWithBackoff(
+      async () =>
+        octokit.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: prNumber,
+          body,
+        }),
+      { maxAttempts: 3, baseDelayMs: 1000 }
+    );
+
+    console.log(
+      `[budget.exceeded] Posted budget notice for PR #${prNumber} in ${repoFullName} (execution: ${executionId})`
+    );
+  } catch (error) {
+    console.error(
+      `[budget.exceeded] Failed to post comment for PR #${prNumber} in ${repoFullName}:`,
+      error
+    );
+  }
 }
 
 async function handleDeploymentStatus(detail: DeploymentStatusEvent): Promise<void> {

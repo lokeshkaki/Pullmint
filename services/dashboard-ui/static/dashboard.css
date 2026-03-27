@@ -902,3 +902,67 @@ button:disabled {
   border-radius: 50%;
   background: #667eea;
 }
+
+/* Cost dashboard panels */
+.cost-breakdowns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+.cost-table-section h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.cost-table-section table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.cost-table-section th,
+.cost-table-section td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cost-table-section th {
+  color: #6b7280;
+  font-weight: 500;
+  background: #f9fafb;
+}
+
+.chart-section {
+  margin: 1.5rem 0;
+}
+
+.chart-section h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.75rem;
+}
+
+.budget-status-section {
+  margin: 1.5rem 0;
+}
+
+.budget-status-section h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.75rem;
+}
+
+.budget-status-row {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}

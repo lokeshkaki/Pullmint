@@ -1,6 +1,7 @@
 import { Job } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
+import { recordTokenUsage } from '@pullmint/shared/cost-tracker';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { retryWithBackoff } from '@pullmint/shared/error-handling';
@@ -247,7 +248,7 @@ function detectModules(filePaths: string[]): ModuleBoundary[] {
 async function generateModuleNarrative(
   client: LLMProvider,
   input: NarrativeInput
-): Promise<string> {
+): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
   const entryPointContent =
     input.entryPointContent.length > MAX_ENTRY_POINT_CHARS
       ? `${input.entryPointContent.substring(0, MAX_ENTRY_POINT_CHARS)}\n// [truncated]`
@@ -274,12 +275,16 @@ Write a concise architecture narrative (150-200 words) covering: purpose, key re
       userMessage,
     });
 
-    return response.text || fallbackNarrative;
+    return {
+      text: response.text || fallbackNarrative,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+    };
   } catch {
     // Fall back to deterministic narrative below.
   }
 
-  return fallbackNarrative;
+  return { text: fallbackNarrative, inputTokens: 0, outputTokens: 0 };
 }
 
 function generateEmbedding(text: string): number[] {
@@ -473,11 +478,21 @@ async function handleBatch(msg: {
         // Proceed without entry point content
       }
 
-      const narrativeText = await generateModuleNarrative(llmProvider, {
+      const narrativeResponse = await generateModuleNarrative(llmProvider, {
         modulePath: mod.modulePath,
         entryPoint: mod.entryPoint,
         files: mod.files,
         entryPointContent,
+      });
+      const narrativeText = narrativeResponse.text;
+
+      void recordTokenUsage(getDb(), {
+        executionId: null,
+        repoFullName,
+        agentType: 'repo-indexing',
+        model: NARRATIVE_MODEL,
+        inputTokens: narrativeResponse.inputTokens,
+        outputTokens: narrativeResponse.outputTokens,
       });
 
       const embedding = generateEmbedding(narrativeText);
@@ -644,11 +659,21 @@ async function handleIncremental(msg: {
           // Proceed without entry point content
         }
 
-        const narrativeText = await generateModuleNarrative(llmProvider, {
+        const narrativeResponse = await generateModuleNarrative(llmProvider, {
           modulePath: mod.modulePath,
           entryPoint: mod.entryPoint,
           files: mod.files,
           entryPointContent,
+        });
+        const narrativeText = narrativeResponse.text;
+
+        void recordTokenUsage(getDb(), {
+          executionId: null,
+          repoFullName,
+          agentType: 'repo-indexing',
+          model: NARRATIVE_MODEL,
+          inputTokens: narrativeResponse.inputTokens,
+          outputTokens: narrativeResponse.outputTokens,
         });
 
         const embedding = generateEmbedding(narrativeText);

@@ -22,6 +22,7 @@ export const pullmintConfigSchema = z
     ignore_paths: z.array(z.string()).default([]),
     agents: agentsConfigSchema,
     auto_approve_below: z.number().min(0).max(100).optional(),
+    monthly_budget_usd: z.number().positive().optional(),
   })
   .strict();
 

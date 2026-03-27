@@ -252,6 +252,189 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
     }
   });
 
+  // GET /dashboard/analytics/costs/budget-status
+  app.get('/dashboard/analytics/costs/budget-status', async (_request, reply) => {
+    addTraceAnnotations({ path: '/dashboard/analytics/costs/budget-status' });
+    const db = getDb();
+
+    try {
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+      const repoUsage = await db
+        .select({
+          repoFullName: schema.tokenUsage.repoFullName,
+          usedUsd: sql<number>`COALESCE(SUM(${schema.tokenUsage.estimatedCostUsd}), 0)`,
+          totalTokens: sql<number>`COALESCE(SUM(${schema.tokenUsage.inputTokens} + ${schema.tokenUsage.outputTokens}), 0)`,
+          dayCount: sql<number>`COUNT(DISTINCT DATE(${schema.tokenUsage.createdAt}))`,
+        })
+        .from(schema.tokenUsage)
+        .where(sql`${schema.tokenUsage.createdAt} >= ${monthStart}`)
+        .groupBy(schema.tokenUsage.repoFullName)
+        .orderBy(desc(sql`SUM(${schema.tokenUsage.estimatedCostUsd})`));
+
+      const repoStatuses = await Promise.all(
+        repoUsage.map(async (row) => {
+          const usedUsd = Number(row.usedUsd);
+
+          const [latestExec] = await db
+            .select({
+              metadata: schema.executions.metadata,
+            })
+            .from(schema.executions)
+            .where(
+              and(
+                eq(schema.executions.repoFullName, row.repoFullName),
+                inArray(schema.executions.status, ['completed', 'confirmed'])
+              )
+            )
+            .orderBy(desc(schema.executions.createdAt))
+            .limit(1);
+
+          const repoConfig = latestExec?.metadata?.repoConfig as
+            | { monthly_budget_usd?: number }
+            | undefined;
+          const budgetUsd = repoConfig?.monthly_budget_usd ?? null;
+
+          const daysElapsed = Math.max(1, now.getUTCDate());
+          const daysInMonth = new Date(
+            Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)
+          ).getUTCDate();
+          const projectedUsd = (usedUsd / daysElapsed) * daysInMonth;
+
+          return {
+            repoFullName: row.repoFullName,
+            usedUsd,
+            budgetUsd,
+            remainingUsd: budgetUsd !== null ? Math.max(0, budgetUsd - usedUsd) : null,
+            projectedUsd: Math.round(projectedUsd * 100) / 100,
+            totalTokens: Number(row.totalTokens),
+            budgetExceeded: budgetUsd !== null ? usedUsd >= budgetUsd : false,
+          };
+        })
+      );
+
+      const resetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+        .toISOString()
+        .split('T')[0];
+
+      return reply.status(200).send({
+        month: monthStart.toISOString().split('T')[0],
+        resetDate,
+        repos: repoStatuses,
+      });
+    } catch (error) {
+      console.error('Budget status API error:', error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // GET /dashboard/analytics/costs
+  app.get('/dashboard/analytics/costs', async (request, reply) => {
+    addTraceAnnotations({ path: '/dashboard/analytics/costs' });
+    const { dateFrom, dateTo, repoFullName } = request.query as Record<string, string | undefined>;
+
+    const db = getDb();
+
+    try {
+      const conditions: SQL[] = [];
+
+      if (repoFullName) {
+        conditions.push(eq(schema.tokenUsage.repoFullName, repoFullName));
+      }
+      if (dateFrom) {
+        conditions.push(sql`${schema.tokenUsage.createdAt} >= ${dateFrom}`);
+      }
+      if (dateTo) {
+        conditions.push(sql`${schema.tokenUsage.createdAt} <= ${dateTo}`);
+      }
+
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const [totals] = await db
+        .select({
+          totalCostUsd: sql<number>`COALESCE(SUM(${schema.tokenUsage.estimatedCostUsd}), 0)`,
+          totalInputTokens: sql<number>`COALESCE(SUM(${schema.tokenUsage.inputTokens}), 0)`,
+          totalOutputTokens: sql<number>`COALESCE(SUM(${schema.tokenUsage.outputTokens}), 0)`,
+        })
+        .from(schema.tokenUsage)
+        .where(whereClause);
+
+      const byRepo = await db
+        .select({
+          repoFullName: schema.tokenUsage.repoFullName,
+          costUsd: sql<number>`SUM(${schema.tokenUsage.estimatedCostUsd})`,
+          prCount: sql<number>`COUNT(DISTINCT ${schema.tokenUsage.executionId})`,
+        })
+        .from(schema.tokenUsage)
+        .where(whereClause)
+        .groupBy(schema.tokenUsage.repoFullName)
+        .orderBy(desc(sql`SUM(${schema.tokenUsage.estimatedCostUsd})`));
+
+      const byAgent = await db
+        .select({
+          agentType: schema.tokenUsage.agentType,
+          costUsd: sql<number>`SUM(${schema.tokenUsage.estimatedCostUsd})`,
+          callCount: sql<number>`COUNT(*)`,
+        })
+        .from(schema.tokenUsage)
+        .where(whereClause)
+        .groupBy(schema.tokenUsage.agentType)
+        .orderBy(desc(sql`SUM(${schema.tokenUsage.estimatedCostUsd})`));
+
+      const byModel = await db
+        .select({
+          model: schema.tokenUsage.model,
+          costUsd: sql<number>`SUM(${schema.tokenUsage.estimatedCostUsd})`,
+          tokenCount: sql<number>`SUM(${schema.tokenUsage.inputTokens} + ${schema.tokenUsage.outputTokens})`,
+        })
+        .from(schema.tokenUsage)
+        .where(whereClause)
+        .groupBy(schema.tokenUsage.model)
+        .orderBy(desc(sql`SUM(${schema.tokenUsage.estimatedCostUsd})`));
+
+      const dailyTrend = await db
+        .select({
+          date: sql<string>`DATE(${schema.tokenUsage.createdAt})::text`,
+          costUsd: sql<number>`SUM(${schema.tokenUsage.estimatedCostUsd})`,
+          prCount: sql<number>`COUNT(DISTINCT ${schema.tokenUsage.executionId})`,
+        })
+        .from(schema.tokenUsage)
+        .where(whereClause)
+        .groupBy(sql`DATE(${schema.tokenUsage.createdAt})`)
+        .orderBy(sql`DATE(${schema.tokenUsage.createdAt})`);
+
+      return reply.status(200).send({
+        totalCostUsd: Number(totals?.totalCostUsd ?? 0),
+        totalInputTokens: Number(totals?.totalInputTokens ?? 0),
+        totalOutputTokens: Number(totals?.totalOutputTokens ?? 0),
+        byRepo: byRepo.map((row) => ({
+          repoFullName: row.repoFullName,
+          costUsd: Number(row.costUsd),
+          prCount: Number(row.prCount),
+        })),
+        byAgent: byAgent.map((row) => ({
+          agentType: row.agentType,
+          costUsd: Number(row.costUsd),
+          callCount: Number(row.callCount),
+        })),
+        byModel: byModel.map((row) => ({
+          model: row.model,
+          costUsd: Number(row.costUsd),
+          tokenCount: Number(row.tokenCount),
+        })),
+        dailyTrend: dailyTrend.map((row) => ({
+          date: row.date,
+          costUsd: Number(row.costUsd),
+          prCount: Number(row.prCount),
+        })),
+      });
+    } catch (error) {
+      console.error('Cost analytics API error:', error);
+      return reply.status(500).send({ error: 'Internal server error' });
+    }
+  });
+
   // GET /dashboard/executions/:executionId/checkpoints (must be before /:executionId)
   app.get('/dashboard/executions/:executionId/checkpoints', async (request, reply) => {
     const { executionId } = request.params as { executionId: string };
