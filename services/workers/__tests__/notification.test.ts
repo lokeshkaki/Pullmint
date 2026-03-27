@@ -66,7 +66,6 @@ beforeEach(() => {
 const { sendNotification } = jest.requireMock('@pullmint/shared/notifications') as {
   sendNotification: jest.Mock;
 };
-
 describe('processNotificationJob', () => {
   it('sends to all matching channels', async () => {
     mockDb.where.mockResolvedValue([slackChannel, discordChannel]);
