@@ -112,7 +112,7 @@ describe('processNotificationJob', () => {
   });
 
   it('continues processing remaining channels when one fails', async () => {
-    (sendNotification as jest.Mock)
+    sendNotification
       .mockRejectedValueOnce(new Error('channel 1 failed'))
       .mockResolvedValueOnce(undefined);
 
