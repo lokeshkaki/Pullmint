@@ -42,6 +42,10 @@ jest.mock('@pullmint/shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
 }));
 
+jest.mock('@pullmint/shared/github-app', () => ({
+  getGitHubInstallationClient: jest.fn(),
+}));
+
 const VALID_AUTH = 'Bearer test-token';
 
 const sampleExecution = {
