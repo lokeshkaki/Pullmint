@@ -592,7 +592,9 @@ describe('processSynthesisJob', () => {
       });
       await processSynthesisJob(job);
 
-      const { putObject } = jest.requireMock('@pullmint/shared/storage') as { putObject: jest.Mock };
+      const { putObject } = jest.requireMock('@pullmint/shared/storage') as {
+        putObject: jest.Mock;
+      };
       const storedData = JSON.parse(putObject.mock.calls[0][2] as string) as { riskScore: number };
 
       // architecture=0.35, security=0.35, accessibility=0.10 → total=0.80
@@ -622,7 +624,9 @@ describe('processSynthesisJob', () => {
       });
       await processSynthesisJob(job);
 
-      const { putObject } = jest.requireMock('@pullmint/shared/storage') as { putObject: jest.Mock };
+      const { putObject } = jest.requireMock('@pullmint/shared/storage') as {
+        putObject: jest.Mock;
+      };
       const storedData = JSON.parse(putObject.mock.calls[0][2] as string) as { riskScore: number };
 
       // Only architecture completed → normalized weight = 1.0 → score = 60

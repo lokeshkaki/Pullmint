@@ -264,7 +264,8 @@ describe('custom agent processing', () => {
         agentType: 'accessibility',
         diffRef: 'diffs/test-diff.txt',
         customAgentConfig: {
-          prompt: 'You are an accessibility expert. Analyze the code changes for WCAG compliance issues and missing ARIA attributes in all changed components.',
+          prompt:
+            'You are an accessibility expert. Analyze the code changes for WCAG compliance issues and missing ARIA attributes in all changed components.',
           model: 'claude-haiku-4-5-20251001',
           includePaths: ['src/components/**', '**/*.css'],
           excludePaths: ['**/*.test.*'],
@@ -303,8 +304,18 @@ describe('custom agent processing', () => {
     mockCreate.mockResolvedValueOnce({
       text: JSON.stringify({
         findings: [
-          { type: 'accessibility', severity: 'high', title: 'Missing alt', description: 'img lacks alt' },
-          { type: 'security', severity: 'critical', title: 'XSS', description: 'Input not sanitized' },
+          {
+            type: 'accessibility',
+            severity: 'high',
+            title: 'Missing alt',
+            description: 'img lacks alt',
+          },
+          {
+            type: 'security',
+            severity: 'critical',
+            title: 'XSS',
+            description: 'Input not sanitized',
+          },
         ],
         riskScore: 60,
         summary: 'Mixed findings.',
@@ -316,7 +327,9 @@ describe('custom agent processing', () => {
     const result = await processAgentJob(makeCustomAgentJob());
     // Expecting 2: the main accessibility finding + the info finding about partial diff analysis
     expect(result.findings).toHaveLength(2);
-    const accessibilityFinding = result.findings.find((f) => f.type === 'accessibility' && f.severity === 'high');
+    const accessibilityFinding = result.findings.find(
+      (f) => f.type === 'accessibility' && f.severity === 'high'
+    );
     expect(accessibilityFinding).toBeDefined();
     expect(accessibilityFinding?.title).toBe('Missing alt');
     // Security finding should be filtered out; only accessibility findings kept

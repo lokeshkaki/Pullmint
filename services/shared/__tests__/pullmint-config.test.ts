@@ -82,7 +82,8 @@ describe('custom_agents in pullmintConfigSchema', () => {
         {
           name: 'accessibility',
           type: 'accessibility',
-          prompt: 'You are an accessibility expert. Analyze for WCAG compliance issues and missing ARIA attributes in the changed code.',
+          prompt:
+            'You are an accessibility expert. Analyze for WCAG compliance issues and missing ARIA attributes in the changed code.',
           model: 'claude-haiku-4-5-20251001',
           include_paths: ['src/components/**', '**/*.css'],
           exclude_paths: ['**/*.test.*'],
@@ -111,13 +112,14 @@ describe('custom_agents in pullmintConfigSchema', () => {
         {
           name: 'compliance',
           type: 'compliance',
-          prompt: 'You are a regulatory compliance auditor. Check for PII handling and GDPR patterns in the changed code.',
+          prompt:
+            'You are a regulatory compliance auditor. Check for PII handling and GDPR patterns in the changed code.',
         },
       ],
     });
 
     expect(result.success).toBe(true);
-    expect(result.data?.custom_agents[0].weight).toBe(0.10);
+    expect(result.data?.custom_agents[0].weight).toBe(0.1);
     expect(result.data?.custom_agents[0].max_diff_chars).toBe(60000);
   });
 

@@ -363,6 +363,70 @@ describe('processAnalysisJob (dispatcher)', () => {
     expect(childNames).toEqual(['architecture', 'security', 'style']);
   });
 
+  it('adds custom agent children and passes custom weights to synthesizer', async () => {
+    mockLimit.mockResolvedValueOnce([]);
+    mockReturning.mockResolvedValueOnce([{ counter: 1 }]);
+    mockOctokit.rest.repos.getContent.mockResolvedValueOnce({
+      data: {
+        content: Buffer.from(
+          [
+            'custom_agents:',
+            '  - name: accessibility',
+            '    type: accessibility',
+            '    prompt: "You are an accessibility expert. Analyze WCAG issues in changed UI code and provide actionable fixes for keyboard, ARIA, and labels."',
+            '    model: claude-haiku-4-5-20251001',
+            '    include_paths:',
+            '      - src/components/**',
+            '    exclude_paths:',
+            '      - "**/*.test.*"',
+            '    max_diff_chars: 50000',
+            '    weight: 0.15',
+            '    severity_filter: medium',
+          ].join('\n')
+        ).toString('base64'),
+      },
+    });
+
+    await processAnalysisJob(makePRJob());
+
+    const flowCall = mockFlowAdd.mock.calls[0][0] as {
+      data: {
+        agentTypes: string[];
+        customAgentWeights: Record<string, number>;
+      };
+      children: Array<{
+        name: string;
+        data: {
+          agentType: string;
+          customAgentConfig?: {
+            prompt: string;
+            model?: string;
+            includePaths?: string[];
+            excludePaths?: string[];
+            maxDiffChars: number;
+            severityFilter?: string;
+          };
+        };
+      }>;
+    };
+
+    expect(flowCall.data.agentTypes).toContain('accessibility');
+    expect(flowCall.data.customAgentWeights).toEqual({ accessibility: 0.15 });
+
+    const customChild = flowCall.children.find((child) => child.name === 'accessibility');
+    expect(customChild).toBeDefined();
+    expect(customChild?.data.agentType).toBe('accessibility');
+    expect(customChild?.data.customAgentConfig).toEqual(
+      expect.objectContaining({
+        model: 'claude-haiku-4-5-20251001',
+        includePaths: ['src/components/**'],
+        excludePaths: ['**/*.test.*'],
+        maxDiffChars: 50000,
+        severityFilter: 'medium',
+      })
+    );
+  });
+
   it('keeps security enabled when all agents are disabled', async () => {
     mockLimit.mockResolvedValueOnce([]);
     mockReturning.mockResolvedValueOnce([{ counter: 1 }]);

@@ -439,13 +439,10 @@ describe('filterDiff with includePaths', () => {
 
   it('includes only files matching includePaths', () => {
     const parsed = parseDiff(rawDiff);
-    const result = filterDiff(
-      parsed,
-      'accessibility',
-      200000,
-      undefined,
-      ['src/components/**', 'styles/**']
-    );
+    const result = filterDiff(parsed, 'accessibility', 200000, undefined, [
+      'src/components/**',
+      'styles/**',
+    ]);
 
     expect(result.includedFiles).toBe(2);
     const includedPaths = result.diff
@@ -460,13 +457,7 @@ describe('filterDiff with includePaths', () => {
 
   it('counts excluded files correctly when includePaths filters files', () => {
     const parsed = parseDiff(rawDiff);
-    const result = filterDiff(
-      parsed,
-      'accessibility',
-      200000,
-      undefined,
-      ['src/components/**']
-    );
+    const result = filterDiff(parsed, 'accessibility', 200000, undefined, ['src/components/**']);
 
     expect(result.includedFiles).toBe(1);
     expect(result.excludedFiles).toBe(2);
@@ -500,13 +491,7 @@ describe('filterDiff with includePaths', () => {
 
   it('returns no files when includePaths matches nothing', () => {
     const parsed = parseDiff(rawDiff);
-    const result = filterDiff(
-      parsed,
-      'accessibility',
-      200000,
-      undefined,
-      ['nonexistent/**']
-    );
+    const result = filterDiff(parsed, 'accessibility', 200000, undefined, ['nonexistent/**']);
     expect(result.includedFiles).toBe(0);
     expect(result.excludedFiles).toBe(3);
   });
