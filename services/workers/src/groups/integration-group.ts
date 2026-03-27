@@ -6,6 +6,7 @@ import { closePublisher } from '@pullmint/shared/execution-events';
 import { processGitHubIntegrationJob } from '../processors/github-integration.js';
 import { processDeploymentJob } from '../processors/deployment.js';
 import { processDeploymentStatusJob } from '../processors/deployment-status.js';
+import { processNotificationJob } from '../processors/notification.js';
 
 export async function startIntegrationGroup(): Promise<{ shutdown: () => Promise<void> }> {
   initTracing('pullmint-workers-integration');
@@ -35,6 +36,13 @@ export async function startIntegrationGroup(): Promise<{ shutdown: () => Promise
     new Worker(QUEUE_NAMES.DEPLOYMENT_STATUS, processDeploymentStatusJob, {
       connection: workerConnection,
       concurrency: 5,
+    })
+  );
+
+  workers.push(
+    new Worker(QUEUE_NAMES.NOTIFICATION, processNotificationJob, {
+      connection: workerConnection,
+      concurrency: 10,
     })
   );
 
