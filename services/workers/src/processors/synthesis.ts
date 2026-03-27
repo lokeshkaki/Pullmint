@@ -1,16 +1,21 @@
 import { Job } from 'bullmq';
+import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig, getConfigOptional } from '@pullmint/shared/config';
 import { recordTokenUsage } from '@pullmint/shared/cost-tracker';
-import { putObject } from '@pullmint/shared/storage';
+import { getObject, putObject } from '@pullmint/shared/storage';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { getGitHubInstallationClient } from '@pullmint/shared/github-app';
 import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-handling';
 import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { createLLMProvider, LLMProvider } from '@pullmint/shared/llm';
+import { FindingSchema } from '@pullmint/shared/schemas';
 import { deduplicateFindings } from '../dedup';
 import { buildAnalysisCheckpoint } from '../checkpoint';
+import { fingerprintFindings } from '../finding-fingerprint';
+import { analyzeFindingLifecycle } from '../finding-lifecycle';
+import { z } from 'zod';
 import type { Finding, AgentResultMeta, PREvent } from '@pullmint/shared/types';
 import type { AgentResult } from './agent';
 
@@ -32,6 +37,7 @@ export interface SynthesisJobData {
   cacheKey: string;
   priorAgentResults?: Record<string, AgentResult>;
   rerunAgentTypes?: string[];
+  priorExecutionId?: string;
 }
 
 const BASE_WEIGHTS: Record<string, number> = {
@@ -55,6 +61,51 @@ function parseWeight(key: string, fallback: number): number {
   }
 
   return parsed;
+}
+
+/**
+ * Load findings from a prior execution.
+ * Tries MinIO first (s3Key from execution row), falls back to DB findings column.
+ * Returns empty array on any failure — lifecycle analysis is non-critical.
+ */
+async function loadPriorFindings(
+  priorExecutionId: string,
+  db: ReturnType<typeof getDb>,
+  analysisBucket: string
+): Promise<Finding[]> {
+  try {
+    const [priorRow] = await db
+      .select({
+        s3Key: schema.executions.s3Key,
+        findings: schema.executions.findings,
+      })
+      .from(schema.executions)
+      .where(eq(schema.executions.executionId, priorExecutionId))
+      .limit(1);
+
+    if (!priorRow) return [];
+
+    if (priorRow.s3Key) {
+      try {
+        const raw = await getObject(analysisBucket, priorRow.s3Key);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { findings?: unknown[] };
+          const result = z.array(FindingSchema).safeParse(parsed.findings ?? []);
+          if (result.success) return result.data;
+        }
+      } catch {
+        // Fall through to DB findings.
+      }
+    }
+
+    const dbFindings = z
+      .array(FindingSchema)
+      .safeParse(Array.isArray(priorRow.findings) ? priorRow.findings : []);
+    return dbFindings.success ? dbFindings.data : [];
+  } catch (err) {
+    console.warn({ err, priorExecutionId }, 'Failed to load prior findings for lifecycle analysis');
+    return [];
+  }
 }
 
 export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<void> {
@@ -133,6 +184,45 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
     const allFindings: Finding[] = agentResults.flatMap((result) => result.findings);
     const dedupedFindings = deduplicateFindings(allFindings);
 
+    const fingerprintedFindings = fingerprintFindings(dedupedFindings);
+
+    let lifecycleResult: {
+      findings: Finding[];
+      resolved: Finding[];
+      stats: { new: number; persisted: number; resolved: number };
+    } | null = null;
+
+    const { priorExecutionId } = job.data;
+    if (priorExecutionId) {
+      try {
+        const priorFindings = await loadPriorFindings(priorExecutionId, db, config.analysisBucket);
+        lifecycleResult = analyzeFindingLifecycle(fingerprintedFindings, priorFindings);
+        console.log(
+          `Lifecycle analysis for PR #${prEvent.prNumber}: ` +
+            `new=${lifecycleResult.stats.new}, ` +
+            `persisted=${lifecycleResult.stats.persisted}, ` +
+            `resolved=${lifecycleResult.stats.resolved}`
+        );
+      } catch (lifecycleErr) {
+        console.warn(
+          { lifecycleErr, priorExecutionId },
+          'Lifecycle analysis failed — treating all findings as new'
+        );
+        lifecycleResult = null;
+      }
+    }
+
+    const finalFindings: Finding[] = lifecycleResult
+      ? lifecycleResult.findings
+      : fingerprintedFindings.map((f) => ({ ...f, lifecycle: 'new' as const }));
+
+    const lifecycleStats = lifecycleResult?.stats ?? {
+      new: finalFindings.length,
+      persisted: 0,
+      resolved: 0,
+    };
+    const resolvedFindings: Finding[] = lifecycleResult?.resolved ?? [];
+
     const weights: Record<string, number> = {
       architecture: parseWeight('AGENT_WEIGHT_ARCHITECTURE', BASE_WEIGHTS.architecture),
       security: parseWeight('AGENT_WEIGHT_SECURITY', BASE_WEIGHTS.security),
@@ -182,12 +272,12 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
     let synthesisTokens = 0;
     const synthesisStartTime = Date.now();
 
-    if (dedupedFindings.length > 0) {
+    if (finalFindings.length > 0) {
       if (!llmProvider) {
         llmProvider = createLLMProvider();
       }
 
-      const findingsSummaryInput = dedupedFindings
+      const findingsSummaryInput = finalFindings
         .map((finding) => {
           return `[${finding.severity.toUpperCase()}] ${finding.type}: ${finding.title} — ${finding.description}`;
         })
@@ -233,9 +323,11 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
       JSON.stringify({
         executionId,
         riskScore: finalRiskScore,
-        findings: dedupedFindings,
+        findings: finalFindings,
+        resolvedFindings,
         summary: synthesizedSummary,
         agentResults: agentMeta,
+        lifecycle: lifecycleStats,
         analyzedAt: Date.now(),
       })
     );
@@ -245,7 +337,7 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
       .insert(schema.llmCache)
       .values({
         cacheKey,
-        findings: dedupedFindings as unknown[],
+        findings: finalFindings as unknown[],
         riskScore: finalRiskScore,
         contextQuality: 'none',
         expiresAt: cacheExpiresAt,
@@ -253,7 +345,7 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
       .onConflictDoUpdate({
         target: schema.llmCache.cacheKey,
         set: {
-          findings: dedupedFindings as unknown[],
+          findings: finalFindings as unknown[],
           riskScore: finalRiskScore,
           contextQuality: 'none',
           expiresAt: cacheExpiresAt,
@@ -264,7 +356,7 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
     await publishExecutionUpdate(executionId, {
       status: 'completed',
-      findings: dedupedFindings as unknown[],
+      findings: finalFindings as unknown[],
       riskScore: finalRiskScore,
       s3Key,
       checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
@@ -274,10 +366,11 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
         synthesisTokens,
         synthesisLatencyMs,
         totalFindings: allFindings.length,
-        dedupedFindings: dedupedFindings.length,
+        dedupedFindings: finalFindings.length,
         skippedAgents,
         calibrationApplied: calibrationFactor,
         cached: false,
+        lifecycle: lifecycleStats,
         ...(job.data.rerunAgentTypes
           ? {
               incremental: true,
@@ -291,7 +384,7 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
       ...prEvent,
       executionId,
       riskScore: finalRiskScore,
-      findingsCount: dedupedFindings.length,
+      findingsCount: finalFindings.length,
       s3Key,
       summary: synthesizedSummary,
       metadata: {
@@ -299,10 +392,12 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
         synthesisTokens,
         synthesisLatencyMs,
         totalFindings: allFindings.length,
-        dedupedFindings: dedupedFindings.length,
+        dedupedFindings: finalFindings.length,
         skippedAgents,
         calibrationApplied: calibrationFactor,
         cached: false,
+        lifecycle: lifecycleStats,
+        resolvedFindings,
         ...(job.data.rerunAgentTypes
           ? {
               incremental: true,
@@ -314,7 +409,8 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
     console.log(
       `Synthesis complete for PR #${prEvent.prNumber}: ` +
-        `Risk=${finalRiskScore}, Findings=${allFindings.length}→${dedupedFindings.length} (deduped), ` +
+        `Risk=${finalRiskScore}, Findings=${allFindings.length}→${finalFindings.length} (deduped), ` +
+        `Lifecycle: ${lifecycleStats.new} new / ${lifecycleStats.persisted} persisted / ${lifecycleStats.resolved} resolved, ` +
         `Agents=${agentResults.length}/${agentTypes.length} succeeded`
     );
   } catch (error) {
