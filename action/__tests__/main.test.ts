@@ -20,17 +20,25 @@ const mockContext = {
 const mockRunAnalysis = jest.fn();
 const mockPostReview = jest.fn();
 
-jest.mock('@actions/core', () => ({
-  getInput: mockGetInput,
-  setOutput: mockSetOutput,
-  setFailed: mockSetFailed,
-  info: mockInfo,
-  warning: mockWarning,
-}));
+jest.mock(
+  '@actions/core',
+  () => ({
+    getInput: mockGetInput,
+    setOutput: mockSetOutput,
+    setFailed: mockSetFailed,
+    info: mockInfo,
+    warning: mockWarning,
+  }),
+  { virtual: true }
+);
 
-jest.mock('@actions/github', () => ({
-  context: mockContext,
-}));
+jest.mock(
+  '@actions/github',
+  () => ({
+    context: mockContext,
+  }),
+  { virtual: true }
+);
 
 jest.mock('../src/run-analysis', () => ({
   runAnalysis: mockRunAnalysis,

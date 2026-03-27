@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@actions/core": "^1.10.1",
-    "@actions/github": "^6.0.0",
+    "@actions/core": "^3.0.0",
+    "@actions/github": "^9.0.0",
     "@anthropic-ai/sdk": "^0.56.0",
     "@google/generative-ai": "^0.24.0",
     "@octokit/rest": "^21.0.0",

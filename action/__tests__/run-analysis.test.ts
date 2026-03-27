@@ -146,7 +146,7 @@ index 1234..5678 100644
 
   it('continues if one agent fails and uses remaining results', async () => {
     mockChat
-      .mockImplementationOnce(async () => {
+      .mockImplementationOnce(() => {
         throw new Error('bad request');
       })
       .mockResolvedValue({

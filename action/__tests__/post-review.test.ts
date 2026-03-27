@@ -12,10 +12,14 @@ jest.mock('@octokit/rest', () => ({
   })),
 }));
 
-jest.mock('@actions/core', () => ({
-  info: jest.fn(),
-  warning: jest.fn(),
-}));
+jest.mock(
+  '@actions/core',
+  () => ({
+    info: jest.fn(),
+    warning: jest.fn(),
+  }),
+  { virtual: true }
+);
 
 const MOCK_DIFF = `diff --git a/src/app.ts b/src/app.ts
 index 1234567..abcdef0 100644
