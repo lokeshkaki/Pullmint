@@ -6,6 +6,7 @@ function escapeHtml(text) {
 
 const apiBase = '/dashboard';
 const PAGE_SIZE = 20;
+const TERMINAL_FOR_RERUN = ['completed', 'failed', 'confirmed', 'rolled-back'];
 let currentOffset = 0;
 let lastFetchedCount = 0;
 let pollingInterval = null;
@@ -178,6 +179,18 @@ function renderExecutions(executions, append = false) {
       if (deploymentNode) {
         item.appendChild(deploymentNode);
       }
+    }
+
+    if (TERMINAL_FOR_RERUN.includes(exec.status)) {
+      const rerunIconBtn = document.createElement('button');
+      rerunIconBtn.className = 'rerun-icon-btn';
+      rerunIconBtn.title = 'Re-run analysis';
+      rerunIconBtn.textContent = 'Re-run';
+      rerunIconBtn.onclick = (e) => {
+        e.stopPropagation();
+        void triggerRerunFor(exec.executionId);
+      };
+      item.appendChild(rerunIconBtn);
     }
 
     container.appendChild(item);
@@ -548,6 +561,7 @@ function initializeDashboard() {
     .getElementById('backToBoardBtn')
     ?.addEventListener('click', () => showView('board-view', null));
   document.getElementById('overrideBtn')?.addEventListener('click', openJustificationModal);
+  document.getElementById('rerunBtn')?.addEventListener('click', triggerRerun);
   document.getElementById('copyLinkBtn')?.addEventListener('click', copyDeepLink);
   document.getElementById('calibrationRefreshBtn')?.addEventListener('click', loadCalibration);
   document.getElementById('modalCancelBtn')?.addEventListener('click', closeJustificationModal);
@@ -728,16 +742,33 @@ async function showExecutionDetail(executionId) {
   document.getElementById('detailTitle').textContent = 'Execution: ' + executionId;
   document.getElementById('checkpointTimeline').innerHTML = '<div class="loading">Loading...</div>';
   document.getElementById('checkpointDetail').classList.add('hidden');
+  document.getElementById('rerunBtn').style.display = 'none';
+  document.getElementById('rerunHistory').classList.add('hidden');
 
   try {
-    const response = await fetch(`${apiBase}/executions/${executionId}/checkpoints`, {
-      headers: getAuthHeaders(),
-    });
-    if (!response.ok) throw new Error('Failed to fetch checkpoint data');
-    const data = await response.json();
+    const [checkpointRes, execRes] = await Promise.all([
+      fetch(`${apiBase}/executions/${executionId}/checkpoints`, {
+        headers: getAuthHeaders(),
+      }),
+      fetch(`${apiBase}/executions/${executionId}`, {
+        headers: getAuthHeaders(),
+      }),
+    ]);
+
+    if (!checkpointRes.ok) throw new Error('Failed to fetch checkpoint data');
+
+    const data = await checkpointRes.json();
     renderTimeline(data.checkpoints);
     renderRepoContext(data.repoContext);
     renderSignalCoverage(data.signalsReceived);
+
+    if (execRes.ok) {
+      const exec = await execRes.json();
+      if (TERMINAL_FOR_RERUN.includes(exec.status)) {
+        document.getElementById('rerunBtn').style.display = '';
+      }
+      void loadRerunHistory(executionId);
+    }
   } catch (error) {
     document.getElementById('checkpointTimeline').innerHTML =
       '<div class="error">Failed to load: ' +
@@ -879,6 +910,66 @@ function renderSignalCoverage(signalsReceived) {
   });
 }
 
+async function loadRerunHistory(executionId) {
+  try {
+    const response = await fetch(`${apiBase}/executions/${executionId}/rerun-history`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) return;
+
+    const data = await response.json();
+    if (!data.chain || data.chain.length <= 1) return;
+
+    renderRerunHistory(data.chain);
+  } catch {
+    // Non-critical UI enrichment
+  }
+}
+
+function renderRerunHistory(chain) {
+  const section = document.getElementById('rerunHistory');
+  const list = document.getElementById('rerunHistoryList');
+  list.innerHTML = '';
+
+  chain.forEach((entry, idx) => {
+    const row = document.createElement('div');
+    row.className = 'rerun-history-row' + (entry.isCurrentExecution ? ' current' : '');
+
+    const label = document.createElement('span');
+    label.className = 'rerun-history-label';
+    label.textContent = idx === 0 ? 'Original' : 'Re-run #' + idx;
+
+    const link = document.createElement('button');
+    link.className = 'rerun-history-link';
+    link.textContent = entry.executionId.substring(0, 20) + '...';
+    link.onclick = () => showExecutionDetail(entry.executionId);
+
+    const status = document.createElement('span');
+    status.className = 'badge ' + entry.status;
+    status.textContent = entry.status;
+
+    const risk = document.createElement('span');
+    risk.className = 'rerun-history-risk';
+    if (entry.riskScore != null) {
+      risk.textContent = 'Risk: ' + entry.riskScore;
+      if (entry.riskScoreDelta != null) {
+        const sign = entry.riskScoreDelta > 0 ? '+' : '';
+        risk.textContent += ' (' + sign + entry.riskScoreDelta + ')';
+      }
+    } else {
+      risk.textContent = '-';
+    }
+
+    row.appendChild(label);
+    row.appendChild(link);
+    row.appendChild(status);
+    row.appendChild(risk);
+    list.appendChild(row);
+  });
+
+  section.classList.remove('hidden');
+}
+
 // ===========================
 // Override / Re-evaluate
 // ===========================
@@ -910,6 +1001,84 @@ async function submitOverride() {
     }
   } catch (error) {
     alert('Override failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
+}
+
+async function triggerRerun() {
+  if (!currentExecutionId) return;
+
+  const btn = document.getElementById('rerunBtn');
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+
+  try {
+    const response = await fetch(`${apiBase}/executions/${currentExecutionId}/rerun`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 409) {
+      alert(
+        'This execution is still in progress — re-run is only available after analysis completes.'
+      );
+      btn.disabled = false;
+      btn.textContent = 'Re-run Analysis';
+      return;
+    }
+
+    if (response.status === 429) {
+      alert('Rate limit: wait 1 minute before re-running again.');
+      btn.disabled = false;
+      btn.textContent = 'Re-run Analysis';
+      return;
+    }
+
+    if (!response.ok) {
+      alert('Re-run failed. Please try again.');
+      btn.disabled = false;
+      btn.textContent = 'Re-run Analysis';
+      return;
+    }
+
+    const data = await response.json();
+    btn.textContent = 'Re-run Analysis';
+    btn.disabled = false;
+    showExecutionDetail(data.executionId);
+  } catch (error) {
+    alert('Re-run failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    btn.disabled = false;
+    btn.textContent = 'Re-run Analysis';
+  }
+}
+
+async function triggerRerunFor(executionId) {
+  try {
+    const response = await fetch(`${apiBase}/executions/${executionId}/rerun`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 409) {
+      alert(
+        'This execution is still in progress — re-run is only available after analysis completes.'
+      );
+      return;
+    }
+
+    if (response.status === 429) {
+      alert('Rate limit: wait 1 minute before re-running again.');
+      return;
+    }
+
+    if (!response.ok) {
+      alert('Re-run failed. Please try again.');
+      return;
+    }
+
+    const data = await response.json();
+    showExecutionDetail(data.executionId);
+  } catch (error) {
+    alert('Re-run failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
 
