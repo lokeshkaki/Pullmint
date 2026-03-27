@@ -6,6 +6,7 @@ import {
   jsonb,
   pgTable,
   real,
+  serial,
   text,
   timestamp,
   vector,
@@ -174,5 +175,26 @@ export const dependencyGraphs = pgTable(
   (table) => [
     index('idx_dep_graph_upstream').on(table.upstreamRepo),
     index('idx_dep_graph_downstream').on(table.downstreamRepo),
+  ]
+);
+
+export const tokenUsage = pgTable(
+  'token_usage',
+  {
+    id: serial('id').primaryKey(),
+    executionId: text('execution_id').references(() => executions.executionId),
+    repoFullName: text('repo_full_name').notNull(),
+    agentType: text('agent_type').notNull(),
+    model: text('model').notNull(),
+    inputTokens: integer('input_tokens').notNull(),
+    outputTokens: integer('output_tokens').notNull(),
+    estimatedCostUsd: real('estimated_cost_usd').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_token_usage_repo').on(table.repoFullName),
+    index('idx_token_usage_created_at').on(table.createdAt),
+    index('idx_token_usage_repo_created').on(table.repoFullName, table.createdAt),
+    index('idx_token_usage_execution').on(table.executionId),
   ]
 );
