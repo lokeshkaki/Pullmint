@@ -2,6 +2,7 @@
   "name": "@pullmint/action",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "GitHub Action entry point for Pullmint PR analysis",
   "scripts": {
     "build": "ncc build src/main.ts -o dist --minify --source-map",
