@@ -15,7 +15,6 @@ jest.mock('@pullmint/shared/error-handling', () => ({
 }));
 
 import { getDb } from '@pullmint/shared/db';
-import { sendNotification } from '@pullmint/shared/notifications';
 
 const mockDb = {
   select: jest.fn().mockReturnThis(),
@@ -63,6 +62,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   (getDb as jest.Mock).mockReturnValue(mockDb);
 });
+
+const { sendNotification } = jest.requireMock('@pullmint/shared/notifications') as {
+  sendNotification: jest.Mock;
+};
 
 describe('processNotificationJob', () => {
   it('sends to all matching channels', async () => {
