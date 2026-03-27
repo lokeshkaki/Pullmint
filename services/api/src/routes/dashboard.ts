@@ -6,6 +6,7 @@ import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { PRExecutionSchema } from '@pullmint/shared/schemas';
+import { registerAnalyticsRoutes } from './analytics';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -575,4 +576,6 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
       return reply.status(500).send({ error: 'Internal server error' });
     }
   });
+
+  registerAnalyticsRoutes(app);
 }

@@ -12,6 +12,12 @@ let pollingInterval = null;
 let eventSource = null;
 let currentView = 'executions-view';
 let trendChartInstance = null;
+let analyticsTrendChartInstance = null;
+let analyticsDonutChartInstance = null;
+let analyticsSortKey = null;
+let analyticsSortDir = 1; // 1 = asc, -1 = desc
+let analyticsAuthorsData = [];
+let analyticsReposData = [];
 
 function getAuthHeaders() {
   const token = window.localStorage?.getItem('dashboardAuthToken');
@@ -553,6 +559,22 @@ function initializeDashboard() {
   document.getElementById('modalCancelBtn')?.addEventListener('click', closeJustificationModal);
   document.getElementById('modalSubmitBtn')?.addEventListener('click', submitOverride);
 
+  document.getElementById('applyAnalyticsBtn')?.addEventListener('click', () => {
+    void loadAnalytics();
+  });
+
+  document.getElementById('clearAnalyticsBtn')?.addEventListener('click', () => {
+    document.getElementById('analyticsDateFrom').value = '';
+    document.getElementById('analyticsDateTo').value = '';
+    void loadAnalytics();
+  });
+
+  document.getElementById('trendsInterval')?.addEventListener('change', () => {
+    void loadAnalyticsTrend();
+  });
+
+  setupAnalyticsTableSort();
+
   loadExecutions();
   startPolling();
   connectSSE();
@@ -583,10 +605,12 @@ let activeViewBtn = document.querySelector('.nav-tab.active');
 
 function showView(viewId, btn) {
   currentView = viewId;
-  ['executions-view', 'board-view', 'detail-view', 'calibration-view'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('hidden');
-  });
+  ['executions-view', 'board-view', 'detail-view', 'calibration-view', 'analytics-view'].forEach(
+    (id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    }
+  );
   const view = document.getElementById(viewId);
   if (view) view.classList.remove('hidden');
 
@@ -598,6 +622,7 @@ function showView(viewId, btn) {
 
   if (viewId === 'board-view') loadBoard();
   if (viewId === 'calibration-view') loadCalibration();
+  if (viewId === 'analytics-view') void loadAnalytics();
 }
 
 // ===========================
@@ -920,6 +945,277 @@ function copyDeepLink() {
     );
     alert('Link copied!');
   }
+}
+
+// ===========================
+// Analytics
+// ===========================
+
+function getAnalyticsDateParams() {
+  const params = new URLSearchParams();
+  const from = document.getElementById('analyticsDateFrom')?.value;
+  const to = document.getElementById('analyticsDateTo')?.value;
+  if (from) params.set('dateFrom', from);
+  if (to) params.set('dateTo', to);
+  return params;
+}
+
+async function loadAnalyticsSummary() {
+  try {
+    const params = getAnalyticsDateParams();
+    const res = await fetch(`${apiBase}/analytics/summary?${params}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch analytics summary');
+    const data = await res.json();
+
+    document.getElementById('analyticsTotalPRs').textContent = data.totalPRsAnalyzed;
+    document.getElementById('analyticsAvgRisk').textContent = data.avgRiskScore;
+    const autoApprovedPct =
+      data.totalPRsAnalyzed > 0
+        ? Math.round((data.autoApproved / data.totalPRsAnalyzed) * 100) + '%'
+        : '0%';
+    document.getElementById('analyticsAutoApproved').textContent = autoApprovedPct;
+    const rollbackRate =
+      data.totalPRsAnalyzed > 0
+        ? Math.round((data.rolledBack / data.totalPRsAnalyzed) * 100) + '%'
+        : '0%';
+    document.getElementById('analyticsRollbackRate').textContent = rollbackRate;
+
+    renderFindingDonut(data.topFindingTypes);
+  } catch (err) {
+    console.error('Analytics summary error:', err);
+  }
+}
+
+function renderFindingDonut(topFindingTypes) {
+  const ctx = document.getElementById('analyticsDonutChart')?.getContext('2d');
+  if (!ctx) return;
+
+  const labels = topFindingTypes.map((f) => f.type);
+  const counts = topFindingTypes.map((f) => f.count);
+  const colors = ['#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'];
+
+  if (analyticsDonutChartInstance) {
+    analyticsDonutChartInstance.destroy();
+  }
+  analyticsDonutChartInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: counts, backgroundColor: colors.slice(0, labels.length) }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'right' } },
+    },
+  });
+}
+
+async function loadAnalyticsTrend() {
+  try {
+    const params = getAnalyticsDateParams();
+    const interval = document.getElementById('trendsInterval')?.value ?? 'day';
+    params.set('interval', interval);
+
+    const res = await fetch(`${apiBase}/analytics/trends?${params}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch analytics trends');
+    const data = await res.json();
+
+    const ctx = document.getElementById('analyticsTrendChart')?.getContext('2d');
+    if (!ctx) return;
+
+    const labels = data.buckets.map((b) => b.date);
+    const riskData = data.buckets.map((b) => b.avgRisk);
+    const prCountData = data.buckets.map((b) => b.prCount);
+
+    if (analyticsTrendChartInstance) {
+      analyticsTrendChartInstance.destroy();
+    }
+    analyticsTrendChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Avg Risk Score',
+            data: riskData,
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239,68,68,0.1)',
+            yAxisID: 'yRisk',
+            tension: 0.3,
+            fill: true,
+          },
+          {
+            label: 'PR Count',
+            data: prCountData,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99,102,241,0.1)',
+            yAxisID: 'yCount',
+            tension: 0.3,
+            type: 'bar',
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          yRisk: {
+            type: 'linear',
+            position: 'left',
+            title: { display: true, text: 'Avg Risk' },
+          },
+          yCount: {
+            type: 'linear',
+            position: 'right',
+            title: { display: true, text: 'PR Count' },
+            grid: { drawOnChartArea: false },
+          },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('Analytics trends error:', err);
+  }
+}
+
+async function loadAnalyticsAuthors() {
+  try {
+    const params = getAnalyticsDateParams();
+    const res = await fetch(`${apiBase}/analytics/authors?${params}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch analytics authors');
+    const data = await res.json();
+    analyticsAuthorsData = data.authors;
+    renderAuthorsTable(analyticsAuthorsData);
+  } catch (err) {
+    console.error('Analytics authors error:', err);
+  }
+}
+
+function renderAuthorsTable(authors) {
+  const tbody = document.getElementById('analyticsAuthorsBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (authors.length === 0) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    cell.textContent = 'No data for this date range.';
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    return;
+  }
+  for (const a of authors) {
+    const row = document.createElement('tr');
+    const trendArrow = a.trend === 'improving' ? '↓' : a.trend === 'declining' ? '↑' : '→';
+    const trendClass =
+      a.trend === 'improving' ? 'risk-low' : a.trend === 'declining' ? 'risk-high' : '';
+    row.innerHTML = `
+      <td>${escapeHtml(a.login)}</td>
+      <td>${a.prCount}</td>
+      <td>${a.avgRiskScore}</td>
+      <td>${(a.rollbackRate * 100).toFixed(1)}%</td>
+      <td>${escapeHtml(a.topFindingType ?? '-')}</td>
+      <td class="${trendClass}">${trendArrow} ${a.trend}</td>
+    `;
+    tbody.appendChild(row);
+  }
+}
+
+async function loadAnalyticsRepos() {
+  try {
+    const params = getAnalyticsDateParams();
+    const res = await fetch(`${apiBase}/analytics/repos?${params}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch analytics repos');
+    const data = await res.json();
+    analyticsReposData = data.repos;
+    renderReposTable(analyticsReposData);
+  } catch (err) {
+    console.error('Analytics repos error:', err);
+  }
+}
+
+function renderReposTable(repos) {
+  const tbody = document.getElementById('analyticsReposBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (repos.length === 0) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    cell.textContent = 'No data for this date range.';
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    return;
+  }
+  for (const r of repos) {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${escapeHtml(r.repoFullName)}</td>
+      <td>${r.prCount}</td>
+      <td>${r.avgRiskScore}</td>
+      <td>${(r.rollbackRate * 100).toFixed(1)}%</td>
+      <td>${r.calibrationFactor !== null ? r.calibrationFactor.toFixed(2) : '-'}</td>
+      <td>${(r.topFindingTypes ?? []).map((t) => escapeHtml(t)).join(', ') || '-'}</td>
+    `;
+    tbody.appendChild(row);
+  }
+}
+
+function setupAnalyticsTableSort() {
+  document.querySelectorAll('#analyticsAuthorsTable th[data-sort]').forEach((th) => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      const key = th.getAttribute('data-sort');
+      if (analyticsSortKey === key) {
+        analyticsSortDir *= -1;
+      } else {
+        analyticsSortKey = key;
+        analyticsSortDir = 1;
+      }
+      const sorted = [...analyticsAuthorsData].sort((a, b) => {
+        const av = a[key] ?? '';
+        const bv = b[key] ?? '';
+        return av < bv ? -analyticsSortDir : av > bv ? analyticsSortDir : 0;
+      });
+      renderAuthorsTable(sorted);
+    });
+  });
+
+  document.querySelectorAll('#analyticsReposTable th[data-sort]').forEach((th) => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      const key = th.getAttribute('data-sort');
+      if (analyticsSortKey === key) {
+        analyticsSortDir *= -1;
+      } else {
+        analyticsSortKey = key;
+        analyticsSortDir = 1;
+      }
+      const sorted = [...analyticsReposData].sort((a, b) => {
+        const av = a[key] ?? '';
+        const bv = b[key] ?? '';
+        return av < bv ? -analyticsSortDir : av > bv ? analyticsSortDir : 0;
+      });
+      renderReposTable(sorted);
+    });
+  });
+}
+
+async function loadAnalytics() {
+  await Promise.all([
+    loadAnalyticsSummary(),
+    loadAnalyticsTrend(),
+    loadAnalyticsAuthors(),
+    loadAnalyticsRepos(),
+  ]);
 }
 
 // ===========================
