@@ -12,6 +12,7 @@ let pollingInterval = null;
 let eventSource = null;
 let currentView = 'executions-view';
 let trendChartInstance = null;
+let costTrendChartInstance = null;
 let analyticsTrendChartInstance = null;
 let analyticsDonutChartInstance = null;
 let analyticsSortKey = null;
@@ -401,6 +402,195 @@ function hideTrendChart() {
   }
 }
 
+function formatTokens(count) {
+  if (count >= 1_000_000) return (count / 1_000_000).toFixed(2) + 'M';
+  if (count >= 1_000) return (count / 1_000).toFixed(1) + 'K';
+  return String(count);
+}
+
+async function loadCostData() {
+  try {
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const dateFrom = monthStart.toISOString().split('T')[0];
+    const dateTo = now.toISOString().split('T')[0];
+
+    const [costsResp, budgetResp] = await Promise.all([
+      fetch(`${apiBase}/analytics/costs?dateFrom=${dateFrom}&dateTo=${dateTo}`, {
+        headers: getAuthHeaders(),
+      }),
+      fetch(`${apiBase}/analytics/costs/budget-status`, {
+        headers: getAuthHeaders(),
+      }),
+    ]);
+
+    if (!costsResp.ok || !budgetResp.ok) {
+      throw new Error('Failed to fetch cost data');
+    }
+
+    const costs = await costsResp.json();
+    const budget = await budgetResp.json();
+
+    renderCostSummary(costs, budget);
+    renderCostTrendChart(costs.dailyTrend);
+    renderCostByRepoTable(costs.byRepo, budget.repos);
+    renderCostByAgentTable(costs.byAgent);
+    renderCostByModelTable(costs.byModel);
+    renderBudgetStatus(budget.repos, budget.resetDate);
+  } catch (error) {
+    console.error('Error loading cost data:', error);
+  }
+}
+
+function renderCostSummary(costs, budget) {
+  const totalPrCount = costs.byRepo.reduce((sum, row) => sum + row.prCount, 0);
+  const avgCostPerPr = totalPrCount > 0 ? costs.totalCostUsd / totalPrCount : 0;
+  const projectedUsd = budget.repos.reduce((sum, row) => sum + (row.projectedUsd ?? 0), 0);
+
+  const setValue = (id, text) => {
+    const node = document.getElementById(id);
+    if (node) {
+      node.textContent = text;
+    }
+  };
+
+  setValue('costTotalMtd', '$' + costs.totalCostUsd.toFixed(2));
+  setValue('costTotalTokens', formatTokens(costs.totalInputTokens + costs.totalOutputTokens));
+  setValue('costAvgPerPr', totalPrCount > 0 ? '$' + avgCostPerPr.toFixed(4) : '-');
+  setValue('costProjected', '$' + projectedUsd.toFixed(2));
+}
+
+function renderCostTrendChart(dailyTrend) {
+  const canvas = document.getElementById('costTrendChart');
+  if (!canvas) return;
+
+  if (costTrendChartInstance) {
+    costTrendChartInstance.destroy();
+    costTrendChartInstance = null;
+  }
+
+  if (!dailyTrend || dailyTrend.length === 0) return;
+
+  const chartFactory = window.Chart;
+  if (!chartFactory) return;
+
+  costTrendChartInstance = new chartFactory(canvas, {
+    type: 'line',
+    data: {
+      labels: dailyTrend.map((d) => d.date),
+      datasets: [
+        {
+          label: 'Daily Spend (USD)',
+          data: dailyTrend.map((d) => d.costUsd),
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: (value) => '$' + Number(value).toFixed(2) },
+        },
+      },
+    },
+  });
+}
+
+function renderCostByRepoTable(byRepo, budgetRepos) {
+  const tbody = document.querySelector('#costByRepoTable tbody');
+  if (!tbody) return;
+
+  const budgetMap = Object.fromEntries((budgetRepos ?? []).map((row) => [row.repoFullName, row]));
+
+  tbody.innerHTML = byRepo
+    .map((row) => {
+      const budgetInfo = budgetMap[row.repoFullName];
+      let budgetCell = '-';
+      if (budgetInfo?.budgetUsd) {
+        const pct = Math.min(100, Math.round((budgetInfo.usedUsd / budgetInfo.budgetUsd) * 100));
+        const color = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#22c55e';
+        budgetCell =
+          `<div style="font-size:0.85em">${pct}% of $${budgetInfo.budgetUsd.toFixed(2)}</div>` +
+          `<div style="height:6px;background:#e5e7eb;border-radius:3px;margin-top:2px">` +
+          `<div style="width:${pct}%;height:6px;background:${color};border-radius:3px"></div>` +
+          `</div>`;
+      }
+
+      return `<tr>
+      <td>${escapeHtml(row.repoFullName)}</td>
+      <td>$${row.costUsd.toFixed(4)}</td>
+      <td>${row.prCount}</td>
+      <td>${budgetCell}</td>
+    </tr>`;
+    })
+    .join('');
+}
+
+function renderCostByAgentTable(byAgent) {
+  const tbody = document.querySelector('#costByAgentTable tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = byAgent
+    .map(
+      (row) => `<tr>
+      <td>${escapeHtml(row.agentType)}</td>
+      <td>$${row.costUsd.toFixed(4)}</td>
+      <td>${row.callCount}</td>
+    </tr>`
+    )
+    .join('');
+}
+
+function renderCostByModelTable(byModel) {
+  const tbody = document.querySelector('#costByModelTable tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = byModel
+    .map(
+      (row) => `<tr>
+      <td>${escapeHtml(row.model)}</td>
+      <td>$${row.costUsd.toFixed(4)}</td>
+      <td>${formatTokens(row.tokenCount)}</td>
+    </tr>`
+    )
+    .join('');
+}
+
+function renderBudgetStatus(repos, resetDate) {
+  const container = document.getElementById('budgetStatusList');
+  if (!container) return;
+
+  const reposWithBudget = (repos ?? []).filter((row) => row.budgetUsd !== null);
+  if (reposWithBudget.length === 0) {
+    container.innerHTML =
+      '<p style="color:#6b7280">No repositories have a monthly budget configured.</p>';
+    return;
+  }
+
+  container.innerHTML = reposWithBudget
+    .map((row) => {
+      const pct = Math.min(100, Math.round((row.usedUsd / row.budgetUsd) * 100));
+      const color = row.budgetExceeded ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#22c55e';
+
+      return `<div class="budget-status-row">
+      <strong>${escapeHtml(row.repoFullName)}</strong>
+      <span style="color:${color}">${pct}% used - $${row.usedUsd.toFixed(2)} / $${row.budgetUsd.toFixed(2)}</span>
+      ${row.budgetExceeded ? '<span class="badge failed">EXCEEDED</span>' : ''}
+      <div style="height:8px;background:#e5e7eb;border-radius:4px;margin:4px 0">
+        <div style="width:${pct}%;height:8px;background:${color};border-radius:4px"></div>
+      </div>
+      <small style="color:#6b7280">Resets ${escapeHtml(resetDate)} | Projected: $${row.projectedUsd.toFixed(2)}/mo</small>
+    </div>`;
+    })
+    .join('');
+}
+
 function applyFilters() {
   currentOffset = 0;
   void loadExecutions();
@@ -605,12 +795,17 @@ let activeViewBtn = document.querySelector('.nav-tab.active');
 
 function showView(viewId, btn) {
   currentView = viewId;
-  ['executions-view', 'board-view', 'detail-view', 'calibration-view', 'analytics-view'].forEach(
-    (id) => {
-      const el = document.getElementById(id);
-      if (el) el.classList.add('hidden');
-    }
-  );
+  [
+    'executions-view',
+    'board-view',
+    'detail-view',
+    'calibration-view',
+    'analytics-view',
+    'costs-view',
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
   const view = document.getElementById(viewId);
   if (view) view.classList.remove('hidden');
 
@@ -623,6 +818,7 @@ function showView(viewId, btn) {
   if (viewId === 'board-view') loadBoard();
   if (viewId === 'calibration-view') loadCalibration();
   if (viewId === 'analytics-view') void loadAnalytics();
+  if (viewId === 'costs-view') void loadCostData();
 }
 
 // ===========================
