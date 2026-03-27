@@ -1154,12 +1154,8 @@
           "name": "token_usage_execution_id_executions_execution_id_fk",
           "tableFrom": "token_usage",
           "tableTo": "executions",
-          "columnsFrom": [
-            "execution_id"
-          ],
-          "columnsTo": [
-            "execution_id"
-          ],
+          "columnsFrom": ["execution_id"],
+          "columnsTo": ["execution_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
