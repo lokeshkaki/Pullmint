@@ -178,6 +178,27 @@ export const dependencyGraphs = pgTable(
   ]
 );
 
+export const notificationChannels = pgTable(
+  'notification_channels',
+  {
+    id: serial('id').primaryKey(),
+    name: text('name').notNull(),
+    channelType: text('channel_type').notNull(),
+    webhookUrl: text('webhook_url').notNull(),
+    repoFilter: text('repo_filter'),
+    events: jsonb('events').notNull().$type<string[]>(),
+    minRiskScore: integer('min_risk_score'),
+    enabled: boolean('enabled').default(true).notNull(),
+    secret: text('secret'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_notification_channels_enabled').on(table.enabled),
+    index('idx_notification_channels_type').on(table.channelType),
+  ]
+);
+
 export const tokenUsage = pgTable(
   'token_usage',
   {
