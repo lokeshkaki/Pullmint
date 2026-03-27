@@ -28,7 +28,59 @@ const AGENT_MODELS: Record<string, string> = {
   style: process.env.LLM_MAINTAINABILITY_MODEL || 'claude-haiku-4-5-20251001',
 };
 
+const DEFAULT_CUSTOM_AGENT_MODEL =
+  process.env.LLM_CUSTOM_AGENT_MODEL ?? 'claude-haiku-4-5-20251001';
+
 let llmProvider: LLMProvider | null = null;
+
+/**
+ * Wraps a custom agent's user prompt with standardized JSON response format instructions.
+ * The format block is appended — never prepended — so the user's system prompt context
+ * establishes role and domain first.
+ */
+function buildCustomAgentPrompt(userPrompt: string, agentType: string): string {
+  return `${userPrompt}
+
+## Response Format
+
+Respond with a JSON object containing:
+- "findings": array of finding objects, each with:
+  - "type": must be "${agentType}"
+  - "severity": one of "critical", "high", "medium", "low", "info"
+  - "title": brief one-line title (max 100 characters)
+  - "description": detailed explanation of the issue
+  - "file": (optional) affected file path relative to repo root
+  - "line": (optional) affected line number in the new version of the file
+  - "suggestion": (optional) specific actionable fix
+- "riskScore": integer 0-100 representing overall risk from this agent's perspective
+- "summary": 1-2 sentence summary of the most important findings
+
+Example:
+{
+  "findings": [
+    {
+      "type": "${agentType}",
+      "severity": "high",
+      "title": "Example finding title",
+      "description": "Detailed explanation of the issue.",
+      "file": "src/components/Button.tsx",
+      "line": 42,
+      "suggestion": "Consider adding role attribute."
+    }
+  ],
+  "riskScore": 35,
+  "summary": "One high-severity issue found."
+}`;
+}
+
+export interface CustomAgentJobConfig {
+  prompt: string;
+  model?: string;
+  includePaths?: string[];
+  excludePaths?: string[];
+  maxDiffChars: number;
+  severityFilter?: string;
+}
 
 export interface AgentJobData {
   executionId: string;
@@ -45,6 +97,7 @@ export interface AgentJobData {
   diffRef: string; // MinIO key where diff is stored
   repoKnowledge?: string; // Optional module narratives
   userIgnorePaths?: string[];
+  customAgentConfig?: CustomAgentJobConfig; // NEW: present only for custom agents
 }
 
 export interface AgentResult {
@@ -64,11 +117,28 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
 
   addTraceAnnotations({ executionId, agentType });
 
-  const promptFn = AGENT_PROMPTS[agentType];
-  const model = AGENT_MODELS[agentType];
+  const isBuiltIn = agentType in AGENT_PROMPTS;
 
-  if (!promptFn) {
-    throw new Error(`Unknown agent type: ${agentType}`);
+  let systemPrompt: string;
+  let model: string;
+  let customIncludePaths: string[] | undefined;
+  let customExcludePaths: string[] | undefined;
+  let customMaxDiffChars: number | undefined;
+
+  if (isBuiltIn) {
+    const promptFn = AGENT_PROMPTS[agentType];
+    systemPrompt = promptFn();
+    model = AGENT_MODELS[agentType];
+  } else {
+    const config = job.data.customAgentConfig;
+    if (!config) {
+      throw new Error(`Custom agent type "${agentType}" has no customAgentConfig in job data`);
+    }
+    systemPrompt = buildCustomAgentPrompt(config.prompt, agentType);
+    model = config.model ?? DEFAULT_CUSTOM_AGENT_MODEL;
+    customIncludePaths = config.includePaths;
+    customExcludePaths = config.excludePaths;
+    customMaxDiffChars = config.maxDiffChars;
   }
 
   if (!llmProvider) {
@@ -82,9 +152,19 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
   );
 
   // Build user prompt (same format as buildAnalysisPrompt in analysis.ts)
-  const maxChars = getMaxDiffChars(agentType);
+  const maxChars = customMaxDiffChars ?? getMaxDiffChars(agentType);
   const parsedDiff = parseDiff(diff);
-  const filtered: FilteredDiff = filterDiff(parsedDiff, agentType, maxChars, userIgnorePaths);
+
+  // For custom agents, merge user ignore_paths + agent-level exclude_paths
+  const allExcludePaths = [...(userIgnorePaths ?? []), ...(customExcludePaths ?? [])];
+
+  const filtered: FilteredDiff = filterDiff(
+    parsedDiff,
+    agentType,
+    maxChars,
+    allExcludePaths.length > 0 ? allExcludePaths : undefined,
+    customIncludePaths
+  );
 
   const truncatedDiff = filtered.diff;
 
@@ -102,7 +182,7 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
       llmProvider!.chat({
         model,
         maxTokens,
-        systemPrompt: promptFn(),
+        systemPrompt,
         userMessage: userContent,
         temperature: 0.3,
       }),
@@ -115,7 +195,7 @@ export async function processAgentJob(job: Job<AgentJobData>): Promise<AgentResu
 
   if (filtered.wasTruncated || filtered.excludedFiles > 0) {
     const infoFinding: Finding = {
-      type: agentType as Finding['type'],
+      type: agentType,
       severity: 'info',
       title: 'Partial diff analysis',
       description:
