@@ -1,0 +1,57 @@
+name: 'Pullmint PR Analysis'
+description: 'AI-powered PR analysis using specialized LLM agents — architecture, security, performance, and maintainability'
+author: 'Pullmint'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  anthropic-api-key:
+    description: 'Anthropic API key (required when llm-provider is anthropic)'
+    required: false
+  openai-api-key:
+    description: 'OpenAI API key (required when llm-provider is openai)'
+    required: false
+  google-api-key:
+    description: 'Google API key (required when llm-provider is google)'
+    required: false
+  llm-provider:
+    description: 'LLM provider to use: anthropic | openai | google'
+    required: false
+    default: 'anthropic'
+  github-token:
+    description: 'GitHub token used to fetch the PR diff and post review comments'
+    required: false
+    default: ${{ github.token }}
+  severity-threshold:
+    description: 'Minimum severity to include in the PR review comment: critical | high | medium | low | info'
+    required: false
+    default: 'low'
+  config-path:
+    description: 'Path to .pullmint.yml config file relative to repo root'
+    required: false
+    default: '.pullmint.yml'
+  fail-on-risk-score:
+    description: 'Fail the action if the risk score meets or exceeds this value (0-100). Omit to never fail.'
+    required: false
+  post-review:
+    description: 'Whether to post a PR review comment with findings'
+    required: false
+    default: 'true'
+  agents:
+    description: 'Comma-separated agent list to run: architecture,security,performance,style — or "all"'
+    required: false
+    default: 'all'
+
+outputs:
+  risk-score:
+    description: 'The computed risk score (0-100)'
+  findings-count:
+    description: 'Total number of deduplicated findings'
+  findings-json:
+    description: 'All findings as a JSON string array'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
