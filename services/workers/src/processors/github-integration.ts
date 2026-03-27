@@ -30,6 +30,8 @@ import type { ValidatedCheckpointRecord } from '@pullmint/shared/schemas';
 type CommentOpts = {
   checkpoint?: ValidatedCheckpointRecord;
   dashboardUrl?: string;
+  resolvedFindings?: Finding[];
+  lifecycleStats?: { new: number; persisted: number; resolved: number };
 };
 
 type DeploymentConfig = {
@@ -170,6 +172,15 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   const findings: Finding[] = detail.s3Key
     ? await fetchFindingsFromStorage(detail.s3Key)
     : ((detail.findings as Finding[] | undefined) ?? []);
+  const metadata = detail.metadata as Record<string, unknown> | undefined;
+  const rawResolved = metadata?.resolvedFindings;
+  const resolvedFindings: Finding[] = Array.isArray(rawResolved)
+    ? (z.array(FindingSchema).safeParse(rawResolved).data ?? [])
+    : [];
+  const lifecycleStats = metadata?.lifecycle as
+    | { new: number; persisted: number; resolved: number }
+    | undefined;
+
   const filteredFindings = filterFindingsBySeverity(findings, repoConfig.severity_threshold);
   const reviewDetail: AnalysisCompleteData = { ...detail, findings: filteredFindings };
   const resolvedDetail: AnalysisCompleteData = { ...detail, findings };
@@ -202,6 +213,8 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   const payload = buildReviewPayload(reviewDetail, parsedDiff, {
     checkpoint: checkpoint1,
     dashboardUrl: dashboardUrl ? `${dashboardUrl}/executions/${detail.executionId}` : undefined,
+    resolvedFindings,
+    lifecycleStats,
   });
   const [owner, repo] = detail.repoFullName.split('/');
 
@@ -646,6 +659,17 @@ function getSeverityEmoji(severity: string): string {
   return map[severity] ?? '⚪';
 }
 
+function getLifecycleBadge(lifecycle: string | undefined): string {
+  switch (lifecycle) {
+    case 'new':
+      return '🆕 **New** ';
+    case 'persisted':
+      return '🔄 **Persisted** ';
+    default:
+      return '';
+  }
+}
+
 function groupBySeverity(findings: Finding[]): [string, Finding[]][] {
   const order = ['critical', 'high', 'medium', 'low', 'info'];
   const groups = new Map<string, Finding[]>();
@@ -660,13 +684,15 @@ function groupBySeverity(findings: Finding[]): [string, Finding[]][] {
     .map((severity) => [severity, groups.get(severity) ?? []]);
 }
 
-function buildReviewPayload(
+export function buildReviewPayload(
   analysis: AnalysisCompleteData,
   parsedDiff: ParsedDiff,
-  opts?: { checkpoint?: ValidatedCheckpointRecord; dashboardUrl?: string }
+  opts?: CommentOpts
 ): ReviewPayload {
   const findings: Finding[] = analysis.findings ?? [];
   const riskScore = analysis.riskScore ?? 0;
+  const resolvedFindings: Finding[] = opts?.resolvedFindings ?? [];
+  const lifecycleStats = opts?.lifecycleStats;
 
   // Partition findings into inline-able vs body-only
   const inlineFindings: Array<Finding & { file: string; line: number }> = [];
@@ -697,7 +723,8 @@ function buildReviewPayload(
   // Build inline comments
   const comments: ReviewComment[] = capped.map((finding) => {
     const severityEmoji = getSeverityEmoji(finding.severity);
-    let commentBody = `${severityEmoji} **[${finding.type}]** ${finding.title}\n\n${finding.description}`;
+    const lifecycleBadge = getLifecycleBadge(finding.lifecycle);
+    let commentBody = `${lifecycleBadge}${severityEmoji} **[${finding.type}]** ${finding.title}\n\n${finding.description}`;
     if (finding.suggestion) {
       commentBody += `\n\n**Suggestion:** ${finding.suggestion}`;
     }
@@ -707,6 +734,10 @@ function buildReviewPayload(
   const riskEmoji = riskScore >= 60 ? '🔴' : riskScore >= 30 ? '🟡' : '🟢';
   let body = `## Pullmint Analysis Results\n\n`;
   body += `**Risk Score:** ${riskEmoji} ${riskScore}/100\n\n`;
+
+  if (lifecycleStats) {
+    body += `**Findings:** ${lifecycleStats.new} new, ${lifecycleStats.persisted} persisted, ${lifecycleStats.resolved} resolved\n\n`;
+  }
 
   if (opts?.checkpoint) {
     const pct = Math.round(opts.checkpoint.confidence * 100);
@@ -769,7 +800,8 @@ function buildReviewPayload(
     for (const [severity, items] of grouped) {
       body += `### ${getSeverityEmoji(severity)} ${severity.charAt(0).toUpperCase() + severity.slice(1)}\n\n`;
       for (const finding of items) {
-        body += `**${finding.title}**\n${finding.description}`;
+        const lifecycleBadge = getLifecycleBadge(finding.lifecycle);
+        body += `${lifecycleBadge}**${finding.title}**\n${finding.description}`;
         if (finding.suggestion) {
           body += `\n*Suggestion: ${finding.suggestion}*`;
         }
@@ -778,6 +810,20 @@ function buildReviewPayload(
     }
   } else if (comments.length === 0) {
     body += '✅ No issues found.\n\n';
+  }
+
+  if (resolvedFindings.length > 0) {
+    body += `### ✅ Resolved Findings\n\n`;
+    const MAX_RESOLVED_DISPLAY = 10;
+    const displayResolved = resolvedFindings.slice(0, MAX_RESOLVED_DISPLAY);
+    for (const rf of displayResolved) {
+      const location = rf.file ? ` (${rf.file})` : '';
+      body += `- ✅ **Resolved:** ${rf.title}${location}\n`;
+    }
+    if (resolvedFindings.length > MAX_RESOLVED_DISPLAY) {
+      body += `- _...and ${resolvedFindings.length - MAX_RESOLVED_DISPLAY} more resolved findings_\n`;
+    }
+    body += '\n';
   }
 
   if (opts?.dashboardUrl) {

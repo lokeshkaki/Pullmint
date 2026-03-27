@@ -80,6 +80,18 @@ jest.mock('../src/dedup', () => ({
   deduplicateFindings: jest.fn((findings: unknown[]) => findings),
 }));
 
+jest.mock('../src/finding-fingerprint', () => ({
+  fingerprintFindings: jest.fn((findings: unknown[]) => findings),
+}));
+
+jest.mock('../src/finding-lifecycle', () => ({
+  analyzeFindingLifecycle: jest.fn(() => ({
+    findings: [],
+    resolved: [],
+    stats: { new: 0, persisted: 0, resolved: 0 },
+  })),
+}));
+
 jest.mock('@pullmint/shared/llm', () => ({
   createLLMProvider: jest.fn(() => ({
     chat: jest.fn((...args: unknown[]) => mockChat(...args)),
@@ -369,6 +381,53 @@ describe('processSynthesisJob', () => {
         agentResults: expect.any(Object),
       })
     );
+  });
+
+  it('includes lifecycle stats in the github-integration job', async () => {
+    const { analyzeFindingLifecycle } = await import('../src/finding-lifecycle');
+    (analyzeFindingLifecycle as jest.Mock).mockReturnValueOnce({
+      findings: [
+        {
+          type: 'security',
+          severity: 'high',
+          title: 'Issue',
+          description: 'Desc',
+          lifecycle: 'new',
+          fingerprint: 'abc123abc123abcd',
+        },
+      ],
+      resolved: [],
+      stats: { new: 1, persisted: 0, resolved: 0 },
+    });
+
+    mockDb.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValueOnce([{ s3Key: undefined, findings: [] }]),
+        }),
+      }),
+    });
+
+    const children = {
+      'bull:agent:sec-1': makeAgentResult('security'),
+    };
+
+    const job = makeSynthesisJob(children, {
+      agentTypes: ['security'],
+      priorExecutionId: 'exec-prior',
+    });
+
+    await processSynthesisJob(job);
+
+    const { addJob } = await import('@pullmint/shared/queue');
+    const call = (addJob as jest.Mock).mock.calls.find(
+      ([queue]: [string]) => queue === 'github-integration'
+    );
+
+    expect(call).toBeDefined();
+    const jobData = call?.[2] as Record<string, unknown>;
+    const meta = jobData.metadata as Record<string, unknown>;
+    expect(meta.lifecycle).toEqual({ new: 1, persisted: 0, resolved: 0 });
   });
 
   it('records agent metadata including failed agents', async () => {

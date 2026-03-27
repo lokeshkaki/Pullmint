@@ -170,6 +170,17 @@ function renderExecutions(executions, append = false) {
       meta.appendChild(riskSpan);
     }
 
+    const execMeta = exec.metadata;
+    if (execMeta && execMeta.lifecycle) {
+      const lc = execMeta.lifecycle;
+      const lifecycleSpan = document.createElement('span');
+      lifecycleSpan.className = 'lifecycle-summary';
+      lifecycleSpan.title = 'Finding lifecycle: new / persisted / resolved';
+      lifecycleSpan.textContent =
+        lc.new + ' new / ' + lc.persisted + ' persisted / ' + lc.resolved + ' resolved';
+      meta.appendChild(lifecycleSpan);
+    }
+
     item.appendChild(header);
     item.appendChild(meta);
 
@@ -217,6 +228,14 @@ function renderFindings(findings) {
 
     item.appendChild(severity);
     item.appendChild(text);
+
+    if (finding.lifecycle) {
+      const lcBadge = document.createElement('span');
+      lcBadge.className = 'lifecycle-badge lifecycle-' + finding.lifecycle;
+      lcBadge.textContent = finding.lifecycle;
+      item.appendChild(lcBadge);
+    }
+
     findingsContainer.appendChild(item);
   });
 
@@ -629,12 +648,150 @@ async function viewExecution(executionId) {
     if (!response.ok) throw new Error('Failed to fetch execution details');
 
     const exec = await response.json();
-    console.log('Execution details:', exec);
 
-    // Could open a modal or navigate to detail page
-    alert(
-      `Execution ID: ${exec.executionId}\\nStatus: ${exec.status}\\nRisk Score: ${exec.riskScore || 'N/A'}\\nFindings: ${exec.findings?.length || 0}`
-    );
+    const existingModal = document.getElementById('executionDetailModal');
+    if (existingModal) {
+      existingModal.remove();
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'executionDetailModal';
+    overlay.className = 'modal-overlay open execution-detail-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal execution-detail-modal';
+
+    const title = document.createElement('h3');
+    title.textContent = `${exec.repoFullName} #${exec.prNumber} (${exec.executionId})`;
+
+    const summary = document.createElement('div');
+    summary.className = 'execution-detail-summary';
+    summary.innerHTML =
+      '<div><strong>Status:</strong> ' +
+      escapeHtml(exec.status || 'unknown') +
+      '</div>' +
+      '<div><strong>Risk:</strong> ' +
+      escapeHtml(exec.riskScore ?? 'N/A') +
+      '</div>' +
+      '<div><strong>Findings:</strong> ' +
+      escapeHtml((exec.findings || []).length) +
+      '</div>';
+
+    const findings = Array.isArray(exec.findings) ? exec.findings : [];
+
+    const listContainer = document.createElement('div');
+    listContainer.className = 'execution-detail-findings';
+
+    function getLifecycleBadgeEl(lifecycle) {
+      if (!lifecycle) return null;
+      const badge = document.createElement('span');
+      badge.className = 'lifecycle-badge lifecycle-' + lifecycle;
+      const labels = { new: '🆕 New', persisted: '🔄 Persisted', resolved: '✅ Resolved' };
+      badge.textContent = labels[lifecycle] || lifecycle;
+      return badge;
+    }
+
+    function renderDetailFindings(filterValue) {
+      listContainer.innerHTML = '';
+      const filtered =
+        filterValue === 'all'
+          ? findings
+          : findings.filter((f) => (f.lifecycle || 'new') === filterValue);
+
+      if (filtered.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = 'No findings match this lifecycle filter.';
+        listContainer.appendChild(empty);
+        return;
+      }
+
+      filtered.forEach((finding) => {
+        const card = document.createElement('div');
+        card.className = 'finding-item execution-detail-finding-item';
+
+        const header = document.createElement('div');
+        header.className = 'execution-detail-finding-header';
+
+        const sev = document.createElement('span');
+        sev.className = 'finding-severity ' + (finding.severity || 'info');
+        sev.textContent = finding.severity || 'info';
+        header.appendChild(sev);
+
+        const lcBadge = getLifecycleBadgeEl(finding.lifecycle);
+        if (lcBadge) {
+          header.appendChild(lcBadge);
+        }
+
+        const titleEl = document.createElement('strong');
+        titleEl.textContent = ' ' + (finding.title || 'Untitled finding');
+
+        const desc = document.createElement('div');
+        desc.textContent = finding.description || '';
+
+        const loc = document.createElement('div');
+        loc.className = 'execution-detail-location';
+        loc.textContent =
+          finding.file && finding.line
+            ? `${finding.file}:${finding.line}`
+            : finding.file || 'No file location';
+
+        card.appendChild(header);
+        card.appendChild(titleEl);
+        card.appendChild(desc);
+        card.appendChild(loc);
+        listContainer.appendChild(card);
+      });
+    }
+
+    function buildLifecycleFilterBar(onFilterChange) {
+      const bar = document.createElement('div');
+      bar.className = 'lifecycle-filter-bar';
+
+      const label = document.createElement('label');
+      label.textContent = 'Filter by lifecycle: ';
+
+      const select = document.createElement('select');
+      select.id = 'lifecycleFilter';
+      ['all', 'new', 'persisted', 'resolved'].forEach((val) => {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = val.charAt(0).toUpperCase() + val.slice(1);
+        select.appendChild(opt);
+      });
+      select.onchange = () => onFilterChange(select.value);
+
+      bar.appendChild(label);
+      bar.appendChild(select);
+      return bar;
+    }
+
+    const filterBar = buildLifecycleFilterBar(renderDetailFindings);
+    renderDetailFindings('all');
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn-secondary';
+    closeBtn.textContent = 'Close';
+    closeBtn.onclick = () => overlay.remove();
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    actions.appendChild(closeBtn);
+
+    modal.appendChild(title);
+    modal.appendChild(summary);
+    modal.appendChild(filterBar);
+    modal.appendChild(listContainer);
+    modal.appendChild(actions);
+
+    overlay.appendChild(modal);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        overlay.remove();
+      }
+    });
+
+    document.body.appendChild(overlay);
   } catch (error) {
     console.error('Error fetching execution:', error);
     alert('Error loading execution details');

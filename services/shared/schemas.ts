@@ -40,6 +40,8 @@ export const FindingSchema = z.object({
   file: z.string().optional(),
   line: z.number().optional(),
   suggestion: z.string().optional(),
+  fingerprint: z.string().optional(),
+  lifecycle: z.enum(['new', 'persisted', 'resolved']).optional(),
 });
 
 // --- RepoContext ---

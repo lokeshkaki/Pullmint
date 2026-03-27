@@ -21,6 +21,7 @@ import { buildAnalysisCheckpoint } from '../checkpoint';
 import { filterDiff, getChangedFiles, getMaxDiffChars, parseDiff } from '../diff-filter';
 import type { PREvent, Finding } from '@pullmint/shared/types';
 import type { AgentResult } from './agent';
+import type { SynthesisJobData } from './synthesis';
 
 let flowProducer: FlowProducer | undefined;
 const INCREMENTAL_THRESHOLD = parseFloat(process.env.INCREMENTAL_ANALYSIS_THRESHOLD || '0.5');
@@ -297,6 +298,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
     const fullAgentTypes: Array<keyof PullmintConfig['agents']> = [...configuredAgentTypes];
     let priorAgentResults: Record<string, AgentResult> | null = null;
     let rerunAgentTypes: Array<keyof PullmintConfig['agents']> = [...configuredAgentTypes];
+    let priorExecutionId: string | undefined;
     let isIncremental = false;
 
     if (job.name === 'pr.synchronize') {
@@ -416,6 +418,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
                     isIncremental = true;
                     priorAgentResults = carriedForward;
                     rerunAgentTypes = agentsToRerun;
+                    priorExecutionId = prior.executionId;
 
                     await publishExecutionUpdate(prEvent.executionId, {
                       metadata: {
@@ -439,6 +442,27 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         isIncremental = false;
         priorAgentResults = null;
         rerunAgentTypes = [...configuredAgentTypes];
+      }
+    }
+
+    if (!isIncremental && job.name === 'pr.synchronize' && !priorExecutionId) {
+      try {
+        const priorRows = await db
+          .select({ executionId: schema.executions.executionId })
+          .from(schema.executions)
+          .where(
+            and(
+              eq(schema.executions.repoFullName, prEvent.repoFullName),
+              eq(schema.executions.prNumber, prEvent.prNumber),
+              eq(schema.executions.status, 'completed'),
+              ne(schema.executions.executionId, prEvent.executionId)
+            )
+          )
+          .orderBy(desc(schema.executions.createdAt))
+          .limit(1);
+        priorExecutionId = priorRows[0]?.executionId;
+      } catch {
+        // Non-critical — lifecycle analysis will treat all findings as new.
       }
     }
 
@@ -466,7 +490,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       opts: { failParentOnFailure: false },
     }));
 
-    const synthesizerData = {
+    const synthesizerData: SynthesisJobData = {
       executionId: prEvent.executionId,
       prEvent: childJobData.prEvent,
       diffRef,
@@ -474,6 +498,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         ? [...rerunAgentTypes, ...Object.keys(priorAgentResults ?? {})]
         : fullAgentTypes,
       cacheKey,
+      priorExecutionId,
       ...(isIncremental && priorAgentResults
         ? {
             priorAgentResults,

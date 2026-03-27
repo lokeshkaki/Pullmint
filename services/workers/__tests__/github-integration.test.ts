@@ -1,8 +1,10 @@
 import {
+  buildReviewPayload,
   buildCommentBody,
   getRiskEmoji,
   processGitHubIntegrationJob,
 } from '../src/processors/github-integration';
+import { parseDiff } from '../src/diff-filter';
 import type { Job } from 'bullmq';
 
 jest.mock('@pullmint/shared/db', () => ({
@@ -739,6 +741,174 @@ describe('processGitHubIntegrationJob', () => {
   });
 
   describe('inline review comments', () => {
+    it('prefixes inline comments with lifecycle badge for new findings', () => {
+      const parsedDiff = parseDiff(
+        [
+          'diff --git a/src/render.ts b/src/render.ts',
+          '--- a/src/render.ts',
+          '+++ b/src/render.ts',
+          '@@ -1,1 +1,20 @@',
+          '+new line',
+        ].join('\n')
+      );
+
+      const payload = buildReviewPayload(
+        {
+          executionId: 'exec-1',
+          repoFullName: 'org/repo',
+          prNumber: 42,
+          headSha: 'abc123',
+          baseSha: 'def456',
+          author: 'alice',
+          title: 'feat: test',
+          orgId: 'org-1',
+          agentType: 'security',
+          findings: [
+            {
+              type: 'security',
+              severity: 'high',
+              title: 'New XSS risk',
+              description: 'Unescaped output.',
+              file: 'src/render.ts',
+              line: 10,
+              lifecycle: 'new',
+              fingerprint: 'abc123abc123abc1',
+            },
+          ],
+          riskScore: 50,
+          metadata: { processingTime: 1, tokensUsed: 1, cached: false },
+        },
+        parsedDiff
+      );
+
+      expect(payload.comments[0].body).toContain('🆕 **New**');
+    });
+
+    it('prefixes inline comments with persisted badge', () => {
+      const parsedDiff = parseDiff(
+        [
+          'diff --git a/src/render.ts b/src/render.ts',
+          '--- a/src/render.ts',
+          '+++ b/src/render.ts',
+          '@@ -1,1 +1,20 @@',
+          '+new line',
+        ].join('\n')
+      );
+
+      const payload = buildReviewPayload(
+        {
+          executionId: 'exec-1',
+          repoFullName: 'org/repo',
+          prNumber: 42,
+          headSha: 'abc123',
+          baseSha: 'def456',
+          author: 'alice',
+          title: 'feat: test',
+          orgId: 'org-1',
+          agentType: 'security',
+          findings: [
+            {
+              type: 'security',
+              severity: 'high',
+              title: 'Persisted issue',
+              description: 'Still present.',
+              file: 'src/render.ts',
+              line: 10,
+              lifecycle: 'persisted',
+              fingerprint: 'abc123abc123abc2',
+            },
+          ],
+          riskScore: 50,
+          metadata: { processingTime: 1, tokensUsed: 1, cached: false },
+        },
+        parsedDiff
+      );
+
+      expect(payload.comments[0].body).toContain('🔄 **Persisted**');
+    });
+
+    it('adds resolved findings section to review body when resolvedFindings present', () => {
+      const resolved = [
+        {
+          type: 'security' as const,
+          severity: 'high' as const,
+          title: 'Fixed SQL injection',
+          description: 'Was vulnerable.',
+          file: 'src/db.ts',
+          lifecycle: 'resolved' as const,
+          fingerprint: 'aaa',
+        },
+      ];
+
+      const payload = buildReviewPayload(
+        {
+          executionId: 'exec-1',
+          repoFullName: 'org/repo',
+          prNumber: 42,
+          headSha: 'abc123',
+          baseSha: 'def456',
+          author: 'alice',
+          title: 'feat: test',
+          orgId: 'org-1',
+          agentType: 'security',
+          findings: [],
+          riskScore: 10,
+          metadata: { processingTime: 1, tokensUsed: 1, cached: false },
+        },
+        { files: [], totalFiles: 0, totalAddedLines: 0, totalRemovedLines: 0 },
+        { resolvedFindings: resolved }
+      );
+
+      expect(payload.body).toContain('✅ Resolved Findings');
+      expect(payload.body).toContain('Fixed SQL injection');
+    });
+
+    it('includes lifecycle summary line in review body when lifecycleStats present', () => {
+      const lifecycleStats = { new: 3, persisted: 5, resolved: 2 };
+      const payload = buildReviewPayload(
+        {
+          executionId: 'exec-1',
+          repoFullName: 'org/repo',
+          prNumber: 42,
+          headSha: 'abc123',
+          baseSha: 'def456',
+          author: 'alice',
+          title: 'feat: test',
+          orgId: 'org-1',
+          agentType: 'security',
+          findings: [],
+          riskScore: 10,
+          metadata: { processingTime: 1, tokensUsed: 1, cached: false },
+        },
+        { files: [], totalFiles: 0, totalAddedLines: 0, totalRemovedLines: 0 },
+        { lifecycleStats }
+      );
+
+      expect(payload.body).toContain('3 new, 5 persisted, 2 resolved');
+    });
+
+    it('omits lifecycle summary when lifecycleStats not provided', () => {
+      const payload = buildReviewPayload(
+        {
+          executionId: 'exec-1',
+          repoFullName: 'org/repo',
+          prNumber: 42,
+          headSha: 'abc123',
+          baseSha: 'def456',
+          author: 'alice',
+          title: 'feat: test',
+          orgId: 'org-1',
+          agentType: 'security',
+          findings: [],
+          riskScore: 10,
+          metadata: { processingTime: 1, tokensUsed: 1, cached: false },
+        },
+        { files: [], totalFiles: 0, totalAddedLines: 0, totalRemovedLines: 0 }
+      );
+
+      expect(payload.body).not.toContain('new, ');
+    });
+
     it('posts findings with file/line as inline comments', async () => {
       const { getObject } = jest.requireMock('@pullmint/shared/storage') as {
         getObject: jest.Mock;
