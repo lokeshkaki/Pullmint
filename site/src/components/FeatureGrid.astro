@@ -1,0 +1,88 @@
+---
+const features = [
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"></path><path stroke-linecap="round" stroke-linejoin="round" d="M18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"></path></svg>`,
+    color: 'blue',
+    title: '4 Specialized Agents',
+    description:
+      'Architecture, security, performance, and style agents run in parallel - each expert in its own domain, sending findings anchored to the exact lines they concern.',
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"></path></svg>`,
+    color: 'emerald',
+    title: 'Inline PR Comments',
+    description:
+      'Every finding is posted as a GitHub review comment anchored to the exact diff line - not a wall of text, but precise, actionable feedback where your code is.',
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"></path></svg>`,
+    color: 'amber',
+    title: 'Adaptive Risk Scoring',
+    description:
+      'Signal weights evolve from deployment outcomes using exponential moving averages. After 10 rollbacks, the risk model sharpens - automatically, per repo.',
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z"></path></svg>`,
+    color: 'blue',
+    title: 'Custom Agents',
+    description:
+      'Define your own specialized agents in .pullmint.yml with a system prompt, model choice, and file scope. Ship a database-migration agent in under 10 lines of YAML.',
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"></path></svg>`,
+    color: 'emerald',
+    title: 'Multi-Provider LLM',
+    description:
+      'Ships with Anthropic, OpenAI, and Google Gemini support. Switch providers by changing one env var. Bring your own enterprise contract or route cost-sensitive agents to cheaper models.',
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"></path></svg>`,
+    color: 'amber',
+    title: 'Zero-Infra Mode',
+    description:
+      'Add 3 lines to your GitHub Actions workflow and Pullmint runs inside the CI runner - no server, no database, no Redis. Ideal for getting started in under 5 minutes.',
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"></path></svg>`,
+    color: 'rose',
+    title: 'Finding Lifecycle',
+    description:
+      'Each finding is tagged new, persisted, or resolved across force-pushes. Incremental analysis re-runs only the agents whose files actually changed - cutting latency by up to 60%.',
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"></path></svg>`,
+    color: 'blue',
+    title: 'Real-Time Dashboard',
+    description:
+      'Live SSE push updates - no polling. Team analytics, per-repo risk trend sparklines, cost tracking with token budgets, and a Bull Board queue monitor for ops visibility.',
+  },
+];
+
+const colorMap: Record<string, string> = {
+  blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  emerald: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  amber: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  rose: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+};
+---
+
+<section id="features" class="px-6 py-24">
+  <div class="mx-auto max-w-7xl">
+    <div class="mb-16 text-center">
+      <h2 class="mb-4 text-4xl font-bold text-white">Everything You Need for Intelligent Code Review</h2>
+      <p class="mx-auto max-w-2xl text-lg text-slate-400">
+        Not another linter wrapper. Pullmint sends domain experts into your diff and emerges with ranked, lifecycle-tracked findings that actually move the needle.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+      {features.map((feature) => (
+        <div class="group rounded-2xl border border-navy-700 bg-navy-800 p-6 transition-all hover:-translate-y-0.5 hover:border-navy-600 hover:shadow-lg hover:shadow-navy-900">
+          <div class={`mb-4 inline-flex rounded-xl border p-2.5 ${colorMap[feature.color]}`} set:html={feature.icon} />
+          <h3 class="mb-2 font-semibold text-white">{feature.title}</h3>
+          <p class="text-sm leading-relaxed text-slate-400">{feature.description}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
