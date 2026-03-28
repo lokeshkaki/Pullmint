@@ -11,7 +11,7 @@ import { createStructuredError, retryWithBackoff } from '@pullmint/shared/error-
 import { publishExecutionUpdate } from '@pullmint/shared/execution-events';
 import { createLLMProvider, LLMProvider } from '@pullmint/shared/llm';
 import { FindingSchema } from '@pullmint/shared/schemas';
-import { deduplicateFindings } from '../dedup';
+import { deduplicateFindings } from '@pullmint/shared/dedup';
 import { buildAnalysisCheckpoint } from '../checkpoint';
 import { fingerprintFindings } from '../finding-fingerprint';
 import { analyzeFindingLifecycle } from '../finding-lifecycle';

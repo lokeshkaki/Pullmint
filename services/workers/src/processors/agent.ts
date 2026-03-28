@@ -6,11 +6,16 @@ import { retryWithBackoff } from '@pullmint/shared/error-handling';
 import { recordTokenUsage } from '@pullmint/shared/cost-tracker';
 import type { Finding } from '@pullmint/shared/types';
 import { createLLMProvider, LLMProvider } from '@pullmint/shared/llm';
-import { getArchitecturePrompt } from '../prompts/architecture';
-import { getSecurityPrompt } from '../prompts/security';
-import { getPerformancePrompt } from '../prompts/performance';
-import { getMaintainabilityPrompt } from '../prompts/maintainability';
-import { parseDiff, filterDiff, getMaxDiffChars, type FilteredDiff } from '../diff-filter';
+import { getArchitecturePrompt } from '@pullmint/shared/prompts/architecture';
+import { getSecurityPrompt } from '@pullmint/shared/prompts/security';
+import { getPerformancePrompt } from '@pullmint/shared/prompts/performance';
+import { getMaintainabilityPrompt } from '@pullmint/shared/prompts/maintainability';
+import {
+  parseDiff,
+  filterDiff,
+  getMaxDiffChars,
+  type FilteredDiff,
+} from '@pullmint/shared/diff-filter';
 
 // Agent type → prompt function mapping
 const AGENT_PROMPTS: Record<string, () => string> = {

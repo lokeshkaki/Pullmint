@@ -1,0 +1,1477 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="Live Demo - Pullmint"
+  description="See Pullmint analyze a real PR in your browser. No installation required."
+>
+  <div class="demo-page">
+    <div class="demo-hero">
+      <h1>See Pullmint in action</h1>
+      <p>
+        Pick a sample PR below and watch 4 specialized AI agents analyze it in real time. No account
+        needed.
+      </p>
+    </div>
+
+    <div class="demo-layout">
+      <div class="demo-left" id="demo-left">
+        <section class="sample-section">
+          <h2 class="panel-heading">Choose a sample PR</h2>
+          <div class="sample-cards" id="sample-cards">
+            <div class="sample-skeleton"></div>
+            <div class="sample-skeleton"></div>
+            <div class="sample-skeleton"></div>
+          </div>
+        </section>
+
+        <div class="divider-row">
+          <span class="divider-label">or</span>
+        </div>
+
+        <section class="custom-diff-section">
+          <h2 class="panel-heading">Paste your own diff</h2>
+          <p class="section-hint">Unified diff format. Max 50 KB.</p>
+          <textarea
+            id="diff-input"
+            class="diff-textarea"
+            placeholder="diff --git a/src/example.ts b/src/example.ts&#10;index 000000..abcdef 100644&#10;--- a/src/example.ts&#10;+++ b/src/example.ts&#10;@@ -1,4 +1,10 @@&#10; export function foo() {&#10;+  // your changes here"
+            rows="12"
+            spellcheck="false"
+          ></textarea>
+          <div class="diff-meta" id="diff-meta"></div>
+        </section>
+
+        <div class="analyze-row">
+          <button id="analyze-btn" class="btn-analyze" disabled>
+            <span class="btn-text">Analyze</span>
+            <span class="btn-spinner" aria-hidden="true"></span>
+          </button>
+          <span class="analyze-hint" id="analyze-hint">Select a sample or paste a diff to begin</span>
+        </div>
+      </div>
+
+      <div class="demo-right" id="demo-right">
+        <div class="results-empty" id="results-empty">
+          <div class="empty-icon">◎</div>
+          <p>Analysis results will appear here</p>
+        </div>
+
+        <div class="pipeline-anim" id="pipeline-anim" aria-hidden="true" hidden>
+          <div class="pipeline-label">Running 4 specialized agents...</div>
+          <div class="pipeline-bars">
+            <div class="pipeline-bar" data-agent="architecture">
+              <span class="bar-label">Architecture</span>
+              <div class="bar-track"><div class="bar-fill"></div></div>
+            </div>
+            <div class="pipeline-bar" data-agent="security">
+              <span class="bar-label">Security</span>
+              <div class="bar-track"><div class="bar-fill"></div></div>
+            </div>
+            <div class="pipeline-bar" data-agent="performance">
+              <span class="bar-label">Performance</span>
+              <div class="bar-track"><div class="bar-fill"></div></div>
+            </div>
+            <div class="pipeline-bar" data-agent="style">
+              <span class="bar-label">Style</span>
+              <div class="bar-track"><div class="bar-fill"></div></div>
+            </div>
+          </div>
+          <div class="pipeline-synthesis" id="pipeline-synthesis">
+            <span class="synth-dot"></span> Synthesizing results...
+          </div>
+        </div>
+
+        <div class="results-panel" id="results-panel" hidden>
+          <div class="risk-gauge-section">
+            <div class="risk-gauge-wrap">
+              <svg class="risk-gauge-svg" viewBox="0 0 200 120" aria-label="Risk score gauge">
+                <path
+                  class="gauge-bg"
+                  d="M20,110 A90,90 0 0,1 180,110"
+                  fill="none"
+                  stroke-width="16"
+                  stroke-linecap="round"
+                ></path>
+                <path
+                  class="gauge-fill"
+                  id="gauge-fill"
+                  d="M20,110 A90,90 0 0,1 180,110"
+                  fill="none"
+                  stroke-width="16"
+                  stroke-linecap="round"
+                  stroke-dasharray="283"
+                  stroke-dashoffset="283"
+                ></path>
+              </svg>
+              <div class="risk-score-label">
+                <span class="risk-number" id="risk-number">0</span>
+                <span class="risk-caption">/ 100</span>
+              </div>
+            </div>
+            <div class="risk-label" id="risk-label">Computing...</div>
+            <div class="processing-time" id="processing-time"></div>
+          </div>
+
+          <div class="agent-cards" id="agent-cards">
+            <div class="agent-card" data-agent="architecture">
+              <div class="agent-name">Architecture</div>
+              <div class="agent-score" id="arch-score">-</div>
+              <div class="agent-count" id="arch-count"></div>
+            </div>
+            <div class="agent-card" data-agent="security">
+              <div class="agent-name">Security</div>
+              <div class="agent-score" id="sec-score">-</div>
+              <div class="agent-count" id="sec-count"></div>
+            </div>
+            <div class="agent-card" data-agent="performance">
+              <div class="agent-name">Performance</div>
+              <div class="agent-score" id="perf-score">-</div>
+              <div class="agent-count" id="perf-count"></div>
+            </div>
+            <div class="agent-card" data-agent="style">
+              <div class="agent-name">Style</div>
+              <div class="agent-score" id="style-score">-</div>
+              <div class="agent-count" id="style-count"></div>
+            </div>
+          </div>
+
+          <div class="summary-section" id="summary-section" hidden>
+            <h3 class="section-title">Summary</h3>
+            <p class="summary-text" id="summary-text"></p>
+          </div>
+
+          <div class="view-toggle">
+            <button class="toggle-btn active" id="btn-findings">Findings</button>
+            <button class="toggle-btn" id="btn-mockup">PR Mockup</button>
+          </div>
+
+          <div class="findings-list" id="findings-list"></div>
+          <div class="pr-mockup-view" id="pr-mockup-view" hidden></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+.demo-page {
+  min-height: 100vh;
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+}
+
+.demo-hero {
+  text-align: center;
+  padding: 3rem 1.5rem 2rem;
+  border-bottom: 1px solid #21262d;
+}
+
+.demo-hero h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: #f0f6fc;
+  margin: 0 0 0.75rem;
+}
+
+.demo-hero p {
+  font-size: 1.1rem;
+  color: #8b949e;
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+.demo-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 0;
+  min-height: calc(100vh - 180px);
+}
+
+@media (max-width: 900px) {
+  .demo-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.demo-left {
+  background: #161b22;
+  border-right: 1px solid #21262d;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.panel-heading {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8b949e;
+  margin: 0 0 0.75rem;
+}
+
+.sample-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.sample-card {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: left;
+  width: 100%;
+}
+
+.sample-card:hover {
+  border-color: #58a6ff;
+  background: #161b22;
+}
+
+.sample-card.active {
+  border-color: #58a6ff;
+  background: #0d2137;
+}
+
+.sample-card-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 0.25rem;
+}
+
+.sample-card-desc {
+  font-size: 0.78rem;
+  color: #8b949e;
+  line-height: 1.4;
+}
+
+.sample-card-meta {
+  font-size: 0.72rem;
+  color: #3d444d;
+  margin-top: 0.375rem;
+}
+
+.sample-skeleton {
+  height: 72px;
+  background: linear-gradient(90deg, #21262d 25%, #30363d 50%, #21262d 75%);
+  background-size: 200% 100%;
+  border-radius: 8px;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.divider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.divider-row::before,
+.divider-row::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #21262d;
+}
+
+.divider-label {
+  font-size: 0.75rem;
+  color: #484f58;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.section-hint {
+  font-size: 0.78rem;
+  color: #8b949e;
+  margin: -0.5rem 0 0.5rem;
+}
+
+.diff-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #e6edf3;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  padding: 0.75rem;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+
+.diff-textarea:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
+.diff-meta {
+  font-size: 0.72rem;
+  color: #8b949e;
+  margin-top: 0.25rem;
+  min-height: 1rem;
+}
+
+.analyze-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.btn-analyze {
+  background: #238636;
+  color: #fff;
+  border: 1px solid #2ea043;
+  border-radius: 6px;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-analyze:hover:not(:disabled) {
+  background: #2ea043;
+}
+
+.btn-analyze:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-analyze.loading .btn-text {
+  opacity: 0.7;
+}
+
+.btn-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.btn-analyze.loading .btn-spinner {
+  display: block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.analyze-hint {
+  font-size: 0.78rem;
+  color: #8b949e;
+}
+
+.demo-right {
+  padding: 2rem;
+  position: relative;
+}
+
+.results-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: #484f58;
+  text-align: center;
+  gap: 1rem;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  opacity: 0.3;
+}
+
+.pipeline-anim {
+  padding: 2rem;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+}
+
+.pipeline-label {
+  font-size: 0.9rem;
+  color: #8b949e;
+  margin-bottom: 1.25rem;
+}
+
+.pipeline-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.pipeline-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.bar-label {
+  font-size: 0.8rem;
+  color: #8b949e;
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.bar-track {
+  flex: 1;
+  height: 6px;
+  background: #21262d;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #238636, #3fb950);
+  transition: width 0.4s ease-out;
+}
+
+.pipeline-bar.running .bar-fill {
+  width: 70%;
+  background: linear-gradient(90deg, #1f6feb 0%, #388bfd 40%, #58a6ff 60%, #388bfd 100%);
+  background-size: 200% 100%;
+  animation: bar-shimmer 1.2s linear infinite;
+}
+
+@keyframes bar-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.pipeline-bar.done .bar-fill {
+  width: 100%;
+  background: linear-gradient(90deg, #238636, #3fb950);
+  animation: none;
+}
+
+.pipeline-synthesis {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.8rem;
+  color: #484f58;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.pipeline-synthesis.active {
+  opacity: 1;
+  color: #8b949e;
+}
+
+.synth-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #58a6ff;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
+}
+
+.risk-gauge-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.risk-gauge-wrap {
+  position: relative;
+  width: 200px;
+}
+
+.risk-gauge-svg {
+  width: 100%;
+}
+
+.gauge-bg {
+  stroke: #21262d;
+}
+
+.gauge-fill {
+  transition: stroke-dashoffset 1s ease-out, stroke 0.3s;
+}
+
+.risk-score-label {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.risk-number {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #f0f6fc;
+  line-height: 1;
+}
+
+.risk-caption {
+  font-size: 0.75rem;
+  color: #8b949e;
+  margin-left: 0.2rem;
+}
+
+.risk-label {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.processing-time {
+  font-size: 0.75rem;
+  color: #484f58;
+  margin-top: 0.25rem;
+}
+
+.risk-low {
+  color: #3fb950;
+}
+
+.risk-medium {
+  color: #d29922;
+}
+
+.risk-high {
+  color: #f0883e;
+}
+
+.risk-critical {
+  color: #f85149;
+}
+
+.agent-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 700px) {
+  .agent-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.agent-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 0.875rem;
+  text-align: center;
+}
+
+.agent-name {
+  font-size: 0.72rem;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.375rem;
+}
+
+.agent-score {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e6edf3;
+  line-height: 1;
+}
+
+.agent-count {
+  font-size: 0.72rem;
+  color: #484f58;
+  margin-top: 0.25rem;
+}
+
+.summary-section {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8b949e;
+  margin: 0 0 0.5rem;
+}
+
+.summary-text {
+  font-size: 0.9rem;
+  color: #c9d1d9;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  width: fit-content;
+}
+
+.toggle-btn {
+  background: #0d1117;
+  color: #8b949e;
+  border: none;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.toggle-btn:hover {
+  background: #161b22;
+}
+
+.toggle-btn.active {
+  background: #161b22;
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.finding-item {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.finding-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.finding-header:hover {
+  background: #1c2128;
+}
+
+.sev-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  margin-top: 0.1rem;
+}
+
+.sev-critical {
+  background: #3d1a1a;
+  color: #f85149;
+  border: 1px solid #3d1717;
+}
+
+.sev-high {
+  background: #2d1d0a;
+  color: #f0883e;
+  border: 1px solid #3d2210;
+}
+
+.sev-medium {
+  background: #2d240a;
+  color: #d29922;
+  border: 1px solid #3a2f0a;
+}
+
+.sev-low {
+  background: #0e2a1a;
+  color: #3fb950;
+  border: 1px solid #103020;
+}
+
+.sev-info {
+  background: #0a1e2d;
+  color: #58a6ff;
+  border: 1px solid #0e2640;
+}
+
+.finding-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.finding-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin: 0 0 0.2rem;
+}
+
+.finding-location {
+  font-size: 0.75rem;
+  color: #58a6ff;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.finding-expand-icon {
+  flex-shrink: 0;
+  color: #484f58;
+  font-size: 0.75rem;
+  margin-top: 0.2rem;
+  transition: transform 0.2s;
+}
+
+.finding-item.open .finding-expand-icon {
+  transform: rotate(90deg);
+}
+
+.finding-body {
+  display: none;
+  padding: 0 1rem 0.875rem;
+  border-top: 1px solid #21262d;
+}
+
+.finding-item.open .finding-body {
+  display: block;
+}
+
+.finding-description {
+  font-size: 0.85rem;
+  color: #c9d1d9;
+  line-height: 1.6;
+  margin: 0.75rem 0 0;
+}
+
+.finding-suggestion {
+  background: #0d2137;
+  border: 1px solid #1f4a6e;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+  font-size: 0.82rem;
+  color: #8ac8f5;
+  line-height: 1.6;
+}
+
+.finding-suggestion::before {
+  content: 'Suggestion: ';
+  font-weight: 600;
+  color: #58a6ff;
+}
+
+.pr-mockup {
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #161b22;
+}
+
+.mockup-pr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #0d1117;
+  border-bottom: 1px solid #21262d;
+  font-size: 0.85rem;
+}
+
+.mockup-pr-title {
+  color: #c9d1d9;
+  font-weight: 600;
+}
+
+.mockup-pr-badge {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.mockup-pr-badge.reviewed {
+  background: #1b2a1b;
+  color: #3fb950;
+  border: 1px solid #238636;
+}
+
+.mockup-review-summary {
+  padding: 1rem;
+  border-bottom: 1px solid #21262d;
+}
+
+.mockup-reviewer-header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-bottom: 0.75rem;
+}
+
+.mockup-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #388bfd, #238636);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mockup-reviewer-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.mockup-reviewer-action {
+  font-size: 0.82rem;
+  color: #8b949e;
+}
+
+.mockup-reviewer-info {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.mockup-summary-body {
+  font-size: 0.85rem;
+  color: #c9d1d9;
+  line-height: 1.6;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  background: #0d1117;
+  border-radius: 6px;
+  border: 1px solid #21262d;
+}
+
+.mockup-body-finding {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid #21262d;
+  font-size: 0.82rem;
+}
+
+.mockup-bf-title {
+  color: #c9d1d9;
+}
+
+.mockup-file-section {
+  border-bottom: 1px solid #21262d;
+}
+
+.mockup-file-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: #0d1117;
+  border-bottom: 1px solid #21262d;
+  font-size: 0.8rem;
+}
+
+.mockup-file-icon {
+  font-size: 0.85rem;
+}
+
+.mockup-filename {
+  color: #58a6ff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+}
+
+.mockup-inline-comment {
+  border-bottom: 1px solid #21262d;
+}
+
+.mockup-diff-line {
+  display: flex;
+  align-items: center;
+  background: #0d2137;
+  padding: 0.3rem 1rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  gap: 1rem;
+  border-bottom: 1px solid #1f4a6e;
+}
+
+.diff-line-no {
+  color: #484f58;
+  min-width: 2rem;
+  text-align: right;
+  user-select: none;
+}
+
+.diff-line-code {
+  color: #8ac8f5;
+}
+
+.mockup-comment-bubble {
+  margin: 0.75rem;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 0.875rem;
+}
+
+.mockup-comment-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.mockup-comment-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 0.375rem;
+}
+
+.mockup-comment-body {
+  font-size: 0.82rem;
+  color: #c9d1d9;
+  line-height: 1.6;
+}
+
+.mockup-suggestion-block {
+  margin-top: 0.75rem;
+  background: #0e2a1a;
+  border: 1px solid #238636;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.suggestion-header {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #3fb950;
+  background: #0a1e12;
+  border-bottom: 1px solid #1b3a22;
+}
+
+.suggestion-body {
+  padding: 0.625rem 0.75rem;
+  font-size: 0.8rem;
+  color: #7ee787;
+  line-height: 1.6;
+}
+</style>
+
+<script>
+// @ts-nocheck
+const API_BASE = import.meta.env.PUBLIC_API_URL ?? 'https://api.pullmint.dev';
+
+let selectedSample = null;
+let currentResult = null;
+let isLoading = false;
+
+const sampleCardsEl = document.getElementById('sample-cards');
+const diffInput = document.getElementById('diff-input');
+const diffMeta = document.getElementById('diff-meta');
+const analyzeBtn = document.getElementById('analyze-btn');
+const analyzeHint = document.getElementById('analyze-hint');
+const resultsEmpty = document.getElementById('results-empty');
+const pipelineAnim = document.getElementById('pipeline-anim');
+const resultsPanel = document.getElementById('results-panel');
+const gaugeFill = document.getElementById('gauge-fill');
+const riskNumber = document.getElementById('risk-number');
+const riskLabel = document.getElementById('risk-label');
+const processingTime = document.getElementById('processing-time');
+const summarySection = document.getElementById('summary-section');
+const summaryText = document.getElementById('summary-text');
+const findingsList = document.getElementById('findings-list');
+const prMockupView = document.getElementById('pr-mockup-view');
+const btnFindings = document.getElementById('btn-findings');
+const btnMockup = document.getElementById('btn-mockup');
+const synthesisBanner = document.getElementById('pipeline-synthesis');
+const pipelineBars = document.querySelectorAll('.pipeline-bar');
+
+const AGENT_DURATIONS = { architecture: 7000, security: 8000, performance: 5000, style: 4500 };
+const SEV_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
+const AGENT_ID_MAP = {
+  architecture: { score: 'arch-score', count: 'arch-count' },
+  security: { score: 'sec-score', count: 'sec-count' },
+  performance: { score: 'perf-score', count: 'perf-count' },
+  style: { score: 'style-score', count: 'style-count' },
+};
+
+let pipelineTimers = [];
+
+async function boot() {
+  await loadSamples();
+  diffInput.addEventListener('input', onDiffInput);
+  analyzeBtn.addEventListener('click', onAnalyze);
+  btnFindings.addEventListener('click', () => switchView('findings'));
+  btnMockup.addEventListener('click', () => switchView('mockup'));
+}
+
+async function loadSamples() {
+  let samples;
+  try {
+    const res = await fetch(`${API_BASE}/demo/samples`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    samples = await res.json();
+  } catch {
+    samples = [
+      {
+        name: 'express-api-endpoint',
+        description: 'A Node.js route handler with SQL injection, credential exposure, and missing authorization',
+        diffLineCount: 62,
+      },
+      {
+        name: 'react-component-refactor',
+        description:
+          'Large React component split into focused hooks and sub-components - mostly positive, minor improvements suggested',
+        diffLineCount: 66,
+      },
+      {
+        name: 'db-migration',
+        description:
+          'Schema migration adding an audit log table - includes a dangerous DROP TABLE and missing indexes',
+        diffLineCount: 42,
+      },
+    ];
+  }
+
+  sampleCardsEl.innerHTML = '';
+  for (const sample of samples) {
+    const btn = document.createElement('button');
+    btn.className = 'sample-card';
+    btn.dataset.name = sample.name;
+    btn.innerHTML = `
+      <div class="sample-card-name">${escHtml(formatSampleName(sample.name))}</div>
+      <div class="sample-card-desc">${escHtml(sample.description)}</div>
+      <div class="sample-card-meta">${sample.diffLineCount} diff lines</div>
+    `;
+    btn.addEventListener('click', () => selectSample(sample.name));
+    sampleCardsEl.appendChild(btn);
+  }
+}
+
+function formatSampleName(name) {
+  return name
+    .split('-')
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+async function selectSample(name) {
+  selectedSample = name;
+  diffInput.value = '';
+  diffMeta.textContent = '';
+
+  document.querySelectorAll('.sample-card').forEach((card) => {
+    card.classList.toggle('active', card.dataset.name === name);
+  });
+
+  analyzeBtn.disabled = false;
+  analyzeHint.textContent = `Using: ${formatSampleName(name)}`;
+
+  try {
+    const res = await fetch(`${API_BASE}/demo/samples/${encodeURIComponent(name)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const result = await res.json();
+    showResults(result, true);
+  } catch {
+    analyzeHint.textContent = `Selected: ${formatSampleName(name)} - click Analyze`;
+  }
+}
+
+function onDiffInput() {
+  const value = diffInput.value.trim();
+  if (value.length > 0) {
+    selectedSample = null;
+    document.querySelectorAll('.sample-card').forEach((card) => card.classList.remove('active'));
+    const bytes = new TextEncoder().encode(value).length;
+    diffMeta.textContent = `${value.split('\n').length} lines - ${formatBytes(bytes)}`;
+    analyzeBtn.disabled = bytes > 51200;
+    analyzeHint.textContent = bytes > 51200 ? 'Diff too large (max 50 KB)' : 'Ready to analyze';
+  } else {
+    analyzeBtn.disabled = true;
+    analyzeHint.textContent = 'Select a sample or paste a diff to begin';
+    diffMeta.textContent = '';
+  }
+}
+
+async function onAnalyze() {
+  if (isLoading) return;
+
+  if (selectedSample) {
+    await selectSample(selectedSample);
+    return;
+  }
+
+  const diff = diffInput.value.trim();
+  if (!diff) return;
+
+  isLoading = true;
+  analyzeBtn.classList.add('loading');
+  analyzeBtn.disabled = true;
+  showPipeline();
+  startPipelineAnimation();
+
+  try {
+    const res = await fetch(`${API_BASE}/demo/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ diff, prTitle: 'Custom PR' }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+
+    const result = await res.json();
+    completePipelineAnimation();
+    setTimeout(() => showResults(result, false), 600);
+  } catch (err) {
+    hidePipeline();
+    showError(err instanceof Error ? err.message : 'Analysis failed');
+  } finally {
+    isLoading = false;
+    analyzeBtn.classList.remove('loading');
+    analyzeBtn.disabled = false;
+  }
+}
+
+function showPipeline() {
+  resultsEmpty.hidden = true;
+  resultsPanel.hidden = true;
+  pipelineAnim.hidden = false;
+  synthesisBanner.classList.remove('active');
+  pipelineBars.forEach((bar) => {
+    bar.classList.remove('running', 'done');
+    const fill = bar.querySelector('.bar-fill');
+    if (fill) fill.style.width = '0%';
+  });
+}
+
+function hidePipeline() {
+  pipelineAnim.hidden = true;
+}
+
+function startPipelineAnimation() {
+  pipelineTimers.forEach(clearTimeout);
+  pipelineTimers = [];
+
+  pipelineBars.forEach((bar) => {
+    bar.classList.add('running');
+    const agentType = bar.dataset.agent;
+    const duration = AGENT_DURATIONS[agentType] ?? 6000;
+    const timer = setTimeout(() => {
+      bar.classList.remove('running');
+      bar.classList.add('done');
+      const allDone = Array.from(pipelineBars).every((entry) => entry.classList.contains('done'));
+      if (allDone) {
+        synthesisBanner.classList.add('active');
+      }
+    }, duration);
+    pipelineTimers.push(timer);
+  });
+}
+
+function completePipelineAnimation() {
+  pipelineTimers.forEach(clearTimeout);
+  pipelineBars.forEach((bar) => {
+    bar.classList.remove('running');
+    bar.classList.add('done');
+  });
+  synthesisBanner.classList.add('active');
+}
+
+function showResults(result, isFixture) {
+  currentResult = result;
+  hidePipeline();
+  resultsEmpty.hidden = true;
+  resultsPanel.hidden = false;
+
+  animateGauge(result.riskScore);
+
+  for (const agent of ['architecture', 'security', 'performance', 'style']) {
+    const info = result.agentResults?.[agent];
+    const ids = AGENT_ID_MAP[agent];
+    const scoreEl = document.getElementById(ids.score);
+    const countEl = document.getElementById(ids.count);
+    if (scoreEl) scoreEl.textContent = info ? String(info.riskScore) : '-';
+    if (countEl) {
+      countEl.textContent = info ? `${info.findingsCount} finding${info.findingsCount !== 1 ? 's' : ''}` : '';
+    }
+  }
+
+  if (result.processingTimeMs) {
+    processingTime.textContent = isFixture
+      ? `~${(result.processingTimeMs / 1000).toFixed(1)}s (pre-computed)`
+      : `Analyzed in ${(result.processingTimeMs / 1000).toFixed(1)}s`;
+  }
+
+  if (result.summary) {
+    summarySection.hidden = false;
+    summaryText.textContent = result.summary;
+  } else {
+    summarySection.hidden = true;
+  }
+
+  renderFindings(result.findings ?? []);
+  renderPRMockup(result);
+  switchView('findings');
+}
+
+function animateGauge(score) {
+  const circumference = 283;
+  const offset = circumference - (score / 100) * circumference;
+
+  riskNumber.textContent = String(score);
+
+  let color;
+  let labelText;
+  let labelClass;
+  if (score >= 70) {
+    color = '#f85149';
+    labelText = 'High Risk';
+    labelClass = 'risk-critical';
+  } else if (score >= 40) {
+    color = '#f0883e';
+    labelText = 'Medium Risk';
+    labelClass = 'risk-high';
+  } else if (score >= 20) {
+    color = '#d29922';
+    labelText = 'Low Risk';
+    labelClass = 'risk-medium';
+  } else {
+    color = '#3fb950';
+    labelText = 'Minimal Risk';
+    labelClass = 'risk-low';
+  }
+
+  gaugeFill.style.stroke = color;
+  gaugeFill.style.strokeDashoffset = String(offset);
+  riskLabel.textContent = labelText;
+  riskLabel.className = `risk-label ${labelClass}`;
+}
+
+function renderFindings(findings) {
+  findingsList.innerHTML = '';
+
+  const sorted = [...findings].sort((a, b) => SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity));
+
+  if (sorted.length === 0) {
+    findingsList.innerHTML = '<div style="color:#8b949e; padding: 1rem 0;">No findings - this PR looks clean!</div>';
+    return;
+  }
+
+  for (const finding of sorted) {
+    const item = document.createElement('div');
+    item.className = 'finding-item';
+
+    const locationStr = finding.file ? `${finding.file}${finding.line ? `:${finding.line}` : ''}` : '';
+
+    item.innerHTML = `
+      <div class="finding-header">
+        <span class="sev-badge sev-${escHtml(finding.severity)}">${escHtml(finding.severity)}</span>
+        <div class="finding-title-wrap">
+          <div class="finding-title">${escHtml(finding.title)}</div>
+          ${locationStr ? `<div class="finding-location">${escHtml(locationStr)}</div>` : ''}
+        </div>
+        <span class="finding-expand-icon">▶</span>
+      </div>
+      <div class="finding-body">
+        <p class="finding-description">${escHtml(finding.description)}</p>
+        ${finding.suggestion ? `<div class="finding-suggestion">${escHtml(finding.suggestion)}</div>` : ''}
+      </div>
+    `;
+
+    item.querySelector('.finding-header').addEventListener('click', () => {
+      item.classList.toggle('open');
+    });
+
+    findingsList.appendChild(item);
+  }
+}
+
+function switchView(view) {
+  const isFindingsView = view === 'findings';
+  findingsList.hidden = !isFindingsView;
+  prMockupView.hidden = isFindingsView;
+  btnFindings.classList.toggle('active', isFindingsView);
+  btnMockup.classList.toggle('active', !isFindingsView);
+}
+
+function renderPRMockup(result) {
+  prMockupView.innerHTML = '';
+
+  const findings = result.findings ?? [];
+  const inline = findings.filter((finding) => finding.file && finding.line);
+  const bodyOnly = findings.filter((finding) => !finding.file || !finding.line);
+
+  const byFile = {};
+  for (const finding of inline) {
+    if (!byFile[finding.file]) byFile[finding.file] = [];
+    byFile[finding.file].push(finding);
+  }
+
+  const sections = [];
+
+  for (const [file, fileFindings] of Object.entries(byFile)) {
+    let section = '<div class="mockup-file-section">';
+    section += `<div class="mockup-file-header"><span class="mockup-file-icon">📄</span><span class="mockup-filename">${escHtml(file)}</span></div>`;
+
+    for (const finding of fileFindings.sort((a, b) => (a.line ?? 0) - (b.line ?? 0))) {
+      section += renderMockupComment(finding);
+    }
+
+    section += '</div>';
+    sections.push(section);
+  }
+
+  if (bodyOnly.length > 0) {
+    let summaryBlock = '<div class="mockup-review-summary">';
+    summaryBlock += '<div class="mockup-reviewer-header">';
+    summaryBlock += '<div class="mockup-avatar">PM</div>';
+    summaryBlock += '<div class="mockup-reviewer-info"><span class="mockup-reviewer-name">pullmint[bot]</span> <span class="mockup-reviewer-action">left a review</span></div>';
+    summaryBlock += '</div>';
+
+    if (result.summary) {
+      summaryBlock += `<div class="mockup-summary-body">${escHtml(result.summary)}</div>`;
+    }
+
+    for (const finding of bodyOnly) {
+      summaryBlock += `<div class="mockup-body-finding"><span class="sev-badge sev-${escHtml(finding.severity)}">${escHtml(finding.severity)}</span><span class="mockup-bf-title">${escHtml(finding.title)}</span></div>`;
+    }
+
+    summaryBlock += '</div>';
+    sections.unshift(summaryBlock);
+  }
+
+  if (sections.length === 0) {
+    prMockupView.innerHTML = '<div style="color:#8b949e; padding: 1rem 0;">No findings to display in PR view.</div>';
+    return;
+  }
+
+  prMockupView.innerHTML = `
+    <div class="pr-mockup">
+      <div class="mockup-pr-header">
+        <span class="mockup-pr-title">Mock PR - pullmint review</span>
+        <span class="mockup-pr-badge reviewed">Reviewed</span>
+      </div>
+      ${sections.join('')}
+    </div>
+  `;
+}
+
+function renderMockupComment(finding) {
+  return `
+    <div class="mockup-inline-comment">
+      <div class="mockup-diff-line">
+        <span class="diff-line-no">${finding.line}</span>
+        <span class="diff-line-code">${escHtml(`// line ${finding.line} in ${finding.file}`)}</span>
+      </div>
+      <div class="mockup-comment-bubble">
+        <div class="mockup-comment-header">
+          <div class="mockup-avatar">PM</div>
+          <span class="mockup-reviewer-name">pullmint[bot]</span>
+          <span class="sev-badge sev-${escHtml(finding.severity)}">${escHtml(finding.severity)}</span>
+        </div>
+        <div class="mockup-comment-title">${escHtml(finding.title)}</div>
+        <div class="mockup-comment-body">${escHtml(finding.description)}</div>
+        ${finding.suggestion ? `<div class="mockup-suggestion-block"><div class="suggestion-header">Suggestion</div><div class="suggestion-body">${escHtml(finding.suggestion)}</div></div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function showError(message) {
+  resultsEmpty.hidden = false;
+  resultsEmpty.innerHTML = `
+    <div class="empty-icon" style="color:#f85149">✗</div>
+    <p style="color:#f85149">${escHtml(message)}</p>
+    <p style="color:#8b949e; font-size:0.8rem">Check the diff format and try again</p>
+  `;
+}
+
+function escHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+boot().catch(console.error);
+</script>
