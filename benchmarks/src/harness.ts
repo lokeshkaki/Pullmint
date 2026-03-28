@@ -1,4 +1,5 @@
 // benchmarks/src/harness.ts
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 import { Bench } from 'tinybench';
 import { globSync } from 'glob';
 import * as path from 'path';
@@ -153,21 +154,14 @@ async function main(): Promise<void> {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       await bench.run();
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const t = bench.tasks[0];
       if (!t?.result) continue;
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument
       const samples = [...t.result.samples].sort((a, b) => a - b);
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const mean = t.result.mean;
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const sd = t.result.sd;
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const hz = t.result.hz;
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const minVal = t.result.min;
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const maxVal = t.result.max;
 
       const result: TaskResult = {

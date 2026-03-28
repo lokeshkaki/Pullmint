@@ -1,5 +1,5 @@
 // benchmarks/src/generators.ts
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment */
 import { faker } from '@faker-js/faker';
 import type { Finding, Signal, SignalType } from '../../services/shared/types';
 
