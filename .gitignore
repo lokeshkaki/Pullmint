@@ -58,6 +58,11 @@ secrets.json
 ehthumbs.db
 Thumbs.db
 
+# Benchmarks
+benchmarks/results/*.json
+!benchmarks/results/baseline.json
+benchmarks/node_modules
+
 # Secrets & Keys
 *.pem
 *.key

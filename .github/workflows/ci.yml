@@ -5,6 +5,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -90,3 +92,89 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=site
       - run: cd site && npx html-validate dist/index.html
+
+  benchmark-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install benchmark dependencies
+        run: cd benchmarks && npm ci
+      - name: Run CPU benchmarks
+        run: cd benchmarks && npm run benchmark -- --filter cpu
+        timeout-minutes: 5
+      - name: Compare against baseline
+        run: |
+          if [ -f benchmarks/results/baseline.json ]; then
+            LATEST=$(ls -t benchmarks/results/*.json | grep -v baseline.json | head -1)
+            if [ -n "$LATEST" ]; then
+              cd benchmarks && npx ts-node src/compare.ts results/baseline.json "$LATEST"
+            fi
+          fi
+        continue-on-error: false
+
+  benchmark-full:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: pullmint
+          POSTGRES_PASSWORD: pullmint
+          POSTGRES_DB: pullmint_bench
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: --health-cmd "curl -f http://localhost:9000/minio/health/live" --health-interval 10s
+        ports:
+          - 9000:9000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install benchmark dependencies
+        run: cd benchmarks && npm ci
+      - name: Run full benchmark suite
+        env:
+          DATABASE_URL: postgresql://pullmint:pullmint@localhost:5432/pullmint_bench
+          REDIS_URL: redis://localhost:6379
+          MINIO_ENDPOINT: localhost
+          MINIO_PORT: '9000'
+          MINIO_USE_SSL: 'false'
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_BUCKET: pullmint-bench
+        run: cd benchmarks && npm run benchmark
+        timeout-minutes: 15
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: benchmarks/results/*.json
+          retention-days: 30
