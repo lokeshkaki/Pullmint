@@ -10,6 +10,7 @@ import { registerSignalRoutes } from './routes/signals';
 import { registerHealthRoutes } from './routes/health';
 import { registerAdminRoutes } from './routes/admin';
 import { registerEventRoutes } from './routes/events';
+import { registerDemoRoutes } from './routes/demo';
 import { initSSE, closeSSE } from './sse';
 
 async function start() {
@@ -50,6 +51,7 @@ async function start() {
   registerDashboardRoutes(app);
   registerSignalRoutes(app);
   registerEventRoutes(app);
+  registerDemoRoutes(app);
 
   // Initialize SSE
   initSSE();
