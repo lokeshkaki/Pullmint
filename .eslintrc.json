@@ -20,6 +20,12 @@
   },
   "overrides": [
     {
+      "files": ["services/dashboard-ui/**/*.ts", "services/dashboard-ui/**/*.tsx"],
+      "parserOptions": {
+        "project": "./services/dashboard-ui/tsconfig.eslint.json"
+      }
+    },
+    {
       "files": ["**/__tests__/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
       "rules": {
         "@typescript-eslint/no-unsafe-assignment": "off",
