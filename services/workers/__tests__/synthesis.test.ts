@@ -452,6 +452,47 @@ describe('processSynthesisJob', () => {
     expect(storedData.agentResults.architecture.status).toBe('completed');
   });
 
+  it('rethrows synthesis errors even when failed status update also errors', async () => {
+    const children = {
+      'bull:agent:arch-1': makeAgentResult('architecture'),
+    };
+
+    const { publishExecutionUpdate } = jest.requireMock('@pullmint/shared/execution-events') as {
+      publishExecutionUpdate: jest.Mock;
+    };
+    publishExecutionUpdate.mockRejectedValueOnce(new Error('status update failed'));
+
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const job = makeSynthesisJob(children, {
+      prEvent: {
+        prNumber: 42,
+        repoFullName: 'invalid-repo-name',
+        headSha: 'abc123',
+        baseSha: 'def456',
+        author: 'alice',
+        title: 'feat: test PR',
+        orgId: 'org-1',
+      },
+      agentTypes: ['architecture'],
+    });
+
+    await expect(processSynthesisJob(job)).rejects.toThrow('Invalid repoFullName format');
+
+    expect(publishExecutionUpdate).toHaveBeenCalledWith(
+      'exec-1',
+      expect.objectContaining({
+        status: 'failed',
+      })
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Failed to update execution status:',
+      expect.objectContaining({ executionId: 'exec-1' })
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
   describe('incremental result merging', () => {
     it('merges prior results with new agent results', async () => {
       const children = {
