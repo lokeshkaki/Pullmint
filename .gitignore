@@ -17,6 +17,8 @@ build/
 dist/
 .cache/
 out/
+site/.astro/
+site/src/env.d.ts
 
 # Environment Variables
 .env

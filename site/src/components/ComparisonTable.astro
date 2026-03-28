@@ -1,0 +1,118 @@
+---
+type Check = 'yes' | 'partial' | 'no';
+
+interface Competitor {
+  name: string;
+  note: string;
+}
+
+const competitors: Competitor[] = [
+  { name: 'Pullmint', note: 'self-hosted' },
+  { name: 'CodeRabbit', note: 'SaaS' },
+  { name: 'SonarCloud', note: 'SaaS' },
+  { name: 'Copilot Review', note: 'GitHub native' },
+];
+
+interface Row {
+  feature: string;
+  tooltip?: string;
+  values: Check[];
+}
+
+const rows: Row[] = [
+  {
+    feature: 'Self-hosted option',
+    tooltip: 'Run entirely on your infrastructure with no data leaving your network',
+    values: ['yes', 'no', 'partial', 'no'],
+  },
+  {
+    feature: 'Custom agents',
+    tooltip: 'Define domain-specific agents with your own prompts and file scope',
+    values: ['yes', 'no', 'no', 'no'],
+  },
+  {
+    feature: 'Adaptive risk learning',
+    tooltip: 'Signal weights update from deployment outcomes over time',
+    values: ['yes', 'no', 'no', 'no'],
+  },
+  {
+    feature: 'Multi-provider LLM',
+    tooltip: 'Swap Anthropic to OpenAI to Gemini via one env var',
+    values: ['yes', 'no', 'no', 'no'],
+  },
+  {
+    feature: 'LLM cost tracking',
+    tooltip: 'Token usage per PR, per repo, with budget alerts',
+    values: ['yes', 'partial', 'no', 'no'],
+  },
+  {
+    feature: 'Inline diff comments',
+    tooltip: 'Findings anchored to exact lines in the PR diff',
+    values: ['yes', 'yes', 'partial', 'yes'],
+  },
+  {
+    feature: 'GitHub Action mode',
+    tooltip: 'Zero-infra - runs inside CI runner, no server needed',
+    values: ['yes', 'no', 'no', 'yes'],
+  },
+  {
+    feature: 'Finding lifecycle tracking',
+    tooltip: 'New, persisted, and resolved findings across force-pushes on the same PR',
+    values: ['yes', 'partial', 'no', 'no'],
+  },
+  {
+    feature: 'Open source',
+    tooltip: 'MIT license, full source on GitHub',
+    values: ['yes', 'no', 'no', 'no'],
+  },
+];
+
+const icon: Record<Check, string> = {
+  yes: `<svg class="mx-auto h-5 w-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path></svg>`,
+  partial: `<svg class="mx-auto h-5 w-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14"></path></svg>`,
+  no: `<svg class="mx-auto h-5 w-5 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>`,
+};
+---
+
+<section id="compare" class="px-6 py-24">
+  <div class="mx-auto max-w-5xl">
+    <div class="mb-16 text-center">
+      <h2 class="mb-4 text-4xl font-bold text-white">How Pullmint Compares</h2>
+      <p class="mx-auto max-w-2xl text-lg text-slate-400">
+        Most AI review tools are SaaS-only, single-provider, and cannot learn from your team's deployment history.
+      </p>
+    </div>
+
+    <div class="overflow-x-auto rounded-2xl border border-navy-700">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-navy-700 bg-navy-800">
+            <th class="w-56 px-6 py-4 text-left font-medium text-slate-400">Feature</th>
+            {competitors.map((competitor, index) => (
+              <th class={`px-4 py-4 text-center font-semibold ${index === 0 ? 'bg-blue-500/5 text-blue-400' : 'text-slate-300'}`}>
+                <div>{competitor.name}</div>
+                <div class={`mt-0.5 text-xs font-normal ${index === 0 ? 'text-blue-500' : 'text-slate-500'}`}>{competitor.note}</div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr class={`border-b border-navy-700/50 ${rowIndex % 2 === 0 ? 'bg-navy-900' : 'bg-navy-800/30'}`}>
+              <td class="px-6 py-3.5 text-slate-300">
+                {row.feature}
+                {row.tooltip && <span class="ml-1.5 text-xs text-slate-600" title={row.tooltip}>(?)</span>}
+              </td>
+              {row.values.map((value, columnIndex) => (
+                <td class={`px-4 py-3.5 text-center ${columnIndex === 0 ? 'bg-blue-500/5' : ''}`} set:html={icon[value]} />
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p class="mt-4 text-center text-xs text-slate-600">
+      Competitor data accurate as of March 2026. Partial means the feature exists but is limited. Corrections are welcome via GitHub issue.
+    </p>
+  </div>
+</section>
