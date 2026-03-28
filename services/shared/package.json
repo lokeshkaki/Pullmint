@@ -6,6 +6,9 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
+    "./diff-filter": "./dist/diff-filter.js",
+    "./dedup": "./dist/dedup.js",
+    "./prompts/*": "./dist/prompts/*.js",
     "./*": "./dist/*.js"
   },
   "scripts": {
@@ -20,12 +23,14 @@
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.10.1",
     "octokit": "^5.0.5",
+    "picomatch": "^4.0.4",
     "postgres": "^3.4.8",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
     "@types/node": "^25.5.0",
+    "@types/picomatch": "^4.0.2",
     "@types/pg": "^8.20.0",
     "aws-sdk-client-mock": "^4.1.0",
     "drizzle-kit": "^0.31.10",

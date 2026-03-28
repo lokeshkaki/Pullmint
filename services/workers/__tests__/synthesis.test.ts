@@ -76,7 +76,7 @@ jest.mock('../src/checkpoint', () => ({
   }),
 }));
 
-jest.mock('../src/dedup', () => ({
+jest.mock('@pullmint/shared/dedup', () => ({
   deduplicateFindings: jest.fn((findings: unknown[]) => findings),
 }));
 
@@ -301,7 +301,7 @@ describe('processSynthesisJob', () => {
   });
 
   it('calls deduplicateFindings on combined agent findings', async () => {
-    const { deduplicateFindings } = jest.requireMock('../src/dedup') as {
+    const { deduplicateFindings } = jest.requireMock('@pullmint/shared/dedup') as {
       deduplicateFindings: jest.Mock;
     };
 
