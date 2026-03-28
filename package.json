@@ -9,7 +9,8 @@
     "services/api",
     "services/workers",
     "services/e2e",
-    "site"
+    "site",
+    "packages/create-pullmint"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
