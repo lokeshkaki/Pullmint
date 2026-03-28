@@ -1,0 +1,93 @@
+---
+const yamlCode = `severity_threshold: medium
+ignore_paths:
+  - "generated/**"
+  - "vendor/**"
+  - "migrations/**"
+
+agents:
+  architecture: true
+  security: true
+  performance: false   # skip for this service
+  style: true
+
+custom_agents:
+  - name: database-migration
+    type: database-migration
+    model: claude-haiku-4-5-20251001
+    weight: 0.1
+    max_diff_chars: 60000
+    prompt: |
+      You are a database migration specialist. Review only SQL
+      migration files for: missing indexes on foreign keys,
+      destructive operations without a rollback path, and column
+      renames that break existing queries.
+    include_paths:
+      - "migrations/**"
+      - "db/migrate/**"
+
+auto_approve_below: 20`;
+
+const bullets = [
+  {
+    title: 'severity_threshold',
+    desc: 'Only findings at this level or above appear in the PR comment. Everything is still stored in the dashboard.',
+  },
+  {
+    title: 'ignore_paths',
+    desc: 'Glob patterns excluded from all agents. Generated code, vendor dirs, and migrations you have already reviewed.',
+  },
+  {
+    title: 'agents',
+    desc: 'Toggle any built-in agent or define a custom one with its own model, prompt, and file scope. Security is always enabled.',
+  },
+  {
+    title: 'auto_approve_below',
+    desc: 'Pullmint auto-approves the PR when risk score is below this threshold. Overrides the server default per repo.',
+  },
+];
+---
+
+<section id="config" class="bg-navy-800/50 px-6 py-24">
+  <div class="mx-auto max-w-7xl">
+    <div class="mb-16 text-center">
+      <h2 class="mb-4 text-4xl font-bold text-white">Configure Per Repo in YAML</h2>
+      <p class="mx-auto max-w-2xl text-lg text-slate-400">
+        Drop a <code class="rounded bg-navy-700 px-1.5 py-0.5 text-blue-400">.pullmint.yml</code> in your repo root. Changes take effect on the same PR - no server restart required.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 items-start gap-8 lg:grid-cols-2">
+      <div class="overflow-hidden rounded-2xl border border-navy-700 bg-navy-900">
+        <div class="flex items-center gap-2 border-b border-navy-700 bg-navy-800 px-4 py-3">
+          <div class="flex gap-1.5">
+            <span class="h-3 w-3 rounded-full bg-navy-600"></span>
+            <span class="h-3 w-3 rounded-full bg-navy-600"></span>
+            <span class="h-3 w-3 rounded-full bg-navy-600"></span>
+          </div>
+          <span class="ml-2 font-mono text-xs text-slate-500">.pullmint.yml</span>
+        </div>
+        <pre class="overflow-x-auto p-5 text-xs leading-relaxed"><code class="language-yaml text-slate-300">{yamlCode}</code></pre>
+      </div>
+
+      <div class="space-y-6">
+        {bullets.map((bullet, index) => (
+          <div class="flex gap-4">
+            <span class="mt-1 inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10 font-mono text-xs font-semibold text-blue-400">
+              0{index + 1}
+            </span>
+            <div>
+              <code class="rounded bg-navy-700 px-2 py-0.5 font-mono text-sm text-blue-400">{bullet.title}</code>
+              <p class="mt-2 text-sm leading-relaxed text-slate-400">{bullet.desc}</p>
+            </div>
+          </div>
+        ))}
+        <div class="border-t border-navy-700 pt-4">
+          <p class="text-sm text-slate-500">
+            Unknown keys in <code class="text-blue-400">.pullmint.yml</code> cause a parse failure so typos surface immediately. Missing config falls back to safe defaults - analysis always runs.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
