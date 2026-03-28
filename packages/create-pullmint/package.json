@@ -1,0 +1,53 @@
+{
+  "name": "create-pullmint",
+  "version": "1.0.0",
+  "description": "One-command setup wizard for Pullmint - AI-powered PR analysis",
+  "keywords": [
+    "pullmint",
+    "github",
+    "ai",
+    "pr-analysis",
+    "code-review"
+  ],
+  "homepage": "https://github.com/lokeshkaki/pullmint",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lokeshkaki/pullmint.git",
+    "directory": "packages/create-pullmint"
+  },
+  "license": "MIT",
+  "main": "dist/index.js",
+  "bin": {
+    "create-pullmint": "dist/index.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "postbuild": "node scripts/copy-templates.js && node scripts/ensure-shebang.js",
+    "dev": "ts-node src/index.ts",
+    "test": "jest --no-coverage",
+    "test:coverage": "jest --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "fs-extra": "^11.2.0",
+    "ora": "^5.4.1",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.12.0",
+    "@types/prompts": "^2.4.9",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
