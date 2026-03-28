@@ -1,4 +1,5 @@
 // benchmarks/src/storage.bench.ts
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment */
 // These benchmarks require a live MinIO instance.
 // Skip gracefully when MINIO_ENDPOINT is not set.
 import { registerSuite } from './harness';
@@ -7,10 +8,10 @@ import { faker } from '@faker-js/faker';
 const MINIO_ENDPOINT = process.env['MINIO_ENDPOINT'];
 
 if (MINIO_ENDPOINT) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
   const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
   const s3 = new S3Client({
     endpoint: MINIO_ENDPOINT,
     region: 'us-east-1',
@@ -58,9 +59,7 @@ if (MINIO_ENDPOINT) {
           );
         },
         fn: async () => {
-          const res = await s3.send(
-            new GetObjectCommand({ Bucket: BUCKET, Key: stableKey })
-          );
+          const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: stableKey }));
           // Drain the stream to measure full download time
           await res.Body?.transformToString();
         },

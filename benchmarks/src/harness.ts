@@ -83,11 +83,9 @@ function parseArgs(): {
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--filter' && args[i + 1]) result.filter = args[++i];
-    if (args[i] === '--output' && args[i + 1])
-      result.output = args[++i] as typeof result.output;
+    if (args[i] === '--output' && args[i + 1]) result.output = args[++i] as typeof result.output;
     if (args[i] === '--outfile' && args[i + 1]) result.outfile = args[++i];
-    if (args[i] === '--iterations' && args[i + 1])
-      result.iterations = parseInt(args[++i], 10);
+    if (args[i] === '--iterations' && args[i + 1]) result.iterations = parseInt(args[++i], 10);
   }
 
   return result;
@@ -110,12 +108,9 @@ function formatTable(results: TaskResult[]): string {
     r.opsSec.toFixed(0),
   ]);
 
-  const widths = header.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => r[i].length))
-  );
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
   const line = widths.map((w) => '-'.repeat(w)).join('-+-');
-  const fmt = (row: string[]) =>
-    row.map((cell, i) => cell.padEnd(widths[i])).join(' | ');
+  const fmt = (row: string[]) => row.map((cell, i) => cell.padEnd(widths[i])).join(' | ');
 
   return [fmt(header), line, ...rows.map(fmt)].join('\n');
 }
@@ -137,9 +132,7 @@ async function main(): Promise<void> {
   for (const suite of registeredSuites) {
     const iters = suite.iterations ?? args.iterations;
     const tasks = args.filter
-      ? suite.tasks.filter((t) =>
-          (t.tags ?? ['cpu']).includes(args.filter as 'cpu' | 'io')
-        )
+      ? suite.tasks.filter((t) => (t.tags ?? ['cpu']).includes(args.filter as 'cpu' | 'io'))
       : suite.tasks;
 
     if (tasks.length === 0) continue;
@@ -155,17 +148,26 @@ async function main(): Promise<void> {
         iterations: iters,
         warmupIterations: Math.min(10, Math.floor(iters / 10)),
       });
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       bench.add(task.name, task.fn);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       await bench.run();
 
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const t = bench.tasks[0];
       if (!t?.result) continue;
 
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument
       const samples = [...t.result.samples].sort((a, b) => a - b);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const mean = t.result.mean;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const sd = t.result.sd;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const hz = t.result.hz;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const minVal = t.result.min;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       const maxVal = t.result.max;
 
       const result: TaskResult = {

@@ -1,10 +1,7 @@
 // benchmarks/src/dedup.bench.ts
 import { registerSuite } from './harness';
 import { generateFindings } from './generators';
-import {
-  deduplicateFindings,
-  normalizedLevenshtein,
-} from '../../services/shared/dedup';
+import { deduplicateFindings, normalizedLevenshtein } from '../../services/shared/dedup';
 
 // Generate finding sets of varying sizes with 20% duplicate rate
 const findings10 = generateFindings(10, { withFiles: true, duplicateRate: 0.2 });

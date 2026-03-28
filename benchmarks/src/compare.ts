@@ -27,13 +27,8 @@ const REGRESSION_THRESHOLD = 0.1; // 10% slower
 const IMPROVEMENT_THRESHOLD = 0.1; // 10% faster
 const CI_FAIL_THRESHOLD = 0.15; // 15% slower fails CI
 
-export function compareResults(
-  baseline: RunResults,
-  current: RunResults
-): Comparison[] {
-  const baselineMap = new Map(
-    baseline.results.map((r) => [`${r.suite}:${r.task}`, r])
-  );
+export function compareResults(baseline: RunResults, current: RunResults): Comparison[] {
+  const baselineMap = new Map(baseline.results.map((r) => [`${r.suite}:${r.task}`, r]));
   const comparisons: Comparison[] = [];
 
   for (const curr of current.results) {
@@ -66,9 +61,7 @@ function formatMarkdown(comparisons: Comparison[]): string {
   const lines: string[] = ['## Benchmark Comparison', ''];
 
   if (regressions.length === 0 && improvements.length === 0) {
-    lines.push(
-      'All benchmarks within ±10% of baseline. No significant changes.'
-    );
+    lines.push('All benchmarks within ±10% of baseline. No significant changes.');
     return lines.join('\n');
   }
 
@@ -101,17 +94,15 @@ function formatMarkdown(comparisons: Comparison[]): string {
   return lines.join('\n');
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const args = process.argv.slice(2);
   if (args.length < 2) {
-    console.error(
-      'Usage: ts-node compare.ts <baseline.json> <current.json>'
-    );
+    console.error('Usage: ts-node compare.ts <baseline.json> <current.json>');
     process.exit(1);
   }
 
-  const baselinePath = path.resolve(args[0]!);
-  const currentPath = path.resolve(args[1]!);
+  const baselinePath = path.resolve(args[0] ?? '');
+  const currentPath = path.resolve(args[1] ?? '');
 
   if (!fs.existsSync(baselinePath)) {
     console.log(`Baseline file not found at ${baselinePath} — skipping comparison (first run)`);
@@ -123,9 +114,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const baseline: RunResults = JSON.parse(
-    fs.readFileSync(baselinePath, 'utf8')
-  );
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  const baseline: RunResults = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const current: RunResults = JSON.parse(fs.readFileSync(currentPath, 'utf8'));
 
   const comparisons = compareResults(baseline, current);
@@ -139,21 +130,20 @@ async function main(): Promise<void> {
   );
 
   if (failingRegressions.length > 0) {
-    console.error(
-      `\nCI FAIL: ${failingRegressions.length} benchmark(s) regressed >15%:`
-    );
+    console.error(`\nCI FAIL: ${failingRegressions.length} benchmark(s) regressed >15%:`);
     for (const r of failingRegressions) {
-      console.error(
-        `  - ${r.suite}/${r.task}: +${(r.deltaPercent * 100).toFixed(1)}%`
-      );
+      console.error(`  - ${r.suite}/${r.task}: +${(r.deltaPercent * 100).toFixed(1)}%`);
     }
     process.exit(1);
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 if (require.main === module) {
-  main().catch((err) => {
+  try {
+    main();
+  } catch (err) {
     console.error(err);
     process.exit(1);
-  });
+  }
 }

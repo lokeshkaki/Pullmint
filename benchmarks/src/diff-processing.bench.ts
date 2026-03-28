@@ -91,11 +91,7 @@ registerSuite({
       name: 'filterDiff — architecture, large diff, with userIgnorePaths',
       tags: ['cpu'],
       fn: () => {
-        filterDiff(largeParsed, 'architecture', 100_000, [
-          'generated/**',
-          'vendor/**',
-          '*.lock',
-        ]);
+        filterDiff(largeParsed, 'architecture', 100_000, ['generated/**', 'vendor/**', '*.lock']);
       },
     },
     {

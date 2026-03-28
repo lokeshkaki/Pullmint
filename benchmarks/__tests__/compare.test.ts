@@ -1,8 +1,6 @@
 import { compareResults } from '../src/compare';
 
-const makeRun = (
-  results: Array<{ suite: string; task: string; mean: number; p99: number }>
-) => ({
+const makeRun = (results: Array<{ suite: string; task: string; mean: number; p99: number }>) => ({
   runAt: new Date().toISOString(),
   results,
 });
@@ -70,9 +68,7 @@ describe('compareResults', () => {
   });
 
   it('returns empty array when no common tasks', () => {
-    const current = makeRun([
-      { suite: 'other', task: 'totally-different', mean: 1.0, p99: 2.0 },
-    ]);
+    const current = makeRun([{ suite: 'other', task: 'totally-different', mean: 1.0, p99: 2.0 }]);
     const comparisons = compareResults(baseline, current);
     expect(comparisons).toHaveLength(0);
   });

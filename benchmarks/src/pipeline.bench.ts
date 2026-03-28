@@ -8,9 +8,7 @@ import { DEFAULT_SIGNAL_WEIGHTS } from '../../services/shared/signal-weights';
 import type { Finding } from '../../services/shared/types';
 
 /** Mock LLM that returns after configurable delay */
-async function mockLLMCall(
-  delayMs: number
-): Promise<{ findings: Finding[]; riskScore: number }> {
+async function mockLLMCall(delayMs: number): Promise<{ findings: Finding[]; riskScore: number }> {
   if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
   return {
     findings: generateFindings(8, { withFiles: true }),
@@ -38,8 +36,7 @@ async function runPipeline(llmDelayMs: number): Promise<void> {
   const allFindings = agentResults.flatMap((r) => r.findings);
   const dedupedFindings = deduplicateFindings(allFindings);
 
-  const avgRiskScore =
-    agentResults.reduce((sum, r) => sum + r.riskScore, 0) / agentResults.length;
+  const avgRiskScore = agentResults.reduce((sum, r) => sum + r.riskScore, 0) / agentResults.length;
 
   const evaluation = evaluateRisk({
     llmBaseScore: avgRiskScore,

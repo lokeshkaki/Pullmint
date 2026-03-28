@@ -51,9 +51,7 @@ function formatTable(tasks: TaskResult[]): string {
 function generateInsights(results: TaskResult[]): string[] {
   const insights: string[] = [];
 
-  const xlParse = results.find(
-    (r) => r.task.includes('parseDiff') && r.task.includes('XL')
-  );
+  const xlParse = results.find((r) => r.task.includes('parseDiff') && r.task.includes('XL'));
   if (xlParse) {
     insights.push(
       `Diff parsing handles 20,000 lines in ${xlParse.mean.toFixed(0)}ms mean (p99: ${xlParse.p99.toFixed(0)}ms)`
@@ -86,16 +84,14 @@ function generateInsights(results: TaskResult[]): string[] {
   return insights;
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const resultsDir = path.resolve(__dirname, '../results');
   const files = fs
     .readdirSync(resultsDir)
     .filter((f) => f.endsWith('.json') && f !== 'baseline.json');
 
   if (files.length === 0) {
-    console.error(
-      'No result files found in benchmarks/results/. Run benchmarks first.'
-    );
+    console.error('No result files found in benchmarks/results/. Run benchmarks first.');
     process.exit(1);
   }
 
@@ -154,7 +150,9 @@ async function main(): Promise<void> {
   console.log(`Report written to ${outPath}`);
 }
 
-main().catch((err) => {
+try {
+  main();
+} catch (err) {
   console.error(err);
   process.exit(1);
-});
+}

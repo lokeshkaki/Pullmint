@@ -1,4 +1,5 @@
 // benchmarks/src/database.bench.ts
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 // These benchmarks require a live PostgreSQL instance.
 // Skip gracefully when DATABASE_URL is not set.
 import { registerSuite } from './harness';
@@ -8,13 +9,13 @@ const DATABASE_URL = process.env['DATABASE_URL'];
 
 if (DATABASE_URL) {
   // Dynamic import to avoid drizzle failing at parse time when no DB is present
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
   const { drizzle } = require('drizzle-orm/node-postgres');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
   const { Pool } = require('pg');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
   const { schema } = require('../../services/shared/schema');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
   const { eq, and, gte, lte, sql } = require('drizzle-orm');
 
   const pool = new Pool({ connectionString: DATABASE_URL });
@@ -95,9 +96,7 @@ if (DATABASE_URL) {
           await db
             .select()
             .from(schema.executions)
-            .where(
-              sql`findings::jsonb @> '[{"type": "security"}]'::jsonb`
-            )
+            .where(sql`findings::jsonb @> '[{"type": "security"}]'::jsonb`)
             .limit(10);
         },
       },

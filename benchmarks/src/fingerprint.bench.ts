@@ -25,20 +25,13 @@ interface LifecycleDelta {
   persistedFindings: Finding[];
 }
 
-function analyzeFindingLifecycle(
-  current: Finding[],
-  prior: Finding[]
-): LifecycleDelta {
+function analyzeFindingLifecycle(current: Finding[], prior: Finding[]): LifecycleDelta {
   const currentMap = computeFingerprintBatch(current);
   const priorMap = computeFingerprintBatch(prior);
 
   const newFindings = current.filter((f) => !priorMap.has(computeFingerprint(f)));
-  const resolvedFindings = prior.filter(
-    (f) => !currentMap.has(computeFingerprint(f))
-  );
-  const persistedFindings = current.filter((f) =>
-    priorMap.has(computeFingerprint(f))
-  );
+  const resolvedFindings = prior.filter((f) => !currentMap.has(computeFingerprint(f)));
+  const persistedFindings = current.filter((f) => priorMap.has(computeFingerprint(f)));
 
   return { newFindings, resolvedFindings, persistedFindings };
 }
@@ -58,7 +51,7 @@ registerSuite({
       name: 'computeFingerprint — single finding',
       tags: ['cpu'],
       fn: () => {
-        computeFingerprint(single[0]!);
+        computeFingerprint(single[0] ?? ({} as Finding));
       },
     },
     {

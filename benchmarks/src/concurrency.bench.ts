@@ -11,18 +11,15 @@ async function analyzePR(delayMs = 0): Promise<void> {
   const parsed = parseDiff(raw);
 
   const results = await Promise.all(
-    ['architecture', 'security', 'performance', 'style'].map(
-      async (agentType) => {
-        const filtered = filterDiff(parsed, agentType, 100_000);
-        if (delayMs > 0)
-          await new Promise((r) => setTimeout(r, delayMs));
-        return {
-          findings: generateFindings(5, { withFiles: true }),
-          riskScore: Math.random() * 60 + 20,
-          chars: filtered.diff.length,
-        };
-      }
-    )
+    ['architecture', 'security', 'performance', 'style'].map(async (agentType) => {
+      const filtered = filterDiff(parsed, agentType, 100_000);
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+      return {
+        findings: generateFindings(5, { withFiles: true }),
+        riskScore: Math.random() * 60 + 20,
+        chars: filtered.diff.length,
+      };
+    })
   );
 
   const allFindings = results.flatMap((r) => r.findings);
@@ -40,16 +37,14 @@ async function analyzePR(delayMs = 0): Promise<void> {
 function runConcurrent(n: number, delayMs = 0): Promise<void> {
   return new Promise((resolve) => {
     const start = performance.now();
-    void Promise.all(Array.from({ length: n }, () => analyzePR(delayMs))).then(
-      () => {
-        const elapsed = performance.now() - start;
-        const throughput = ((n / (elapsed / 1000)) * 60).toFixed(0);
-        process.stdout.write(
-          `\n    ${n} concurrent: ${elapsed.toFixed(0)}ms total, ~${throughput} PRs/min\n`
-        );
-        resolve();
-      }
-    );
+    void Promise.all(Array.from({ length: n }, () => analyzePR(delayMs))).then(() => {
+      const elapsed = performance.now() - start;
+      const throughput = ((n / (elapsed / 1000)) * 60).toFixed(0);
+      process.stdout.write(
+        `\n    ${n} concurrent: ${elapsed.toFixed(0)}ms total, ~${throughput} PRs/min\n`
+      );
+      resolve();
+    });
   });
 }
 

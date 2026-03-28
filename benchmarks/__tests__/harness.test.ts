@@ -9,7 +9,9 @@ describe('harness', () => {
           tasks: [
             {
               name: 'no-op task',
-              fn: () => { /* intentionally empty */ },
+              fn: () => {
+                /* intentionally empty */
+              },
             },
           ],
         });
@@ -23,7 +25,9 @@ describe('harness', () => {
           tasks: [
             {
               name: 'async task',
-              fn: async () => { await Promise.resolve(); },
+              fn: async () => {
+                await Promise.resolve();
+              },
             },
           ],
         });
@@ -35,9 +39,24 @@ describe('harness', () => {
         registerSuite({
           name: 'multi-task-suite',
           tasks: [
-            { name: 'task-1', fn: () => { Math.sqrt(2); } },
-            { name: 'task-2', fn: () => { Math.sqrt(4); } },
-            { name: 'task-3', fn: () => { Math.sqrt(8); } },
+            {
+              name: 'task-1',
+              fn: () => {
+                Math.sqrt(2);
+              },
+            },
+            {
+              name: 'task-2',
+              fn: () => {
+                Math.sqrt(4);
+              },
+            },
+            {
+              name: 'task-3',
+              fn: () => {
+                Math.sqrt(8);
+              },
+            },
           ],
         });
       }).not.toThrow();
@@ -48,10 +67,16 @@ describe('harness', () => {
         registerSuite({
           name: 'custom-iterations-suite',
           iterations: 50,
-          tasks: [{ name: 'task', fn: () => { /* no-op */ } }],
+          tasks: [
+            {
+              name: 'task',
+              fn: () => {
+                /* no-op */
+              },
+            },
+          ],
         });
       }).not.toThrow();
     });
   });
 });
-

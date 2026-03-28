@@ -1,8 +1,10 @@
 // benchmarks/src/generators.ts
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 import { faker } from '@faker-js/faker';
 import type { Finding, Signal, SignalType } from '../../services/shared/types';
 
 /** Generates a realistic unified diff string. */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
 export function generateDiff(fileCount: number, linesPerFile: number): string {
   const chunks: string[] = [];
 
@@ -35,21 +37,15 @@ export function generateDiff(fileCount: number, linesPerFile: number): string {
 
       // Context lines
       for (let i = 0; i < contextCount; i++) {
-        chunks.push(
-          ` ${faker.lorem.words(faker.number.int({ min: 3, max: 8 }))}`
-        );
+        chunks.push(` ${faker.lorem.words(faker.number.int({ min: 3, max: 8 }))}`);
       }
       // Removed lines
       for (let i = 0; i < removedCount; i++) {
-        chunks.push(
-          `-${faker.lorem.words(faker.number.int({ min: 3, max: 8 }))}`
-        );
+        chunks.push(`-${faker.lorem.words(faker.number.int({ min: 3, max: 8 }))}`);
       }
       // Added lines
       for (let i = 0; i < addedCount; i++) {
-        chunks.push(
-          `+${faker.lorem.words(faker.number.int({ min: 3, max: 8 }))}`
-        );
+        chunks.push(`+${faker.lorem.words(faker.number.int({ min: 3, max: 8 }))}`);
       }
 
       lineOffset += hunkLines + contextCount;
@@ -60,6 +56,7 @@ export function generateDiff(fileCount: number, linesPerFile: number): string {
 }
 
 /** Generates an array of Finding objects for dedup/synthesis benchmarks. */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
 export function generateFindings(
   count: number,
   options: {
@@ -69,30 +66,15 @@ export function generateFindings(
   } = {}
 ): Finding[] {
   const { withFiles = true, sameFile = false, duplicateRate = 0 } = options;
-  const types: Finding['type'][] = [
-    'architecture',
-    'security',
-    'performance',
-    'style',
-  ];
-  const severities: Finding['severity'][] = [
-    'critical',
-    'high',
-    'medium',
-    'low',
-    'info',
-  ];
+  const types: Finding['type'][] = ['architecture', 'security', 'performance', 'style'];
+  const severities: Finding['severity'][] = ['critical', 'high', 'medium', 'low', 'info'];
   const sharedFile = sameFile ? `src/${faker.system.fileName()}` : undefined;
 
   const findings: Finding[] = [];
 
   for (let i = 0; i < count; i++) {
     // Introduce intentional duplicates at the specified rate
-    if (
-      duplicateRate > 0 &&
-      findings.length > 0 &&
-      Math.random() < duplicateRate
-    ) {
+    if (duplicateRate > 0 && findings.length > 0 && Math.random() < duplicateRate) {
       const original = findings[Math.floor(Math.random() * findings.length)];
       findings.push({
         ...original,
@@ -106,15 +88,12 @@ export function generateFindings(
     const finding: Finding = {
       type,
       severity: severities[faker.number.int({ min: 0, max: 4 })],
-      title: faker.lorem
-        .sentence({ min: 4, max: 8 })
-        .replace(/\.$/, ''),
+      title: faker.lorem.sentence({ min: 4, max: 8 }).replace(/\.$/, ''),
       description: faker.lorem.paragraph(),
     };
 
     if (withFiles) {
-      finding.file =
-        sharedFile ?? `src/${faker.system.filePath().replace(/^\//, '')}`;
+      finding.file = sharedFile ?? `src/${faker.system.filePath().replace(/^\//, '')}`;
       finding.line = faker.number.int({ min: 1, max: 500 });
     }
 
@@ -129,6 +108,7 @@ export function generateFindings(
 }
 
 /** Generates an array of Signal objects. */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
 export function generateSignals(
   types: SignalType[] = ['ci.result', 'time_of_day', 'author_history']
 ): Signal[] {
@@ -171,9 +151,12 @@ export function generateSignals(
 }
 
 /** Generates a realistic diff of approximately `totalLines` changed lines spread across `fileCount` files. */
-export function generateDiffBySize(
-  preset: 'small' | 'medium' | 'large' | 'xl'
-): { fileCount: number; linesPerFile: number; raw: string } {
+// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+export function generateDiffBySize(preset: 'small' | 'medium' | 'large' | 'xl'): {
+  fileCount: number;
+  linesPerFile: number;
+  raw: string;
+} {
   const configs = {
     small: { fileCount: 5, linesPerFile: 10 },
     medium: { fileCount: 20, linesPerFile: 25 },
