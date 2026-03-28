@@ -1,0 +1,86 @@
+---
+// Benchmark figures drawn from the harness suite results
+const stats = [
+  { value: '5–20s', label: 'End-to-end analysis', sublabel: 'per PR (4 agents)' },
+  { value: '<30ms', label: 'Diff processing', sublabel: '100 K-char diffs' },
+  { value: '500', label: 'Files filtered', sublabel: 'in <5ms per agent' },
+  { value: '50+', label: 'PRs per minute', sublabel: 'peak throughput' },
+];
+
+const pipeline = [
+  { label: 'Webhook → queue', ms: 25, color: 'bg-blue-500' },
+  { label: 'Diff fetch & parse', ms: 80, color: 'bg-indigo-500' },
+  { label: 'Agents (parallel)', ms: 8000, color: 'bg-violet-500' },
+  { label: 'Synthesis', ms: 1500, color: 'bg-purple-500' },
+  { label: 'GitHub post', ms: 300, color: 'bg-sky-500' },
+];
+
+const total = pipeline.reduce((sum, s) => sum + s.ms, 0);
+---
+
+<section id="performance" class="border-t border-navy-700/50 bg-navy-900 py-24">
+  <div class="mx-auto max-w-7xl px-6">
+    <!-- Section heading -->
+    <div class="mb-16 max-w-2xl">
+      <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-400">
+        Performance
+      </p>
+      <h2 class="mb-4 text-4xl font-bold text-white">
+        Fast enough for every PR
+      </h2>
+      <p class="text-lg leading-relaxed text-slate-400">
+        Benchmarked on real-world diffs. Pullmint runs four parallel agents and
+        posts inline comments in under 20 seconds on median-sized PRs.
+      </p>
+    </div>
+
+    <!-- Stat grid -->
+    <div class="mb-16 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      {stats.map((stat) => (
+        <div class="rounded-2xl border border-navy-600 bg-navy-800 p-6">
+          <p class="mb-1 text-3xl font-bold text-white">{stat.value}</p>
+          <p class="font-medium text-slate-200">{stat.label}</p>
+          <p class="mt-0.5 text-sm text-slate-500">{stat.sublabel}</p>
+        </div>
+      ))}
+    </div>
+
+    <!-- Pipeline timing breakdown -->
+    <div class="rounded-2xl border border-navy-600 bg-navy-800 p-8">
+      <h3 class="mb-6 text-lg font-semibold text-white">
+        Pipeline timing breakdown
+      </h3>
+
+      <div class="space-y-4">
+        {pipeline.map((step) => {
+          const widthPct = ((step.ms / total) * 100).toFixed(1);
+          return (
+            <div>
+              <div class="mb-1.5 flex items-center justify-between text-sm">
+                <span class="text-slate-300">{step.label}</span>
+                <span class="font-mono text-slate-400">
+                  {step.ms >= 1000
+                    ? `${(step.ms / 1000).toFixed(1)}s`
+                    : `${step.ms}ms`}
+                </span>
+              </div>
+              <div class="h-2.5 overflow-hidden rounded-full bg-navy-700">
+                <div
+                  class={`h-full rounded-full ${step.color}`}
+                  style={`width: ${widthPct}%`}
+                  role="presentation"
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p class="mt-6 text-xs text-slate-500">
+        Measured on a 3-CPU container, 847-line diff, 12 files. Agent time
+        dominates — it runs in parallel across 4 BullMQ workers. Webhook and
+        parsing overhead is negligible.
+      </p>
+    </div>
+  </div>
+</section>

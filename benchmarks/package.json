@@ -1,0 +1,26 @@
+{
+  "name": "@pullmint/benchmarks",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "benchmark": "ts-node --project tsconfig.json src/harness.ts",
+    "benchmark:ci": "ts-node --project tsconfig.json src/harness.ts --filter cpu --output json --outfile results/latest.json",
+    "benchmark:full": "ts-node --project tsconfig.json src/harness.ts --output json --outfile results/latest.json",
+    "report": "ts-node --project tsconfig.json src/report.ts",
+    "compare": "ts-node --project tsconfig.json src/compare.ts",
+    "test": "jest --no-coverage"
+  },
+  "dependencies": {
+    "tinybench": "^2.9.0",
+    "@faker-js/faker": "^9.3.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.14",
+    "ts-jest": "^29.3.2"
+  }
+}
