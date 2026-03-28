@@ -1,0 +1,37 @@
+---
+export interface Props {
+  iconSrc: string;
+}
+
+const { iconSrc } = Astro.props;
+
+const links = [
+  { label: 'GitHub', href: 'https://github.com/lokeshkaki/pullmint', external: true },
+  { label: 'README', href: 'https://github.com/lokeshkaki/pullmint/blob/main/README.md', external: true },
+  { label: 'MIT License', href: 'https://github.com/lokeshkaki/pullmint/blob/main/LICENSE', external: true },
+  { label: 'Issues', href: 'https://github.com/lokeshkaki/pullmint/issues', external: true },
+];
+---
+
+<footer class="border-t border-navy-700 px-6 py-12">
+  <div class="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 md:flex-row">
+    <div class="flex items-center gap-2 text-slate-400">
+      <img src={iconSrc} alt="Pullmint" class="h-5 w-5 opacity-70" />
+      <span class="text-sm">Built by <a href="https://github.com/lokeshkaki" class="text-slate-300 transition-colors hover:text-white">Lokesh Kaki</a></span>
+    </div>
+
+    <nav class="flex items-center gap-6" aria-label="Footer navigation">
+      {links.map((link) => (
+        <a
+          href={link.href}
+          class="text-sm text-slate-500 transition-colors hover:text-slate-300"
+          {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        >
+          {link.label}
+        </a>
+      ))}
+    </nav>
+
+    <p class="text-xs text-slate-600">MIT License · Open source on GitHub</p>
+  </div>
+</footer>

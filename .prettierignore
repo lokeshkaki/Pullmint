@@ -2,6 +2,8 @@
 dist/
 build/
 *.tsbuildinfo
+site/.astro/
+site/src/env.d.ts
 
 # TypeScript build artifacts in shared
 services/shared/*.d.ts

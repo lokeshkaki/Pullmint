@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0f172a" />
+  <rect x="2" y="2" width="1196" height="626" fill="none" stroke="#3b82f6" stroke-width="4" stroke-opacity="0.4" />
+  <text x="600" y="260" font-family="system-ui" font-size="88" font-weight="700" fill="white" text-anchor="middle">Pullmint</text>
+  <text x="600" y="330" font-family="system-ui" font-size="40" fill="#3b82f6" text-anchor="middle">AI-Powered PR Reviews</text>
+  <text x="600" y="390" font-family="system-ui" font-size="26" fill="#64748b" text-anchor="middle">4 Specialized Agents · Inline Comments · Adaptive Risk Scoring</text>
+</svg>

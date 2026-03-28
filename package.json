@@ -8,7 +8,8 @@
     "services/shared",
     "services/api",
     "services/workers",
-    "services/e2e"
+    "services/e2e",
+    "site"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
