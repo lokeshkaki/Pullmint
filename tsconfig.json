@@ -26,5 +26,13 @@
     "rootDir": "./",
     "types": ["node"]
   },
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts", "benchmarks/"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "benchmarks/",
+    "services/dashboard-ui/**",
+    "site/**"
+  ]
 }

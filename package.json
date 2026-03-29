@@ -8,6 +8,7 @@
     "services/shared",
     "services/api",
     "services/workers",
+    "services/dashboard-ui",
     "services/e2e",
     "site",
     "packages/create-pullmint"
