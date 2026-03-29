@@ -1,4 +1,4 @@
-import { startAnalysisGroup } from '../groups/analysis-group.js';
+import { startAnalysisGroup } from '../groups/analysis-group';
 
 async function run(): Promise<void> {
   const { shutdown } = await startAnalysisGroup();

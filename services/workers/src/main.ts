@@ -1,6 +1,6 @@
-import { startAnalysisGroup } from './groups/analysis-group.js';
-import { startIntegrationGroup } from './groups/integration-group.js';
-import { startBackgroundGroup } from './groups/background-group.js';
+import { startAnalysisGroup } from './groups/analysis-group';
+import { startIntegrationGroup } from './groups/integration-group';
+import { startBackgroundGroup } from './groups/background-group';
 
 async function start(): Promise<void> {
   const group = process.env.WORKER_GROUP;

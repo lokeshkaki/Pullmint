@@ -23,8 +23,7 @@ describeE2E('Edge case pipeline tests', () => {
 
   beforeAll(async () => {
     nock.disableNetConnect();
-    nock.enableNetConnect('127.0.0.1');
-    nock.enableNetConnect('::1');
+    nock.enableNetConnect(/^(127\.0\.0\.1|::1)(:\d+)?$/);
 
     app = Fastify({ logger: false });
     const { registerWebhookRoutes } = await import('../../api/src/routes/webhook');
