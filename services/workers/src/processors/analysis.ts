@@ -515,14 +515,11 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         `for PR #${prEvent.prNumber} (${isSmallDiff ? 'small' : 'full'} diff, ${diffLineCount} lines)`
     );
   } catch (error) {
-    const structuredError = createStructuredError(
-      error instanceof Error ? error : new Error('Unknown error'),
-      {
-        context: 'analysis-dispatcher',
-        prNumber: prEvent.prNumber,
-        executionId: prEvent.executionId,
-      }
-    );
+    const structuredError = createStructuredError(error, {
+      context: 'analysis-dispatcher',
+      prNumber: prEvent.prNumber,
+      executionId: prEvent.executionId,
+    });
 
     console.error('Error processing PR:', JSON.stringify(structuredError));
 

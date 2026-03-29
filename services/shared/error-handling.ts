@@ -122,6 +122,9 @@ export function getErrorStack(error: unknown): string | undefined {
   if (error instanceof Error && error.stack) {
     return error.stack;
   }
+  if (error && typeof error === 'object' && 'stack' in error && typeof error.stack === 'string') {
+    return error.stack;
+  }
   return undefined;
 }
 

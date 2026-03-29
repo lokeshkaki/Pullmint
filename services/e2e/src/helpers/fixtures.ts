@@ -50,6 +50,7 @@ export function buildWebhookPayload(
   } = {}
 ): { payload: string; signature: string; deliveryId: string } {
   const repoFullName = overrides.repoFullName ?? 'test-org/test-repo';
+  const ownerLogin = repoFullName.split('/')[0] ?? 'test-org';
   const prNumber = overrides.prNumber ?? Math.floor(Math.random() * 90000) + 10000;
   const headSha = overrides.headSha ?? crypto.randomBytes(20).toString('hex');
   const baseSha = overrides.baseSha ?? crypto.randomBytes(20).toString('hex');
@@ -61,12 +62,19 @@ export function buildWebhookPayload(
     action,
     number: prNumber,
     pull_request: {
+      number: prNumber,
       head: { sha: headSha },
       base: { sha: baseSha },
       user: { login: 'test-author' },
       title: `E2E Test PR #${prNumber}`,
     },
-    repository: { full_name: repoFullName },
+    repository: {
+      full_name: repoFullName,
+      owner: {
+        id: 123456,
+        login: ownerLogin,
+      },
+    },
     installation: { id: 88888 },
   });
 

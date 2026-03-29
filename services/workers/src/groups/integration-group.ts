@@ -3,10 +3,10 @@ import IORedis from 'ioredis';
 import { initTracing } from '@pullmint/shared/tracing';
 import { QUEUE_NAMES, closeQueues } from '@pullmint/shared/queue';
 import { closePublisher } from '@pullmint/shared/execution-events';
-import { processGitHubIntegrationJob } from '../processors/github-integration.js';
-import { processDeploymentJob } from '../processors/deployment.js';
-import { processDeploymentStatusJob } from '../processors/deployment-status.js';
-import { processNotificationJob } from '../processors/notification.js';
+import { processGitHubIntegrationJob } from '../processors/github-integration';
+import { processDeploymentJob } from '../processors/deployment';
+import { processDeploymentStatusJob } from '../processors/deployment-status';
+import { processNotificationJob } from '../processors/notification';
 
 export async function startIntegrationGroup(): Promise<{ shutdown: () => Promise<void> }> {
   initTracing('pullmint-workers-integration');

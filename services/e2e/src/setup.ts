@@ -26,6 +26,14 @@ export default async function globalSetup(): Promise<void> {
   process.env.LLM_PROVIDER = 'anthropic';
   process.env.ALLOWED_ORIGINS = 'http://localhost:3000';
   process.env.LLM_HOURLY_LIMIT_PER_REPO = '1000';
+  process.env.AWS_CRT_NODEJS_DISABLED = '1';
+
+  // Ensure Redis is clean before each E2E run so stale BullMQ jobs from prior
+  // local runs do not get picked up and break deterministic test behavior.
+  const { default: Redis } = await import('ioredis');
+  const redis = new Redis(redisUrl);
+  await redis.flushdb();
+  await redis.quit();
 
   // Run DB migrations
   const { runMigrations } = await import('@pullmint/shared/migrate');

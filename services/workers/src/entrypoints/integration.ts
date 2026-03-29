@@ -1,4 +1,4 @@
-import { startIntegrationGroup } from '../groups/integration-group.js';
+import { startIntegrationGroup } from '../groups/integration-group';
 
 async function run(): Promise<void> {
   const { shutdown } = await startIntegrationGroup();

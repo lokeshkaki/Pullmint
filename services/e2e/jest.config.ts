@@ -11,6 +11,7 @@ const config: Config = {
   setupFiles: ['./src/test-env.ts'],
   testTimeout: 90000,
   moduleNameMapper: {
+    '^@pullmint/shared/github-app$': '<rootDir>/src/helpers/github-app-shim',
     '^@pullmint/shared/(.+)$': '<rootDir>/../shared/$1',
     '^@pullmint/shared$': '<rootDir>/../shared/index',
   },

@@ -25,8 +25,7 @@ describeE2E('Full PR analysis pipeline', () => {
   beforeAll(async () => {
     // Block all real outbound HTTP — tests must register nock interceptors explicitly
     nock.disableNetConnect();
-    nock.enableNetConnect('127.0.0.1'); // allow localhost (DB, Redis, MinIO)
-    nock.enableNetConnect('::1');
+    nock.enableNetConnect(/^(127\.0\.0\.1|::1)(:\d+)?$/); // allow localhost (DB, Redis, MinIO)
 
     // Start Fastify API
     app = Fastify({ logger: false });
@@ -112,7 +111,7 @@ describeE2E('Full PR analysis pipeline', () => {
       payload,
     });
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(202);
 
     // --- Extract executionId from DB (webhook handler inserts synchronously) ---
     const db = getDb();

@@ -3,10 +3,10 @@ import IORedis from 'ioredis';
 import { initTracing } from '@pullmint/shared/tracing';
 import { QUEUE_NAMES, closeQueues } from '@pullmint/shared/queue';
 import { closePublisher } from '@pullmint/shared/execution-events';
-import { processCalibrationJob } from '../processors/calibration.js';
-import { processRepoIndexingJob } from '../processors/repo-indexing.js';
-import { processCleanupJob } from '../processors/cleanup.js';
-import { registerScheduledJobs } from '../scheduled.js';
+import { processCalibrationJob } from '../processors/calibration';
+import { processRepoIndexingJob } from '../processors/repo-indexing';
+import { processCleanupJob } from '../processors/cleanup';
+import { registerScheduledJobs } from '../scheduled';
 
 export async function startBackgroundGroup(): Promise<{ shutdown: () => Promise<void> }> {
   initTracing('pullmint-workers-background');

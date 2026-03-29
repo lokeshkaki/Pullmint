@@ -3,9 +3,9 @@ import IORedis from 'ioredis';
 import { initTracing } from '@pullmint/shared/tracing';
 import { QUEUE_NAMES, closeQueues } from '@pullmint/shared/queue';
 import { closePublisher } from '@pullmint/shared/execution-events';
-import { processAnalysisJob, closeAnalysisFlowProducer } from '../processors/analysis.js';
-import { processAgentJob } from '../processors/agent.js';
-import { processSynthesisJob } from '../processors/synthesis.js';
+import { processAnalysisJob, closeAnalysisFlowProducer } from '../processors/analysis';
+import { processAgentJob } from '../processors/agent';
+import { processSynthesisJob } from '../processors/synthesis';
 
 export async function startAnalysisGroup(): Promise<{ shutdown: () => Promise<void> }> {
   initTracing('pullmint-workers-analysis');
