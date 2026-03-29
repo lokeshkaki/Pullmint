@@ -20,6 +20,12 @@
   },
   "overrides": [
     {
+      "files": ["services/dashboard-ui/**/*.ts", "services/dashboard-ui/**/*.tsx"],
+      "parserOptions": {
+        "project": "./services/dashboard-ui/tsconfig.eslint.json"
+      }
+    },
+    {
       "files": ["**/__tests__/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
       "rules": {
         "@typescript-eslint/no-unsafe-assignment": "off",
@@ -27,7 +33,8 @@
         "@typescript-eslint/no-unsafe-call": "off",
         "@typescript-eslint/no-unsafe-argument": "off",
         "@typescript-eslint/no-explicit-any": "off",
-        "@typescript-eslint/no-unsafe-return": "off"
+        "@typescript-eslint/no-unsafe-return": "off",
+        "@typescript-eslint/no-unnecessary-type-assertion": "off"
       }
     }
   ],
