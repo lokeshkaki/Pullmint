@@ -92,17 +92,17 @@ custom_agents:
 
 ## Tech Stack
 
-| Layer          | Technology                                        |
-| -------------- | ------------------------------------------------- |
-| API            | Fastify (Node.js 20)                              |
-| Workers        | BullMQ job processors                             |
-| Database       | PostgreSQL 16 (pgvector)                          |
-| Queue/Events   | Redis 7 (BullMQ + Pub/Sub)                        |
-| Object Storage | MinIO (S3-compatible)                             |
-| Dashboard      | React + Vite + shadcn/ui + Tailwind SPA           |
-| AI             | Multi-provider: Anthropic, OpenAI, Google Gemini   |
-| ORM            | Drizzle                                           |
-| CI/CD          | GitHub Actions → GHCR                             |
+| Layer          | Technology                                       |
+| -------------- | ------------------------------------------------ |
+| API            | Fastify (Node.js 20)                             |
+| Workers        | BullMQ job processors                            |
+| Database       | PostgreSQL 16 (pgvector)                         |
+| Queue/Events   | Redis 7 (BullMQ + Pub/Sub)                       |
+| Object Storage | MinIO (S3-compatible)                            |
+| Dashboard      | React + Vite + shadcn/ui + Tailwind SPA          |
+| AI             | Multi-provider: Anthropic, OpenAI, Google Gemini |
+| ORM            | Drizzle                                          |
+| CI/CD          | GitHub Actions → GHCR                            |
 
 ## Project Structure
 
@@ -123,22 +123,22 @@ benchmarks/         # Performance benchmark suite
 
 ## Key Features
 
-| Feature | Description |
-|---|---|
-| **Multi-agent analysis** | 4 built-in + up to 5 custom agents analyze PRs in parallel |
-| **Multi-LLM provider** | Anthropic, OpenAI, Google Gemini — switch with one env var |
-| **Inline PR comments** | Findings anchored to specific diff lines with lifecycle badges |
-| **Finding lifecycle** | Tracks new/persisted/resolved across PR iterations |
-| **Incremental analysis** | Re-runs only changed agents on force-pushes |
-| **Adaptive risk scoring** | Signal weights learn from deployment outcomes |
-| **Cost tracking** | Per-repo token usage monitoring with monthly budgets |
-| **Team analytics** | Org summary, trends, author leaderboard, repo comparison |
-| **Notifications** | Slack, Discord, Teams, generic webhooks |
-| **GitHub Action** | Zero-infra mode — no servers needed |
-| **Interactive demo** | Try it at `/demo` without installing |
-| **Multi-arch Docker** | Runs on Raspberry Pi to cloud (amd64 + arm64) |
-| **One-command setup** | `npx create-pullmint@latest` |
-| **Performance benchmarks** | CI regression detection with p50/p95/p99 stats |
+| Feature                    | Description                                                    |
+| -------------------------- | -------------------------------------------------------------- |
+| **Multi-agent analysis**   | 4 built-in + up to 5 custom agents analyze PRs in parallel     |
+| **Multi-LLM provider**     | Anthropic, OpenAI, Google Gemini — switch with one env var     |
+| **Inline PR comments**     | Findings anchored to specific diff lines with lifecycle badges |
+| **Finding lifecycle**      | Tracks new/persisted/resolved across PR iterations             |
+| **Incremental analysis**   | Re-runs only changed agents on force-pushes                    |
+| **Adaptive risk scoring**  | Signal weights learn from deployment outcomes                  |
+| **Cost tracking**          | Per-repo token usage monitoring with monthly budgets           |
+| **Team analytics**         | Org summary, trends, author leaderboard, repo comparison       |
+| **Notifications**          | Slack, Discord, Teams, generic webhooks                        |
+| **GitHub Action**          | Zero-infra mode — no servers needed                            |
+| **Interactive demo**       | Try it at `/demo` without installing                           |
+| **Multi-arch Docker**      | Runs on Raspberry Pi to cloud (amd64 + arm64)                  |
+| **One-command setup**      | `npx create-pullmint@latest`                                   |
+| **Performance benchmarks** | CI regression detection with p50/p95/p99 stats                 |
 
 ## Documentation
 
