@@ -168,6 +168,16 @@ describe('Dashboard Routes', () => {
       });
       expect(response.statusCode).toBe(401);
     });
+
+    it('returns 401 for wrong token with different length', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/executions',
+        headers: { authorization: 'Bearer x' },
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
   });
 
   describe('GET /dashboard/executions', () => {
