@@ -177,14 +177,24 @@ function createClient(token: string): GitHubClient {
           return { data };
         },
         createReview: async ({ owner, repo, pull_number, ...rest }) => {
-          return fetchJson('POST', `/repos/${owner}/${repo}/pulls/${pull_number}/reviews`, token, rest);
+          return fetchJson(
+            'POST',
+            `/repos/${owner}/${repo}/pulls/${pull_number}/reviews`,
+            token,
+            rest
+          );
         },
       },
       issues: {
         createComment: async ({ owner, repo, issue_number, body }) => {
-          return fetchJson('POST', `/repos/${owner}/${repo}/issues/${issue_number}/comments`, token, {
-            body,
-          });
+          return fetchJson(
+            'POST',
+            `/repos/${owner}/${repo}/issues/${issue_number}/comments`,
+            token,
+            {
+              body,
+            }
+          );
         },
         addLabels: async ({ owner, repo, issue_number, labels }) => {
           return fetchJson('POST', `/repos/${owner}/${repo}/issues/${issue_number}/labels`, token, {
@@ -197,7 +207,11 @@ function createClient(token: string): GitHubClient {
           return fetchJson('POST', `/repos/${owner}/${repo}/deployments`, token, rest);
         },
         getCombinedStatusForRef: async ({ owner, repo, ref }) => {
-          const data = (await fetchJson('GET', `/repos/${owner}/${repo}/commits/${ref}/status`, token)) as {
+          const data = (await fetchJson(
+            'GET',
+            `/repos/${owner}/${repo}/commits/${ref}/status`,
+            token
+          )) as {
             state?: string;
             statuses?: { context?: string; state?: string }[];
           };
@@ -210,15 +224,21 @@ function createClient(token: string): GitHubClient {
         },
         getContent: async ({ owner, repo, path, ref }) => {
           const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
-          const data = (await fetchJson('GET', `/repos/${owner}/${repo}/contents/${path}${query}`, token)) as
-            | { content?: string }
-            | Array<Record<string, unknown>>;
+          const data = (await fetchJson(
+            'GET',
+            `/repos/${owner}/${repo}/contents/${path}${query}`,
+            token
+          )) as { content?: string } | Array<Record<string, unknown>>;
           return { data };
         },
       },
       checks: {
         listForRef: async ({ owner, repo, ref }) => {
-          const data = (await fetchJson('GET', `/repos/${owner}/${repo}/commits/${ref}/check-runs`, token)) as {
+          const data = (await fetchJson(
+            'GET',
+            `/repos/${owner}/${repo}/commits/${ref}/check-runs`,
+            token
+          )) as {
             check_runs?: { conclusion?: string | null }[];
           };
           return {

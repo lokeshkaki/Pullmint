@@ -92,9 +92,10 @@ let AppCtor: (new (options: { appId: string; privateKey: string }) => GitHubAppC
 
 const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes (tokens expire at 60, refresh early)
 
-async function getGitHubAppConstructor(): Promise<
-  new (options: { appId: string; privateKey: string }) => GitHubAppClient
-> {
+function getGitHubAppConstructor(): new (options: {
+  appId: string;
+  privateKey: string;
+}) => GitHubAppClient {
   if (AppCtor) {
     return AppCtor;
   }
@@ -121,7 +122,7 @@ export async function getGitHubInstallationClient(repoFullName: string): Promise
   }
 
   const privateKey = getConfig('GITHUB_APP_PRIVATE_KEY');
-  const GitHubApp = await getGitHubAppConstructor();
+  const GitHubApp = getGitHubAppConstructor();
   appClient = new GitHubApp({ appId: GITHUB_APP_ID, privateKey });
 
   let installationId = GITHUB_APP_INSTALLATION_ID ? Number(GITHUB_APP_INSTALLATION_ID) : undefined;
