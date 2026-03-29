@@ -16,4 +16,5 @@ process.env.SIGNAL_INGESTION_HMAC_SECRET = 'e2e-hmac-secret';
 process.env.LLM_PROVIDER = 'anthropic';
 process.env.ALLOWED_ORIGINS = 'http://localhost:3000';
 process.env.LLM_HOURLY_LIMIT_PER_REPO = '1000';
+process.env.AWS_CRT_NODEJS_DISABLED = '1';
 process.env.MULTI_AGENT_MIN_DIFF_LINES = '5'; // small threshold so both 2-agent and 4-agent tests work with small fixtures

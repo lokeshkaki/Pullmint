@@ -1,4 +1,4 @@
-import { startBackgroundGroup } from '../groups/background-group.js';
+import { startBackgroundGroup } from '../groups/background-group';
 
 async function run(): Promise<void> {
   const { shutdown } = await startBackgroundGroup();
