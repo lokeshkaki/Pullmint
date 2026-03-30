@@ -34,7 +34,7 @@
   "dependencies": {
     "chalk": "^4.1.2",
     "fs-extra": "^11.2.0",
-    "ora": "^5.4.1",
+    "ora": "^9.3.0",
     "prompts": "^2.4.2"
   },
   "devDependencies": {
