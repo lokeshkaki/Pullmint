@@ -156,6 +156,19 @@ describe('processAgentJob', () => {
     expect(result.riskScore).toBe(50);
   });
 
+  it('returns empty findings when JSON has braces but is structurally invalid', async () => {
+    // Text matches /\{[\s\S]*\}/ but JSON.parse throws — covers catch block (line 291)
+    mockCreate.mockResolvedValueOnce({
+      text: '{ this is definitely not valid json!! }',
+      inputTokens: 100,
+      outputTokens: 10,
+    });
+
+    const result = await processAgentJob(makeAgentJob('security'));
+    expect(result.findings).toHaveLength(0);
+    expect(result.riskScore).toBe(50);
+  });
+
   it('should throw for unknown agent type', async () => {
     await expect(processAgentJob(makeAgentJob('unknown'))).rejects.toThrow(
       'Custom agent type "unknown" has no customAgentConfig in job data'
