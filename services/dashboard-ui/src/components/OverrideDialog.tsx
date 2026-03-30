@@ -27,12 +27,20 @@ export function OverrideDialog({
   currentDecision,
 }: Props) {
   const [justification, setJustification] = useState('');
+  const [validationError, setValidationError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit() {
+    const trimmedJustification = justification.trim();
+    if (!trimmedJustification) {
+      setValidationError('Justification is required.');
+      return;
+    }
+
+    setValidationError('');
     setSubmitting(true);
     try {
-      await reEvaluate(executionId, justification);
+      await reEvaluate(executionId, trimmedJustification);
       toast.success('Override logged successfully');
       onOpenChange(false);
       setJustification('');
@@ -72,10 +80,14 @@ export function OverrideDialog({
             <label className="text-sm font-medium">Justification</label>
             <textarea
               value={justification}
-              onChange={(event) => setJustification(event.target.value)}
+              onChange={(event) => {
+                setJustification(event.target.value);
+                if (validationError) setValidationError('');
+              }}
               placeholder="Explain why you are overriding the deployment gate..."
               className="mt-1 min-h-[100px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
+            {validationError && <p className="mt-1 text-xs text-destructive">{validationError}</p>}
           </div>
         </div>
 
