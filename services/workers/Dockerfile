@@ -26,6 +26,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+ENV HEALTH_FILE=/tmp/pullmint-worker-health
+
 COPY package.json package-lock.json ./
 COPY services/shared/package.json services/shared/
 COPY services/workers/package.json services/workers/
