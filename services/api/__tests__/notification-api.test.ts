@@ -22,11 +22,13 @@ jest.mock('@pullmint/shared/tracing', () => ({
 
 jest.mock('@pullmint/shared/notifications', () => ({
   sendNotification: jest.fn().mockResolvedValue(undefined),
+  validateWebhookUrl: jest.fn().mockResolvedValue({ valid: true }),
 }));
 
 import { getDb } from '@pullmint/shared/db';
-const { sendNotification } = jest.requireMock('@pullmint/shared/notifications') as {
+const { sendNotification, validateWebhookUrl } = jest.requireMock('@pullmint/shared/notifications') as {
   sendNotification: jest.Mock;
+  validateWebhookUrl: jest.Mock;
 };
 
 const AUTH = { Authorization: 'Bearer test-token' };
@@ -79,6 +81,10 @@ describe('GET /dashboard/notifications', () => {
 });
 
 describe('POST /dashboard/notifications', () => {
+  beforeEach(() => {
+    validateWebhookUrl.mockResolvedValue({ valid: true });
+  });
+
   it('returns 400 for invalid payload (missing channelType)', async () => {
     const app = await buildApp();
     const res = await app.inject({

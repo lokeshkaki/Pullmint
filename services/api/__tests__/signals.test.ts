@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import * as crypto from 'crypto';
+import rateLimit from '@fastify/rate-limit';
 import { registerSignalRoutes } from '../src/routes/signals';
 
 jest.mock('@pullmint/shared/db', () => ({
@@ -36,6 +37,10 @@ function signBody(body: string): string {
 
 async function buildApp() {
   const app = Fastify({ logger: false });
+  await app.register(rateLimit, {
+    max: 100,
+    timeWindow: '1 minute',
+  });
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body: string, done) => {
     (req as unknown as Record<string, string>).rawBody = body;
     try {
@@ -56,11 +61,15 @@ describe('Signal Routes', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    process.env.SIGNAL_INGESTION_RATE_LIMIT_MAX = '2';
+    process.env.SIGNAL_INGESTION_RATE_LIMIT_WINDOW = '1 minute';
     app = await buildApp();
   });
 
   afterEach(async () => {
     await app.close();
+    delete process.env.SIGNAL_INGESTION_RATE_LIMIT_MAX;
+    delete process.env.SIGNAL_INGESTION_RATE_LIMIT_WINDOW;
   });
 
   describe('POST /signals/:executionId', () => {
@@ -323,6 +332,94 @@ describe('Signal Routes', () => {
         body,
       });
       expect(response.statusCode).toBe(500);
+    });
+
+    it('returns 429 when rate limit is exceeded', async () => {
+      const body = JSON.stringify(validPayload);
+      const sig = signBody(body);
+
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ executionId, status: 'pending' }]),
+            }),
+          }),
+        }),
+        execute: jest.fn().mockResolvedValue(undefined),
+      });
+
+      const first = await app.inject({
+        method: 'POST',
+        url: `/signals/${executionId}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-pullmint-signature': sig,
+          'x-real-ip': '203.0.113.10',
+        },
+        body,
+      });
+
+      const second = await app.inject({
+        method: 'POST',
+        url: `/signals/${executionId}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-pullmint-signature': sig,
+          'x-real-ip': '203.0.113.10',
+        },
+        body,
+      });
+
+      const third = await app.inject({
+        method: 'POST',
+        url: `/signals/${executionId}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-pullmint-signature': sig,
+          'x-real-ip': '203.0.113.10',
+        },
+        body,
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(third.statusCode).toBe(429);
+    });
+
+    it('falls back to default rate-limit max when env config is invalid', async () => {
+      await app.close();
+      process.env.SIGNAL_INGESTION_RATE_LIMIT_MAX = '0';
+      app = await buildApp();
+
+      const body = JSON.stringify(validPayload);
+      const sig = signBody(body);
+
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ executionId, status: 'pending' }]),
+            }),
+          }),
+        }),
+        execute: jest.fn().mockResolvedValue(undefined),
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/signals/${executionId}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-pullmint-signature': sig,
+          'x-real-ip': '203.0.113.11',
+        },
+        body,
+      });
+
+      expect(response.statusCode).toBe(200);
     });
   });
 });
