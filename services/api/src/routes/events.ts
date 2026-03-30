@@ -1,21 +1,30 @@
 import type { FastifyInstance } from 'fastify';
-import { addClient } from '../sse';
+import { getConfigOptional } from '@pullmint/shared/config';
+import { timingSafeTokenCompare } from '../auth';
+import { addClient, checkSSERateLimit } from '../sse';
 
 export function registerEventRoutes(app: FastifyInstance): void {
   app.get('/dashboard/events', async (request, reply) => {
-    // Auth: accept Bearer token from query param (EventSource doesn't support custom headers)
-    const token = (request.query as { token?: string }).token;
-    const dashboardToken = process.env.DASHBOARD_AUTH_TOKEN;
+    const query = request.query as { token?: string; repo?: string };
 
-    if (!dashboardToken || token !== dashboardToken) {
+    // EventSource cannot set Authorization headers, so this endpoint currently accepts
+    // the token via query string. A future iteration should prefer short-lived tokens.
+    const clientIp = (request.headers['x-real-ip'] as string) || request.ip;
+    if (!checkSSERateLimit(clientIp)) {
+      return reply.code(429).send({ error: 'Too many SSE connection attempts' });
+    }
+
+    const dashboardToken = getConfigOptional('DASHBOARD_AUTH_TOKEN');
+    const token = query.token;
+
+    if (!dashboardToken || !token || !timingSafeTokenCompare(token, dashboardToken)) {
       return reply.code(401).send({ error: 'Unauthorized' });
     }
 
     // Optional repo filter
-    const repoFilter = (request.query as { repo?: string }).repo || null;
+    const repoFilter = query.repo || null;
 
     // Concurrent connection limit per IP — must check BEFORE writing 200 headers
-    const clientIp = (request.headers['x-real-ip'] as string) || request.ip;
     const { ok } = addClient(reply, repoFilter, clientIp);
     if (!ok) {
       return reply.code(429).send({ error: 'Too many SSE connections' });

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import type { FastifyReply } from 'fastify';
-import { addClient, closeSSE, getClientCount, initSSE } from '../src/sse';
+import { addClient, checkSSERateLimit, closeSSE, getClientCount, initSSE } from '../src/sse';
 
 const CHANNEL = 'pullmint:execution-updates';
 
@@ -218,5 +218,14 @@ describe('sse', () => {
     expect(getClientCount()).toBe(0);
 
     await expect(closeSSE()).resolves.toBeUndefined();
+  });
+
+  it('rate limits repeated SSE connection attempts per IP', () => {
+    for (let i = 0; i < 20; i += 1) {
+      expect(checkSSERateLimit('10.10.10.10')).toBe(true);
+    }
+
+    expect(checkSSERateLimit('10.10.10.10')).toBe(false);
+    expect(checkSSERateLimit('10.10.10.11')).toBe(true);
   });
 });

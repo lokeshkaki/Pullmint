@@ -5,16 +5,25 @@ jest.mock('../src/sse', () => ({
   initSSE: jest.fn(),
   closeSSE: jest.fn().mockResolvedValue(undefined),
   addClient: jest.fn(),
+  checkSSERateLimit: jest.fn(),
+}));
+
+jest.mock('@pullmint/shared/config', () => ({
+  getConfigOptional: jest.fn(),
 }));
 
 describe('Event Routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.DASHBOARD_AUTH_TOKEN = 'valid-token';
-  });
+    const { getConfigOptional } = jest.requireMock('@pullmint/shared/config') as {
+      getConfigOptional: jest.Mock;
+    };
+    const { checkSSERateLimit } = jest.requireMock('../src/sse') as {
+      checkSSERateLimit: jest.Mock;
+    };
 
-  afterEach(() => {
-    delete process.env.DASHBOARD_AUTH_TOKEN;
+    getConfigOptional.mockReturnValue('valid-token');
+    checkSSERateLimit.mockReturnValue(true);
   });
 
   describe('GET /dashboard/events', () => {
@@ -47,7 +56,11 @@ describe('Event Routes', () => {
     });
 
     it('returns 401 when DASHBOARD_AUTH_TOKEN env var not set', async () => {
-      delete process.env.DASHBOARD_AUTH_TOKEN;
+      const { getConfigOptional } = jest.requireMock('@pullmint/shared/config') as {
+        getConfigOptional: jest.Mock;
+      };
+      getConfigOptional.mockReturnValue(undefined);
+
       const app = Fastify({ logger: false });
       registerEventRoutes(app);
 
@@ -57,6 +70,25 @@ describe('Event Routes', () => {
       });
 
       expect(response.statusCode).toBe(401);
+      await app.close();
+    });
+
+    it('returns 429 when SSE rate limit is exceeded', async () => {
+      const { checkSSERateLimit } = jest.requireMock('../src/sse') as {
+        checkSSERateLimit: jest.Mock;
+      };
+      checkSSERateLimit.mockReturnValueOnce(false);
+
+      const app = Fastify({ logger: false });
+      registerEventRoutes(app);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/dashboard/events?token=valid-token',
+      });
+
+      expect(response.statusCode).toBe(429);
+      expect(JSON.parse(response.body)).toEqual({ error: 'Too many SSE connection attempts' });
       await app.close();
     });
 
@@ -83,6 +115,9 @@ describe('Event Routes', () => {
       const { addClient } = jest.requireMock('../src/sse') as {
         addClient: jest.Mock;
       };
+      const { checkSSERateLimit } = jest.requireMock('../src/sse') as {
+        checkSSERateLimit: jest.Mock;
+      };
 
       let capturedArgs: any[] = [];
       addClient.mockImplementation((...args: any[]) => {
@@ -103,6 +138,7 @@ describe('Event Routes', () => {
         headers: { 'x-real-ip': '192.168.1.50' },
       });
 
+      expect(checkSSERateLimit).toHaveBeenCalledWith('192.168.1.50');
       expect(addClient).toHaveBeenCalled();
       expect(capturedArgs[2]).toBe('192.168.1.50');
       await app.close();

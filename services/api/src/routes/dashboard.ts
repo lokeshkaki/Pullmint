@@ -12,6 +12,7 @@ import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { PRExecutionSchema } from '@pullmint/shared/schemas';
 import { registerAnalyticsRoutes } from './analytics';
+import { timingSafeTokenCompare } from '../auth';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -98,7 +99,7 @@ async function authMiddleware(request: FastifyRequest, reply: FastifyReply): Pro
     await reply.status(503).send({ error: 'Service unavailable: authentication not configured' });
     return;
   }
-  if (token !== expected) {
+  if (!timingSafeTokenCompare(token, expected)) {
     await reply.status(401).send({ error: 'Unauthorized' });
     return;
   }
