@@ -16,7 +16,7 @@
     "@actions/github": "^9.0.0",
     "@anthropic-ai/sdk": "^0.56.0",
     "@google/generative-ai": "^0.24.0",
-    "@octokit/rest": "^21.0.0",
+    "@octokit/rest": "^22.0.1",
     "openai": "^4.77.0",
     "picomatch": "^4.0.4",
     "yaml": "^2.8.3"
