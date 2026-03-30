@@ -2,6 +2,8 @@ import IORedis from 'ioredis';
 import type { FastifyReply } from 'fastify';
 
 const CHANNEL = 'pullmint:execution-updates';
+const SSE_RATE_LIMIT_MAX = 20;
+const SSE_RATE_LIMIT_WINDOW_MS = 60_000;
 
 interface SSEClient {
   reply: FastifyReply;
@@ -9,10 +11,26 @@ interface SSEClient {
   clientIp: string;
 }
 
+interface ConnectionAttemptEntry {
+  count: number;
+  windowStart: number;
+}
+
 let subscriber: IORedis | null = null;
 const clients = new Set<SSEClient>();
+const connectionAttempts = new Map<string, ConnectionAttemptEntry>();
 
 const MAX_CLIENTS_PER_IP = 5;
+
+const sseRateLimitCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of connectionAttempts.entries()) {
+    if (now - entry.windowStart > SSE_RATE_LIMIT_WINDOW_MS) {
+      connectionAttempts.delete(ip);
+    }
+  }
+}, SSE_RATE_LIMIT_WINDOW_MS);
+sseRateLimitCleanup.unref();
 
 export function initSSE(): void {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -78,6 +96,23 @@ export function addClient(
   return { ok: true };
 }
 
+export function checkSSERateLimit(clientIp: string): boolean {
+  const now = Date.now();
+  const entry = connectionAttempts.get(clientIp);
+
+  if (!entry || now - entry.windowStart >= SSE_RATE_LIMIT_WINDOW_MS) {
+    connectionAttempts.set(clientIp, { count: 1, windowStart: now });
+    return true;
+  }
+
+  if (entry.count >= SSE_RATE_LIMIT_MAX) {
+    return false;
+  }
+
+  entry.count += 1;
+  return true;
+}
+
 export function getClientCount(): number {
   return clients.size;
 }
@@ -91,6 +126,7 @@ export async function closeSSE(): Promise<void> {
     }
   }
   clients.clear();
+  connectionAttempts.clear();
 
   if (subscriber) {
     await subscriber.unsubscribe(CHANNEL);

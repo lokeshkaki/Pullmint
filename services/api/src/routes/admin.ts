@@ -3,7 +3,8 @@ import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { FastifyAdapter } from '@bull-board/fastify';
 import { getQueue, QUEUE_NAMES } from '@pullmint/shared/queue';
-import { getConfig } from '@pullmint/shared/config';
+import { getConfig, getConfigOptional } from '@pullmint/shared/config';
+import { timingSafeTokenCompare } from '../auth';
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   // Auth check for admin routes
@@ -14,8 +15,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
       const token = authHeader.slice(7);
-      const expected = getConfig('DASHBOARD_AUTH_TOKEN');
-      if (token !== expected) {
+      const expected = getConfigOptional('ADMIN_AUTH_TOKEN') ?? getConfig('DASHBOARD_AUTH_TOKEN');
+      if (!timingSafeTokenCompare(token, expected)) {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
     }
