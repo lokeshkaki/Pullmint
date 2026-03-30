@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import rateLimit from '@fastify/rate-limit';
 import { registerDemoRoutes } from '../src/routes/demo';
 
 jest.mock('@pullmint/shared/llm', () => ({
@@ -62,13 +63,22 @@ index 000000..abcdef 100644
  }`;
 
 describe('Demo routes', () => {
-  let app: ReturnType<typeof Fastify>;
+  let app: Awaited<ReturnType<typeof buildApp>>;
 
-  beforeEach(() => {
+  async function buildApp() {
+    const demoApp = Fastify({ logger: false, trustProxy: true });
+    await demoApp.register(rateLimit, {
+      max: 100,
+      timeWindow: '1 minute',
+    });
+    registerDemoRoutes(demoApp);
+    return demoApp;
+  }
+
+  beforeEach(async () => {
     process.env.DEMO_RATE_LIMIT_PER_HOUR = '5';
     process.env.DEMO_MAX_DIFF_BYTES = '51200';
-    app = Fastify({ logger: false, trustProxy: true });
-    registerDemoRoutes(app);
+    app = await buildApp();
   });
 
   afterEach(async () => {
@@ -164,6 +174,8 @@ describe('Demo routes', () => {
       const results = await Promise.all(requests);
       const statusCodes = results.map((response) => response.statusCode);
       expect(statusCodes).toContain(429);
+      const rateLimitedResponse = results.find((response) => response.statusCode === 429);
+      expect(rateLimitedResponse?.headers['retry-after']).toBeDefined();
     });
 
     it('agentResults contains all 4 agent types', async () => {

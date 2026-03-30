@@ -42,6 +42,11 @@ jest.mock('@pullmint/shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
 }));
 
+jest.mock('@pullmint/shared/notifications', () => ({
+  sendNotification: jest.fn().mockResolvedValue(undefined),
+  validateWebhookUrl: jest.fn().mockResolvedValue({ valid: true }),
+}));
+
 const VALID_AUTH = 'Bearer test-token';
 
 const sampleExecution = {
@@ -210,6 +215,82 @@ describe('Dashboard Routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body) as { executions: unknown[]; count: number };
       expect(body.count).toBe(0);
+    });
+  });
+
+  describe('POST /dashboard/notifications', () => {
+    it('returns 422 when webhook URL fails SSRF validation', async () => {
+      const { validateWebhookUrl } = jest.requireMock('@pullmint/shared/notifications') as {
+        validateWebhookUrl: jest.Mock;
+      };
+      validateWebhookUrl.mockResolvedValueOnce({ valid: false, reason: 'Blocked hostname' });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/dashboard/notifications',
+        headers: {
+          authorization: VALID_AUTH,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Security Alerts',
+          channelType: 'webhook',
+          webhookUrl: 'http://localhost/hook',
+          events: ['analysis.completed'],
+        }),
+      });
+
+      expect(response.statusCode).toBe(422);
+      const body = JSON.parse(response.body) as { error: string; reason: string };
+      expect(body.error).toBe('Invalid webhook URL');
+      expect(body.reason).toContain('Blocked hostname');
+    });
+
+    it('creates notification channel when webhook URL is valid', async () => {
+      const { validateWebhookUrl } = jest.requireMock('@pullmint/shared/notifications') as {
+        validateWebhookUrl: jest.Mock;
+      };
+      validateWebhookUrl.mockResolvedValueOnce({ valid: true });
+
+      const created = {
+        id: 1,
+        name: 'Security Alerts',
+        channelType: 'webhook',
+        webhookUrl: 'https://hooks.example.com/hook',
+        repoFilter: null,
+        events: ['analysis.completed'],
+        minRiskScore: null,
+        enabled: true,
+        secret: null,
+      };
+
+      const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      getDb.mockReturnValue({
+        insert: jest.fn().mockReturnValue({
+          values: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([created]),
+          }),
+        }),
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/dashboard/notifications',
+        headers: {
+          authorization: VALID_AUTH,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Security Alerts',
+          channelType: 'webhook',
+          webhookUrl: 'https://hooks.example.com/hook',
+          events: ['analysis.completed'],
+        }),
+      });
+
+      expect(response.statusCode).toBe(201);
+      const body = JSON.parse(response.body) as { channel: { id: number } };
+      expect(body.channel.id).toBe(1);
     });
   });
 

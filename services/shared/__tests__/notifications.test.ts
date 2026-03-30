@@ -1,13 +1,22 @@
 import * as crypto from 'crypto';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import {
   formatSlackMessage,
   formatDiscordMessage,
   formatTeamsMessage,
   formatGenericWebhook,
   sendNotification,
+  validateWebhookUrl,
   type NotificationPayload,
   type NotificationChannel,
 } from '../notifications';
+
+jest.mock('node:dns/promises', () => ({
+  __esModule: true,
+  lookup: jest.fn(),
+}));
+
+const mockDnsLookup = dnsLookup as jest.Mock;
 
 const basePayload: NotificationPayload = {
   event: 'analysis.completed',
@@ -29,7 +38,7 @@ const baseChannel: NotificationChannel = {
   id: 1,
   name: 'Test Channel',
   channelType: 'webhook',
-  webhookUrl: 'http://localhost:9999/hook',
+  webhookUrl: 'https://hooks.example.com/hook',
   repoFilter: null,
   events: ['analysis.completed'],
   minRiskScore: null,
@@ -160,6 +169,7 @@ describe('formatGenericWebhook', () => {
 describe('sendNotification', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockDnsLookup.mockResolvedValue([{ address: '203.0.113.10', family: 4 }]);
   });
 
   it('POSTs to webhook URL and resolves on 200', async () => {
@@ -203,5 +213,63 @@ describe('sendNotification', () => {
     const abortErr = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
     global.fetch = jest.fn().mockRejectedValue(abortErr) as unknown as typeof fetch;
     await expect(sendNotification(baseChannel, basePayload)).resolves.toBeUndefined();
+  });
+});
+
+describe('validateWebhookUrl', () => {
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it.each([
+    'http://127.0.0.1/hook',
+    'http://10.0.0.1/hook',
+    'http://192.168.1.1/hook',
+    'http://169.254.169.254/metadata',
+    'http://172.16.1.10/hook',
+  ])('rejects private IPv4 URLs: %s', async (url) => {
+    const result = await validateWebhookUrl(url);
+    expect(result.valid).toBe(false);
+  });
+
+  it.each(['http://localhost/hook', 'http://metadata.google.internal/hook'])(
+    'rejects blocked hostnames: %s',
+    async (url) => {
+      const result = await validateWebhookUrl(url);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Blocked hostname');
+    }
+  );
+
+  it.each(['ftp://example.com/hook', 'file:///etc/passwd'])(
+    'rejects non-http protocol: %s',
+    async (url) => {
+      const result = await validateWebhookUrl(url);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Unsupported protocol');
+    }
+  );
+
+  it.each(['https://hooks.slack.com/services/xxx', 'https://discord.com/api/webhooks/xxx'])(
+    'accepts valid public URL: %s',
+    async (url) => {
+      mockDnsLookup.mockResolvedValue([{ address: '203.0.113.10', family: 4 }]);
+      const result = await validateWebhookUrl(url);
+      expect(result.valid).toBe(true);
+    }
+  );
+
+  it('rejects hostname resolving to private IP', async () => {
+    mockDnsLookup.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+    const result = await validateWebhookUrl('https://hooks.example.com/hook');
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('private IP');
+  });
+
+  it('handles DNS failures gracefully', async () => {
+    mockDnsLookup.mockRejectedValue(new Error('DNS lookup failed'));
+    const result = await validateWebhookUrl('https://hooks.example.com/hook');
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe('DNS resolution failed');
   });
 });
