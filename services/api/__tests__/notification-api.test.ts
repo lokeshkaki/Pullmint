@@ -26,7 +26,9 @@ jest.mock('@pullmint/shared/notifications', () => ({
 }));
 
 import { getDb } from '@pullmint/shared/db';
-const { sendNotification, validateWebhookUrl } = jest.requireMock('@pullmint/shared/notifications') as {
+const { sendNotification, validateWebhookUrl } = jest.requireMock(
+  '@pullmint/shared/notifications'
+) as {
   sendNotification: jest.Mock;
   validateWebhookUrl: jest.Mock;
 };
