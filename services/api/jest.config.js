@@ -5,11 +5,7 @@ module.exports = {
   testMatch: ['**/__tests__/**/*.test.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   coverageDirectory: 'coverage',
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.d.ts',
-    '!src/server.ts',
-  ],
+  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts', '!src/server.ts'],
   transform: {
     '^.+\\.tsx?$': 'ts-jest',
   },
@@ -47,12 +43,6 @@ module.exports = {
       functions: 100,
       lines: 100,
       statements: 100,
-    },
-    './src/routes/admin.ts': {
-      branches: 0,
-      functions: 0,
-      lines: 0,
-      statements: 0,
     },
   },
 };

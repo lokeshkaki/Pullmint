@@ -151,7 +151,10 @@ describe('Webhook Routes', () => {
 
       expect(response.statusCode).toBe(202);
       const parsed = JSON.parse(response.body) as { message: string; executionId: string };
-      expect(parsed.message).toBe('Event accepted');
+      expect(parsed).toEqual({
+        message: 'Event accepted',
+        executionId: 'test-repo#1#abc1234',
+      });
     });
 
     it('returns 401 for invalid signature', async () => {
@@ -288,6 +291,10 @@ describe('Webhook Routes', () => {
         'pr.opened',
         expect.objectContaining({
           executionId: expect.any(String),
+          repoFullName: 'test-org/test-repo',
+          prNumber: 1,
+          author: 'testuser',
+          title: 'Test PR',
         })
       );
     });
@@ -317,7 +324,7 @@ describe('Webhook Routes', () => {
       expect(addJob).toHaveBeenCalledWith(
         'repo-indexing',
         'repo.onboarding.requested',
-        expect.objectContaining({ repoFullName: 'org/new-repo' })
+        expect.objectContaining({ repoFullName: 'org/new-repo', installationId: 999 })
       );
     });
 
@@ -892,7 +899,18 @@ describe('Webhook Routes', () => {
 
       expect(response.statusCode).toBe(202);
       const { addJob } = jest.requireMock('../../shared/queue') as { addJob: jest.Mock };
-      expect(addJob).toHaveBeenCalledWith('analysis', 'pr.reopened', expect.any(Object));
+      expect(addJob).toHaveBeenCalledWith(
+        'analysis',
+        'pr.reopened',
+        expect.objectContaining({
+          repoFullName: 'test-org/test-repo',
+          prNumber: 30,
+          headSha: 'reopen123',
+          baseSha: 'reopenbase',
+          author: 'dev',
+          title: 'Reopened PR',
+        })
+      );
     });
 
     it('returns 202 for PR synchronize action (pushes new commits)', async () => {
@@ -958,7 +976,18 @@ describe('Webhook Routes', () => {
 
       expect(response.statusCode).toBe(202);
       const { addJob } = jest.requireMock('../../shared/queue') as { addJob: jest.Mock };
-      expect(addJob).toHaveBeenCalledWith('analysis', 'pr.synchronize', expect.any(Object));
+      expect(addJob).toHaveBeenCalledWith(
+        'analysis',
+        'pr.synchronize',
+        expect.objectContaining({
+          repoFullName: 'test-org/test-repo',
+          prNumber: 35,
+          headSha: 'sync456abc',
+          baseSha: 'syncbase456',
+          author: 'dev2',
+          title: 'Updated with new commits',
+        })
+      );
     });
 
     it('handles writeDedupRecord throwing error gracefully', async () => {
