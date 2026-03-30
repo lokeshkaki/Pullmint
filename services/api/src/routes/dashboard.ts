@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
 import { getConfig } from '@pullmint/shared/config';
+import { publishEvent } from '@pullmint/shared/execution-events';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import {
   sendNotification,
@@ -675,14 +676,31 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
 
       // Append to overrideHistory using raw SQL JSONB operation
       const overrideEntry = { overriddenAt: Date.now(), justification };
-      await db.execute(
-        sql`UPDATE executions
-              SET override_history = COALESCE(override_history, '[]'::jsonb) || ${JSON.stringify([overrideEntry])}::jsonb,
-                  updated_at = NOW()
-              WHERE execution_id = ${executionId}`
-      );
+      const [updated] = await db
+        .update(schema.executions)
+        .set({
+          overrideHistory: sql`COALESCE(${schema.executions.overrideHistory}, '[]'::jsonb) || ${JSON.stringify([overrideEntry])}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.executions.executionId, executionId))
+        .returning({
+          executionId: schema.executions.executionId,
+          repoFullName: schema.executions.repoFullName,
+          prNumber: schema.executions.prNumber,
+          status: schema.executions.status,
+          riskScore: schema.executions.riskScore,
+        });
 
-      // TODO: publish re-evaluation event when on-demand checkpoint mechanism is defined
+      if (updated) {
+        void publishEvent({
+          executionId: updated.executionId,
+          repoFullName: updated.repoFullName,
+          prNumber: updated.prNumber,
+          status: updated.status,
+          riskScore: updated.riskScore,
+          updatedAt: Date.now(),
+        });
+      }
 
       return reply.status(202).send({ message: 'Re-evaluation logged' });
     } catch (error) {

@@ -22,6 +22,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    stop_grace_period: 15s
     deploy:
       resources:
         limits:
@@ -45,11 +46,12 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'node.*main.js' > /dev/null || exit 1"]
+      test: ["CMD-SHELL", "test $(( $(date +%s) - $(cat /tmp/pullmint-worker-health 2>/dev/null || echo 0) )) -lt 30 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
+    stop_grace_period: 30s
     deploy:
       resources:
         limits:
