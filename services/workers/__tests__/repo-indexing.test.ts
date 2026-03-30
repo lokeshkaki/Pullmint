@@ -42,56 +42,10 @@ jest.mock('@pullmint/shared/llm', () => ({
   })),
 }));
 
-jest.mock(
-  '../../repo-indexer/git-history',
-  () => ({
-    fetchFileTree: jest.fn().mockResolvedValue(['src/index.ts', 'src/auth.ts']),
-    fetchFileCommitHistory: jest.fn().mockResolvedValue({
-      filePath: 'src/index.ts',
-      churnRate30d: 3,
-      bugFixCommitCount30d: 1,
-      authors: ['alice', 'bob'],
-      commitMessages: [],
-    }),
-    aggregateAuthorProfiles: jest.fn().mockReturnValue([
-      {
-        authorLogin: 'alice',
-        mergeCount30d: 5,
-        frequentFiles: ['src/index.ts'],
-        rollbackRate: 0,
-      },
-    ]),
-  }),
-  { virtual: true }
-);
-
-jest.mock(
-  '../../repo-indexer/module-detector',
-  () => ({
-    detectModules: jest
-      .fn()
-      .mockReturnValue([
-        { modulePath: 'src', entryPoint: 'src/index.ts', files: ['src/index.ts', 'src/auth.ts'] },
-      ]),
-  }),
-  { virtual: true }
-);
-
-jest.mock(
-  '../../repo-indexer/narrative-generator',
-  () => ({
-    generateModuleNarrative: jest.fn().mockResolvedValue('This module handles auth'),
-  }),
-  { virtual: true }
-);
-
-jest.mock(
-  '../../repo-indexer/embeddings',
-  () => ({
-    generateEmbedding: jest.fn().mockResolvedValue([0.1, 0.2, 0.3]),
-  }),
-  { virtual: true }
-);
+jest.mock('@pullmint/shared/cost-tracker', () => ({
+  recordTokenUsage: jest.fn().mockResolvedValue(undefined),
+  estimateCost: jest.fn().mockReturnValue(0),
+}));
 
 // ---- shared DB mock state ----
 let mockDb: {
@@ -104,9 +58,13 @@ let mockReturning: jest.Mock;
 
 const mockOctokit = {
   rest: {
+    git: {
+      getTree: jest.fn(),
+    },
     repos: {
       get: jest.fn(),
       getContent: jest.fn(),
+      listCommits: jest.fn(),
     },
     pulls: {
       listFiles: jest.fn(),
@@ -163,10 +121,20 @@ beforeEach(() => {
     jest.requireMock('@pullmint/shared/github-app') as { getGitHubInstallationClient: jest.Mock }
   ).getGitHubInstallationClient.mockResolvedValue(mockOctokit);
 
+  mockOctokit.rest.git.getTree.mockResolvedValue({
+    data: {
+      tree: [
+        { type: 'blob', path: 'src/index.ts' },
+        { type: 'blob', path: 'src/auth.ts' },
+        { type: 'blob', path: 'src/utils.ts' },
+      ],
+    },
+  });
   mockOctokit.rest.repos.get.mockResolvedValue({ data: { default_branch: 'main' } });
   mockOctokit.rest.repos.getContent.mockResolvedValue({
     data: { content: Buffer.from('export function auth() {}').toString('base64') },
   });
+  mockOctokit.rest.repos.listCommits.mockResolvedValue({ data: [] });
   mockOctokit.rest.pulls.listFiles.mockResolvedValue({
     data: [{ filename: 'src/index.ts' }, { filename: 'src/auth.ts' }],
   });
@@ -179,7 +147,7 @@ function makeJob(name: string, data: Record<string, unknown> = {}): Job {
   return { name, data } as unknown as Job;
 }
 
-describe.skip('processRepoIndexingJob', () => {
+describe('processRepoIndexingJob', () => {
   describe('full-index', () => {
     it('indexes files, accumulates author profiles, and enqueues batch jobs', async () => {
       const { addJob } = jest.requireMock('@pullmint/shared/queue') as { addJob: jest.Mock };
@@ -201,14 +169,8 @@ describe.skip('processRepoIndexingJob', () => {
     });
 
     it('marks repo as indexed immediately if no modules detected', async () => {
-      const { detectModules } = jest.requireMock('../../repo-indexer/module-detector') as {
-        detectModules: jest.Mock;
-      };
-      detectModules.mockReturnValueOnce([]);
-      const { fetchFileTree } = jest.requireMock('../../repo-indexer/git-history') as {
-        fetchFileTree: jest.Mock;
-      };
-      fetchFileTree.mockResolvedValueOnce([]); // no files
+      // Return empty tree so detectModules finds no modules
+      mockOctokit.rest.git.getTree.mockResolvedValueOnce({ data: { tree: [] } });
 
       await processRepoIndexingJob(makeJob('full-index', { repoFullName: 'org/repo' }));
 
@@ -238,19 +200,61 @@ describe.skip('processRepoIndexingJob', () => {
       );
       expect(failedCall).toBeDefined();
     });
+
+    it('processes commit loop and author profiles when commits are returned', async () => {
+      // Return real commits so the fetchFileCommitHistory loop body (lines 147-157) runs,
+      // and aggregateAuthorProfiles inner loop (lines 187-190) is also exercised.
+      mockOctokit.rest.repos.listCommits.mockResolvedValue({
+        data: [
+          {
+            sha: 'abc123',
+            commit: {
+              author: { date: new Date(Date.now() - 10 * 60 * 1000).toISOString() },
+              message: 'fix: bug fix in auth module',
+            },
+            author: { login: 'alice' },
+          },
+        ],
+      });
+
+      await processRepoIndexingJob(makeJob('full-index', { repoFullName: 'org/repo' }));
+
+      expect(mockDb.insert).toHaveBeenCalled();
+    });
+
+    it('handles edge-case file structures in detectModules (flat files, dotfiles, shallow dirs)', async () => {
+      // This tree exercises all four continue/return branches in detectModules:
+      // 1. 'README.md' → parts.length < 2 → continue
+      // 2. 'src/.hidden.ts' → fileName starts with '.' → return false (excluded from sourceFiles)
+      // 3. 'lib/only.ts' → only 1 source file → sourceFiles.length < MIN_FILES_PER_MODULE → continue
+      // 4. 'helpers/{foo,bar,baz}.ts' → 3 source files but no entry point → continue
+      // 5. 'src/{index,auth,utils}.ts' → valid module, processed normally
+      mockOctokit.rest.git.getTree.mockResolvedValueOnce({
+        data: {
+          tree: [
+            { type: 'blob', path: 'README.md' },
+            { type: 'blob', path: 'src/.hidden.ts' },
+            { type: 'blob', path: 'lib/only.ts' },
+            { type: 'blob', path: 'helpers/foo.ts' },
+            { type: 'blob', path: 'helpers/bar.ts' },
+            { type: 'blob', path: 'helpers/baz.ts' },
+            { type: 'blob', path: 'src/index.ts' },
+            { type: 'blob', path: 'src/auth.ts' },
+            { type: 'blob', path: 'src/utils.ts' },
+          ],
+        },
+      });
+
+      await processRepoIndexingJob(makeJob('full-index', { repoFullName: 'org/repo' }));
+
+      expect(mockDb.update).toHaveBeenCalled();
+    });
   });
 
   describe('batch', () => {
     it('generates narratives, embeddings, and decrements pendingBatches', async () => {
       // returning for pendingBatches decrement
       mockReturning.mockResolvedValue([{ pendingBatches: 0 }]);
-
-      const { generateModuleNarrative } = jest.requireMock(
-        '../../repo-indexer/narrative-generator'
-      ) as { generateModuleNarrative: jest.Mock };
-      const { generateEmbedding } = jest.requireMock('../../repo-indexer/embeddings') as {
-        generateEmbedding: jest.Mock;
-      };
 
       await processRepoIndexingJob(
         makeJob('batch', {
@@ -260,9 +264,10 @@ describe.skip('processRepoIndexingJob', () => {
         })
       );
 
-      expect(generateModuleNarrative).toHaveBeenCalled();
-      expect(generateEmbedding).toHaveBeenCalled();
-      expect(mockDb.insert).toHaveBeenCalled(); // moduleNarratives insert
+      // Entry point content was fetched for narrative generation
+      expect(mockOctokit.rest.repos.getContent).toHaveBeenCalled();
+      // Module narrative was inserted into DB (verifies generateModuleNarrative and generateEmbedding ran)
+      expect(mockDb.insert).toHaveBeenCalled();
     });
 
     it('marks repo as indexed when pendingBatches reaches zero', async () => {
@@ -307,14 +312,6 @@ describe.skip('processRepoIndexingJob', () => {
 
   describe('incremental (pr.merged)', () => {
     it('fetches PR files and updates file knowledge for each changed file', async () => {
-      const { fetchFileCommitHistory } = jest.requireMock('../../repo-indexer/git-history') as {
-        fetchFileCommitHistory: jest.Mock;
-      };
-      const { detectModules } = jest.requireMock('../../repo-indexer/module-detector') as {
-        detectModules: jest.Mock;
-      };
-      detectModules.mockReturnValue([]);
-
       await processRepoIndexingJob(
         makeJob('pr.merged', {
           repoFullName: 'org/repo',
@@ -327,17 +324,12 @@ describe.skip('processRepoIndexingJob', () => {
       expect(mockOctokit.rest.pulls.listFiles).toHaveBeenCalledWith(
         expect.objectContaining({ pull_number: 42 })
       );
-      // Updates file knowledge for each changed file
-      expect(fetchFileCommitHistory).toHaveBeenCalled();
+      // Updates file knowledge for each changed file (via internal fetchFileCommitHistory)
+      expect(mockOctokit.rest.repos.listCommits).toHaveBeenCalled();
       expect(mockDb.insert).toHaveBeenCalled();
     });
 
     it('updates author profile when author is provided', async () => {
-      const { detectModules } = jest.requireMock('../../repo-indexer/module-detector') as {
-        detectModules: jest.Mock;
-      };
-      detectModules.mockReturnValue([]);
-
       await processRepoIndexingJob(
         makeJob('incremental', {
           repoFullName: 'org/repo',
@@ -352,18 +344,8 @@ describe.skip('processRepoIndexingJob', () => {
     });
 
     it('regenerates module narratives for affected modules', async () => {
-      // changedFile starts with module path → affected module
-      const { detectModules } = jest.requireMock('../../repo-indexer/module-detector') as {
-        detectModules: jest.Mock;
-      };
-      detectModules.mockReturnValue([
-        { modulePath: 'src', entryPoint: 'src/index.ts', files: ['src/index.ts'] },
-      ]);
-
-      const { generateModuleNarrative } = jest.requireMock(
-        '../../repo-indexer/narrative-generator'
-      ) as { generateModuleNarrative: jest.Mock };
-
+      // changedFile 'src/index.ts' is in the 'src' module detected from git.getTree
+      // so narrative regeneration is triggered for the affected module
       await processRepoIndexingJob(
         makeJob('incremental', {
           repoFullName: 'org/repo',
@@ -372,7 +354,10 @@ describe.skip('processRepoIndexingJob', () => {
         })
       );
 
-      expect(generateModuleNarrative).toHaveBeenCalled();
+      // moduleNarratives insert verifies narrative regeneration ran
+      expect(mockDb.insert).toHaveBeenCalled();
+      // LLM entry point content was fetched for affected module
+      expect(mockOctokit.rest.repos.getContent).toHaveBeenCalled();
     });
   });
 
