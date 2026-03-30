@@ -1,13 +1,18 @@
 import { createRequire } from 'module';
-import { getConfig } from './config';
+import { getConfig, getConfigOptional } from './config';
 
 // createRequire ensures octokit resolves as CJS (via its dist-bundle), rather than
 // Node's native ESM loader which would follow the 'import' condition in package.json
 // exports and fail in CommonJS Jest environments.
 const _require = createRequire(__filename);
 
-const GITHUB_APP_ID = process.env.GITHUB_APP_ID;
-const GITHUB_APP_INSTALLATION_ID = process.env.GITHUB_APP_INSTALLATION_ID;
+function getAppId(): string | undefined {
+  return getConfigOptional('GITHUB_APP_ID');
+}
+
+function getInstallationId(): string | undefined {
+  return getConfigOptional('GITHUB_APP_INSTALLATION_ID');
+}
 
 type GitHubRestClient = {
   rest: {
@@ -112,20 +117,22 @@ function getGitHubAppConstructor(): new (options: {
 export async function getGitHubInstallationClient(repoFullName: string): Promise<GitHubClient> {
   const now = Date.now();
   const isExpired = cachedAt !== undefined && now - cachedAt > TOKEN_TTL_MS;
+  const appId = getAppId();
 
   if (installationClient && cachedRepoFullName === repoFullName && !isExpired) {
     return installationClient;
   }
 
-  if (!GITHUB_APP_ID) {
+  if (!appId) {
     throw new Error('GITHUB_APP_ID is required to authenticate the GitHub App');
   }
 
   const privateKey = getConfig('GITHUB_APP_PRIVATE_KEY');
   const GitHubApp = getGitHubAppConstructor();
-  appClient = new GitHubApp({ appId: GITHUB_APP_ID, privateKey });
+  appClient = new GitHubApp({ appId, privateKey });
 
-  let installationId = GITHUB_APP_INSTALLATION_ID ? Number(GITHUB_APP_INSTALLATION_ID) : undefined;
+  const configuredInstallationId = getInstallationId();
+  let installationId = configuredInstallationId ? Number(configuredInstallationId) : undefined;
 
   if (!installationId) {
     const [owner, repo] = repoFullName.split('/');
