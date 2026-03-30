@@ -42,6 +42,10 @@ jest.mock('@pullmint/shared/tracing', () => ({
   addTraceAnnotations: jest.fn(),
 }));
 
+jest.mock('@pullmint/shared/execution-events', () => ({
+  publishEvent: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('@pullmint/shared/notifications', () => ({
   sendNotification: jest.fn().mockResolvedValue(undefined),
   validateWebhookUrl: jest.fn().mockResolvedValue({ valid: true }),
@@ -428,6 +432,9 @@ describe('Dashboard Routes', () => {
   describe('POST /dashboard/executions/:executionId/re-evaluate', () => {
     it('returns 202 when re-evaluation is logged', async () => {
       const { getDb } = jest.requireMock('../../shared/db') as { getDb: jest.Mock };
+      const { publishEvent } = jest.requireMock('@pullmint/shared/execution-events') as {
+        publishEvent: jest.Mock;
+      };
       getDb.mockReturnValue({
         select: jest.fn().mockReturnValue({
           from: jest.fn().mockReturnValue({
@@ -439,7 +446,21 @@ describe('Dashboard Routes', () => {
         insert: jest.fn().mockReturnValue({
           values: jest.fn().mockResolvedValue(undefined),
         }),
-        execute: jest.fn().mockResolvedValue(undefined),
+        update: jest.fn().mockReturnValue({
+          set: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              returning: jest.fn().mockResolvedValue([
+                {
+                  executionId: 'exec-1',
+                  repoFullName: 'org/repo',
+                  prNumber: 42,
+                  status: 'completed',
+                  riskScore: 50,
+                },
+              ]),
+            }),
+          }),
+        }),
       });
 
       const response = await app.inject({
@@ -453,6 +474,15 @@ describe('Dashboard Routes', () => {
       });
 
       expect(response.statusCode).toBe(202);
+      expect(publishEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          executionId: 'exec-1',
+          repoFullName: 'org/repo',
+          prNumber: 42,
+          status: 'completed',
+          riskScore: 50,
+        })
+      );
     });
 
     it('returns 429 when rate limit is exceeded', async () => {
