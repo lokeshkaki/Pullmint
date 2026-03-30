@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1014.0",
-    "bullmq": "^5.71.0",
+    "bullmq": "^5.71.1",
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.10.1",
     "octokit": "^5.0.5",
