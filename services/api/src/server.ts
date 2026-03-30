@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import { initTracing } from '@pullmint/shared/tracing';
 import { runMigrations } from '@pullmint/shared/migrate';
 import { ensureBucket } from '@pullmint/shared/storage';
+import { getRedisConnection } from '@pullmint/shared/queue';
 import { registerWebhookRoutes } from './routes/webhook';
 import { registerDashboardRoutes } from './routes/dashboard';
 import { registerSignalRoutes } from './routes/signals';
@@ -42,6 +43,7 @@ async function start() {
   await app.register(rateLimit, {
     max: 100,
     timeWindow: '1 second',
+    redis: getRedisConnection(),
   });
 
   // Register routes

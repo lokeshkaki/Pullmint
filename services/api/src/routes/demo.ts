@@ -10,37 +10,6 @@ import { getMaintainabilityPrompt } from '@pullmint/shared/prompts/maintainabili
 import type { Finding } from '@pullmint/shared/types';
 import { DEMO_SAMPLES } from '../demo-fixtures';
 
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
-const RATE_LIMIT_MAX = parseInt(process.env.DEMO_RATE_LIMIT_PER_HOUR ?? '5', 10);
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-
-const cleanupTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimitMap.entries()) {
-    if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-      rateLimitMap.delete(ip);
-    }
-  }
-}, RATE_LIMIT_WINDOW_MS);
-cleanupTimer.unref();
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitMap.set(ip, { count: 1, windowStart: now });
-    return true;
-  }
-
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return false;
-  }
-
-  entry.count += 1;
-  return true;
-}
-
 const AGENT_PROMPTS: Record<string, () => string> = {
   architecture: getArchitecturePrompt,
   security: getSecurityPrompt,
@@ -153,6 +122,7 @@ function parseAgentResponse(
 
 export function registerDemoRoutes(app: FastifyInstance): void {
   const isDemoEnabled = getConfigOptional('DEMO_ENABLED') === 'true';
+  const demoRateLimitMax = Number.parseInt(process.env.DEMO_RATE_LIMIT_PER_HOUR ?? '5', 10);
   const maxDiffBytes = parseInt(process.env.DEMO_MAX_DIFF_BYTES ?? '51200', 10);
   const demoTimeoutMs = 60_000;
 
@@ -194,7 +164,16 @@ export function registerDemoRoutes(app: FastifyInstance): void {
   app.post<{ Body: { diff?: string; prTitle?: string } }>(
     '/demo/analyze',
     {
-      config: { rateLimit: { max: 200, timeWindow: '1 second' } },
+      config: {
+        rateLimit: {
+          max: Number.isNaN(demoRateLimitMax) || demoRateLimitMax <= 0 ? 5 : demoRateLimitMax,
+          timeWindow: '1 hour',
+          keyGenerator: (request: FastifyRequest) => {
+            const realIp = request.headers['x-real-ip'];
+            return typeof realIp === 'string' && realIp.length > 0 ? realIp : request.ip;
+          },
+        },
+      },
     },
     async (
       req: FastifyRequest<{ Body: { diff?: string; prTitle?: string } }>,
@@ -202,15 +181,6 @@ export function registerDemoRoutes(app: FastifyInstance): void {
     ) => {
       if (!isDemoEnabled) {
         return reply.status(404).send({ error: 'Demo not enabled' });
-      }
-
-      const ip = req.ip;
-      if (!checkRateLimit(ip)) {
-        return reply.status(429).send({
-          error: 'Rate limit exceeded',
-          message: `Maximum ${RATE_LIMIT_MAX} demo analyses per hour per IP`,
-          retryAfterMs: RATE_LIMIT_WINDOW_MS,
-        });
       }
 
       const { diff, prTitle = 'Demo PR' } = req.body ?? {};

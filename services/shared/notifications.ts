@@ -1,4 +1,6 @@
 import * as crypto from 'crypto';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import net from 'node:net';
 
 export interface NotificationPayload {
   event: string;
@@ -28,6 +30,127 @@ export interface NotificationChannel {
   secret: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+const BLOCKED_HOSTNAMES = new Set([
+  'localhost',
+  'metadata.google.internal',
+  'metadata.internal',
+  '169.254.169.254',
+]);
+
+function parseIPv4Octets(ip: string): number[] | null {
+  const parts = ip.split('.');
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const octets = parts.map((part) => Number.parseInt(part, 10));
+  if (octets.some((octet) => Number.isNaN(octet) || octet < 0 || octet > 255)) {
+    return null;
+  }
+
+  return octets;
+}
+
+function isPrivateIPv4(ip: string): boolean {
+  const octets = parseIPv4Octets(ip);
+  if (!octets) {
+    return false;
+  }
+
+  const [a, b] = octets;
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168)
+  );
+}
+
+function isPrivateIPv6(ip: string): boolean {
+  const normalized = ip.toLowerCase();
+  if (normalized === '::1') {
+    return true;
+  }
+
+  if (normalized.startsWith('fe80:')) {
+    return true;
+  }
+
+  if (normalized.startsWith('fc') || normalized.startsWith('fd')) {
+    return true;
+  }
+
+  const mappedIPv4Match = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mappedIPv4Match) {
+    return isPrivateIPv4(mappedIPv4Match[1]);
+  }
+
+  return false;
+}
+
+function isPrivateIP(ip: string): boolean {
+  const family = net.isIP(ip);
+  if (family === 4) {
+    return isPrivateIPv4(ip);
+  }
+  if (family === 6) {
+    return isPrivateIPv6(ip);
+  }
+  return false;
+}
+
+export async function validateWebhookUrl(
+  urlStr: string
+): Promise<{ valid: boolean; reason?: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlStr);
+  } catch {
+    return { valid: false, reason: 'Invalid URL' };
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return { valid: false, reason: `Unsupported protocol: ${parsed.protocol}` };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    BLOCKED_HOSTNAMES.has(hostname) ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.internal')
+  ) {
+    return { valid: false, reason: 'Blocked hostname' };
+  }
+
+  if (net.isIP(hostname)) {
+    if (isPrivateIP(hostname)) {
+      return { valid: false, reason: 'Private IP address not allowed' };
+    }
+    return { valid: true };
+  }
+
+  try {
+    const addresses = await dnsLookup(hostname, { all: true, verbatim: true });
+    if (addresses.length === 0) {
+      return { valid: false, reason: 'DNS resolution failed' };
+    }
+
+    for (const entry of addresses) {
+      if (isPrivateIP(entry.address)) {
+        return {
+          valid: false,
+          reason: `Hostname resolves to private IP: ${entry.address}`,
+        };
+      }
+    }
+  } catch {
+    return { valid: false, reason: 'DNS resolution failed' };
+  }
+
+  return { valid: true };
 }
 
 function riskEmoji(riskScore?: number): string {
@@ -284,6 +407,21 @@ export async function sendNotification(
   let headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
   try {
+    const validation = await validateWebhookUrl(channel.webhookUrl);
+    if (!validation.valid) {
+      console.error(
+        JSON.stringify({
+          error: 'notification_url_blocked',
+          channelId: channel.id,
+          channelName: channel.name,
+          channelType: channel.channelType,
+          webhookUrl: channel.webhookUrl,
+          reason: validation.reason,
+        })
+      );
+      return;
+    }
+
     switch (channel.channelType) {
       case 'slack':
         body = formatSlackMessage(payload);

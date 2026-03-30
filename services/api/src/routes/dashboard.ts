@@ -5,6 +5,7 @@ import { getConfig } from '@pullmint/shared/config';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import {
   sendNotification,
+  validateWebhookUrl,
   type NotificationChannel,
   type NotificationPayload,
 } from '@pullmint/shared/notifications';
@@ -512,6 +513,15 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
     }
 
     const data = parseResult.data;
+    const validation = await validateWebhookUrl(data.webhookUrl);
+    if (!validation.valid) {
+      await reply.status(422).send({
+        error: 'Invalid webhook URL',
+        reason: validation.reason ?? 'URL blocked by security policy',
+      });
+      return;
+    }
+
     const db = getDb();
     const [created] = await db
       .insert(schema.notificationChannels)
