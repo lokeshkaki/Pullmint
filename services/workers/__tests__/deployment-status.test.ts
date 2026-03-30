@@ -325,4 +325,32 @@ describe('processDeploymentStatusJob', () => {
       expect.objectContaining({ executionId: 'exec-2' })
     );
   });
+
+  it('passes signals parsed from signalsReceived to evaluateRisk', async () => {
+    const { evaluateRisk } = jest.requireMock('@pullmint/shared/risk-evaluator') as {
+      evaluateRisk: jest.Mock;
+    };
+    evaluateRisk.mockReturnValue({
+      score: 30,
+      confidence: 0.8,
+      missingSignals: [],
+      reason: 'ok',
+    });
+
+    const execution = makeExecution({
+      deploymentStartedAt: T6_AGO,
+      signalsReceived: {
+        'ci.failed:1700000000000': { value: 1, source: 'github-actions' },
+      },
+    });
+    mockLimit.mockResolvedValue([execution]);
+
+    await processDeploymentStatusJob();
+
+    expect(evaluateRisk).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signals: expect.arrayContaining([expect.objectContaining({ signalType: 'ci.failed' })]),
+      })
+    );
+  });
 });

@@ -5,11 +5,7 @@ module.exports = {
   coverageDirectory: 'coverage',
   collectCoverageFrom: [
     'src/**/*.ts',
-    '!src/main.ts',
-    '!src/entrypoints/**/*.ts',
-    '!src/groups/**/*.ts',
     '!src/**/*.d.ts',
-    '!src/processors/repo-indexing.ts',
   ],
   moduleNameMapper: {
     '^@pullmint/shared/(.+)$': '<rootDir>/../shared/$1',
