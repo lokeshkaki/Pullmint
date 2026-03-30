@@ -8,6 +8,8 @@
 let startAnalysisGroupMock: jest.Mock;
 let startIntegrationGroupMock: jest.Mock;
 let startBackgroundGroupMock: jest.Mock;
+let startHealthHeartbeatMock: jest.Mock;
+let stopHealthHeartbeatMock: jest.Mock;
 
 function buildMockShutdown(): jest.Mock {
   return jest.fn().mockResolvedValue(undefined);
@@ -17,6 +19,8 @@ function setupMocks(): void {
   startAnalysisGroupMock = jest.fn().mockResolvedValue({ shutdown: buildMockShutdown() });
   startIntegrationGroupMock = jest.fn().mockResolvedValue({ shutdown: buildMockShutdown() });
   startBackgroundGroupMock = jest.fn().mockResolvedValue({ shutdown: buildMockShutdown() });
+  startHealthHeartbeatMock = jest.fn();
+  stopHealthHeartbeatMock = jest.fn();
 }
 
 /** Load main.ts in an isolated module scope with fresh group mocks. */
@@ -30,6 +34,10 @@ function loadMain(): void {
     }));
     jest.doMock('../src/groups/background-group', () => ({
       startBackgroundGroup: startBackgroundGroupMock,
+    }));
+    jest.doMock('../src/health', () => ({
+      startHealthHeartbeat: startHealthHeartbeatMock,
+      stopHealthHeartbeat: stopHealthHeartbeatMock,
     }));
     require('../src/main');
   });
@@ -51,6 +59,7 @@ describe('main.ts routing', () => {
     expect(startAnalysisGroupMock).toHaveBeenCalledTimes(1);
     expect(startIntegrationGroupMock).not.toHaveBeenCalled();
     expect(startBackgroundGroupMock).not.toHaveBeenCalled();
+    expect(startHealthHeartbeatMock).toHaveBeenCalledTimes(1);
   });
 
   it('starts only the integration group when WORKER_GROUP=integration', async () => {
@@ -62,6 +71,7 @@ describe('main.ts routing', () => {
     expect(startAnalysisGroupMock).not.toHaveBeenCalled();
     expect(startIntegrationGroupMock).toHaveBeenCalledTimes(1);
     expect(startBackgroundGroupMock).not.toHaveBeenCalled();
+    expect(startHealthHeartbeatMock).toHaveBeenCalledTimes(1);
   });
 
   it('starts only the background group when WORKER_GROUP=background', async () => {
@@ -73,6 +83,7 @@ describe('main.ts routing', () => {
     expect(startAnalysisGroupMock).not.toHaveBeenCalled();
     expect(startIntegrationGroupMock).not.toHaveBeenCalled();
     expect(startBackgroundGroupMock).toHaveBeenCalledTimes(1);
+    expect(startHealthHeartbeatMock).toHaveBeenCalledTimes(1);
   });
 
   it('starts all three groups in unified mode when WORKER_GROUP is not set', async () => {
@@ -82,6 +93,7 @@ describe('main.ts routing', () => {
     expect(startAnalysisGroupMock).toHaveBeenCalledTimes(1);
     expect(startIntegrationGroupMock).toHaveBeenCalledTimes(1);
     expect(startBackgroundGroupMock).toHaveBeenCalledTimes(1);
+    expect(startHealthHeartbeatMock).toHaveBeenCalledTimes(1);
   });
 
   it('registers SIGTERM and SIGINT signal handlers', async () => {
@@ -114,6 +126,7 @@ describe('main.ts routing', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(mockShutdown).toHaveBeenCalled();
+    expect(stopHealthHeartbeatMock).toHaveBeenCalled();
 
     processSpy.mockRestore();
     mockExit.mockRestore();
@@ -136,6 +149,7 @@ describe('main.ts routing', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(mockShutdown).toHaveBeenCalled();
+    expect(stopHealthHeartbeatMock).toHaveBeenCalled();
 
     processSpy.mockRestore();
     mockExit.mockRestore();
@@ -192,6 +206,7 @@ describe('main.ts routing', () => {
     expect(analysisShutdown).toHaveBeenCalled();
     expect(integrationShutdown).toHaveBeenCalled();
     expect(backgroundShutdown).toHaveBeenCalled();
+    expect(stopHealthHeartbeatMock).toHaveBeenCalled();
 
     processSpy.mockRestore();
     mockExit.mockRestore();

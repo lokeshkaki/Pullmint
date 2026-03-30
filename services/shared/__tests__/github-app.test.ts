@@ -17,6 +17,7 @@ const mockClient = {
 
 jest.mock('../config', () => ({
   getConfig: jest.fn(),
+  getConfigOptional: jest.fn(),
 }));
 
 jest.mock('octokit', () => ({
@@ -32,17 +33,26 @@ function loadModule() {
   return mod!;
 }
 
+function getMockedConfig() {
+  return jest.requireMock('../config') as {
+    getConfig: jest.Mock;
+    getConfigOptional: jest.Mock;
+  };
+}
+
 describe('getGitHubInstallationClient', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.GITHUB_APP_PRIVATE_KEY = 'test-private-key';
-    process.env.GITHUB_APP_ID = '123456';
-    delete process.env.GITHUB_APP_INSTALLATION_ID;
+    const { getConfigOptional } = getMockedConfig();
 
     (getConfig as jest.Mock).mockImplementation((key: string) => {
       if (key === 'GITHUB_APP_PRIVATE_KEY') return 'test-private-key';
-      if (key === 'GITHUB_APP_ID') return '123456';
       return 'test-value';
+    });
+    getConfigOptional.mockImplementation((key: string) => {
+      if (key === 'GITHUB_APP_ID') return '123456';
+      if (key === 'GITHUB_APP_INSTALLATION_ID') return undefined;
+      return undefined;
     });
     mockRequest.mockResolvedValue({ data: { id: 999 } });
     mockGetInstallationOctokit.mockResolvedValue(mockClient);
@@ -50,11 +60,6 @@ describe('getGitHubInstallationClient', () => {
       octokit: { request: mockRequest },
       getInstallationOctokit: mockGetInstallationOctokit,
     }));
-  });
-
-  afterEach(() => {
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
-    delete process.env.GITHUB_APP_ID;
   });
 
   it('throws when GITHUB_APP_PRIVATE_KEY is missing', async () => {
@@ -73,7 +78,13 @@ describe('getGitHubInstallationClient', () => {
   });
 
   it('throws when GITHUB_APP_ID is missing', async () => {
-    delete process.env.GITHUB_APP_ID;
+    const { getConfigOptional } = getMockedConfig();
+    getConfigOptional.mockImplementation((key: string) => {
+      if (key === 'GITHUB_APP_ID') return undefined;
+      if (key === 'GITHUB_APP_INSTALLATION_ID') return undefined;
+      return undefined;
+    });
+
     const { getGitHubInstallationClient } = loadModule();
 
     await expect(getGitHubInstallationClient('owner/repo')).rejects.toThrow(
@@ -82,7 +93,13 @@ describe('getGitHubInstallationClient', () => {
   });
 
   it('uses the installation id when provided', async () => {
-    process.env.GITHUB_APP_INSTALLATION_ID = '321';
+    const { getConfigOptional } = getMockedConfig();
+    getConfigOptional.mockImplementation((key: string) => {
+      if (key === 'GITHUB_APP_ID') return '123456';
+      if (key === 'GITHUB_APP_INSTALLATION_ID') return '321';
+      return undefined;
+    });
+
     const { getGitHubInstallationClient } = loadModule();
 
     const client = await getGitHubInstallationClient('owner/repo');
@@ -150,5 +167,14 @@ describe('getGitHubInstallationClient', () => {
     expect(mockGetInstallationOctokit).toHaveBeenCalledTimes(2);
 
     jest.useRealTimers();
+  });
+
+  it('reads app id through getConfigOptional', async () => {
+    const { getConfigOptional } = getMockedConfig();
+    const { getGitHubInstallationClient } = loadModule();
+
+    await getGitHubInstallationClient('owner/repo');
+
+    expect(getConfigOptional).toHaveBeenCalledWith('GITHUB_APP_ID');
   });
 });

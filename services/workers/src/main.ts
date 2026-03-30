@@ -1,6 +1,7 @@
 import { startAnalysisGroup } from './groups/analysis-group';
 import { startIntegrationGroup } from './groups/integration-group';
 import { startBackgroundGroup } from './groups/background-group';
+import { startHealthHeartbeat, stopHealthHeartbeat } from './health';
 
 async function start(): Promise<void> {
   const group = process.env.WORKER_GROUP;
@@ -8,21 +9,33 @@ async function start(): Promise<void> {
   if (group === 'analysis') {
     console.log('Starting analysis worker group...');
     const { shutdown } = await startAnalysisGroup();
-    setupShutdown(shutdown);
+    startHealthHeartbeat();
+    setupShutdown(async () => {
+      stopHealthHeartbeat();
+      await shutdown();
+    });
     return;
   }
 
   if (group === 'integration') {
     console.log('Starting integration worker group...');
     const { shutdown } = await startIntegrationGroup();
-    setupShutdown(shutdown);
+    startHealthHeartbeat();
+    setupShutdown(async () => {
+      stopHealthHeartbeat();
+      await shutdown();
+    });
     return;
   }
 
   if (group === 'background') {
     console.log('Starting background worker group...');
     const { shutdown } = await startBackgroundGroup();
-    setupShutdown(shutdown);
+    startHealthHeartbeat();
+    setupShutdown(async () => {
+      stopHealthHeartbeat();
+      await shutdown();
+    });
     return;
   }
 
@@ -33,8 +46,10 @@ async function start(): Promise<void> {
   const background = await startBackgroundGroup();
 
   console.log('All worker groups started');
+  startHealthHeartbeat();
 
   const shutdown = async (): Promise<void> => {
+    stopHealthHeartbeat();
     console.log('Shutting down all worker groups...');
     await Promise.all([analysis.shutdown(), integration.shutdown(), background.shutdown()]);
   };
