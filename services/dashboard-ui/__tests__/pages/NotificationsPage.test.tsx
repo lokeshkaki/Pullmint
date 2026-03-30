@@ -168,14 +168,14 @@ describe('NotificationsPage', () => {
 
     expect(await screen.findByText('Edit Channel')).toBeInTheDocument();
     const nameInput = screen.getByDisplayValue('Team Slack');
-    expect(nameInput.value).toBe('Team Slack');
+    expect(nameInput).toHaveValue('Team Slack');
   });
 
   it('calls DELETE when delete is confirmed', async () => {
     const user = userEvent.setup();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
-    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === 'DELETE') {
         return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(null) });
       }
@@ -224,7 +224,7 @@ describe('NotificationsPage', () => {
   it('calls PUT to toggle channel enabled status', async () => {
     const user = userEvent.setup();
 
-    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === 'PUT') {
         return Promise.resolve({
           ok: true,
