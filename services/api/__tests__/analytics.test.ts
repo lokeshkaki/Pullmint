@@ -158,22 +158,23 @@ describe('Analytics Routes', () => {
     });
 
     it('accepts dateFrom and dateTo query params', async () => {
+      const execute = mockExecute([
+        [
+          {
+            totalPRsAnalyzed: 5,
+            avgRiskScore: '10',
+            medianRiskScore: '10',
+            highRiskPRs: 0,
+            autoApproved: 5,
+            held: 0,
+            rolledBack: 0,
+            avgAnalysisTimeMs: 5000,
+          },
+        ],
+        [],
+      ]);
       mockGetDb.mockReturnValue({
-        execute: mockExecute([
-          [
-            {
-              totalPRsAnalyzed: 5,
-              avgRiskScore: '10',
-              medianRiskScore: '10',
-              highRiskPRs: 0,
-              autoApproved: 5,
-              held: 0,
-              rolledBack: 0,
-              avgAnalysisTimeMs: 5000,
-            },
-          ],
-          [],
-        ]),
+        execute,
       });
       const res = await app.inject({
         method: 'GET',
@@ -181,6 +182,18 @@ describe('Analytics Routes', () => {
         headers: { Authorization: VALID_AUTH },
       });
       expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        totalPRsAnalyzed: 5,
+        avgRiskScore: 10,
+        medianRiskScore: 10,
+        highRiskPRs: 0,
+        autoApproved: 5,
+        held: 0,
+        rolledBack: 0,
+        avgAnalysisTimeMs: 5000,
+        topFindingTypes: [],
+      });
+      expect(execute).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -233,13 +246,19 @@ describe('Analytics Routes', () => {
     });
 
     it('defaults to day interval for unknown interval param', async () => {
-      mockGetDb.mockReturnValue({ execute: mockExecute([[]]) });
+      const execute = mockExecute([[]]);
+      mockGetDb.mockReturnValue({ execute });
       const res = await app.inject({
         method: 'GET',
         url: '/dashboard/analytics/trends?interval=invalid',
         headers: { Authorization: VALID_AUTH },
       });
       expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ buckets: [] });
+
+      const executedSql = JSON.stringify(execute.mock.calls[0]?.[0] ?? {});
+      expect(executedSql).toContain('day');
+      expect(executedSql).not.toContain('invalid');
     });
 
     it('returns empty buckets array when no executions exist', async () => {
@@ -357,13 +376,16 @@ describe('Analytics Routes', () => {
     });
 
     it('filters by date range', async () => {
-      mockGetDb.mockReturnValue({ execute: mockExecute([authorRows, findingRows]) });
+      const execute = mockExecute([authorRows, findingRows]);
+      mockGetDb.mockReturnValue({ execute });
       const res = await app.inject({
         method: 'GET',
         url: '/dashboard/analytics/authors?dateFrom=2026-03-01&dateTo=2026-03-25',
         headers: { Authorization: VALID_AUTH },
       });
       expect(res.statusCode).toBe(200);
+      expect(res.json().authors).toHaveLength(2);
+      expect(execute).toHaveBeenCalledTimes(2);
     });
   });
 
