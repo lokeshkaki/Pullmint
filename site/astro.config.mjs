@@ -3,8 +3,7 @@ import tailwind from '@astrojs/tailwind';
 import sitemap from '@astrojs/sitemap';
 
 export default defineConfig({
-  site: 'https://lokeshkaki.github.io',
-  base: '/pullmint',
+  site: 'https://pullmint.lokeshkaki.com',
   integrations: [tailwind(), sitemap()],
   build: {
     assets: '_assets',
