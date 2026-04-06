@@ -12,7 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.56.0",
     "@pullmint/shared": "*",
-    "bullmq": "^5.0.0",
+    "bullmq": "^5.73.0",
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.10.1",
     "lodash": "^4.18.1",

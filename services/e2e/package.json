@@ -10,7 +10,7 @@
     "@pullmint/api": "*",
     "@pullmint/shared": "*",
     "@pullmint/workers": "*",
-    "bullmq": "^5.0.0",
+    "bullmq": "^5.73.0",
     "drizzle-orm": "^0.45.1",
     "eventsource": "^2.0.2",
     "fastify": "^5.0.0",
