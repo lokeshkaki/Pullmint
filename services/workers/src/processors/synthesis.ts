@@ -348,7 +348,7 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
       .onConflictDoUpdate({
         target: schema.llmCache.cacheKey,
         set: {
-          findings: finalFindings as unknown[],
+          findings: finalFindings,
           riskScore: finalRiskScore,
           contextQuality: 'none',
           expiresAt: cacheExpiresAt,
@@ -359,10 +359,10 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
 
     await publishExecutionUpdate(executionId, {
       status: 'completed',
-      findings: finalFindings as unknown[],
+      findings: finalFindings,
       riskScore: finalRiskScore,
       s3Key,
-      checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
+      checkpoints: [checkpoint1] as unknown,
       agentType: 'architecture',
       metadata: {
         agentResults: agentMeta,
@@ -408,7 +408,7 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
             }
           : {}),
       },
-    } as Record<string, unknown>);
+    });
 
     console.log(
       `Synthesis complete for PR #${prEvent.prNumber}: ` +

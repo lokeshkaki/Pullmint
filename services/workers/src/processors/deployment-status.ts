@@ -43,7 +43,7 @@ export async function processDeploymentStatusJob(): Promise<void> {
 
   for (const execution of executions) {
     try {
-      await evaluateCheckpoint(execution as unknown as Record<string, unknown>, now);
+      await evaluateCheckpoint(execution, now);
     } catch (err) {
       failedCount += 1;
       const error = err instanceof Error ? err : new Error(String(err));
@@ -163,11 +163,7 @@ async function writeCheckpoint(executionId: string, checkpoint: CheckpointRecord
   await db
     .update(schema.executions)
     .set({
-      checkpoints:
-        sql`COALESCE(checkpoints, '[]'::jsonb) || ${JSON.stringify([checkpoint])}::jsonb` as unknown as Record<
-          string,
-          unknown
-        >,
+      checkpoints: sql`COALESCE(checkpoints, '[]'::jsonb) || ${JSON.stringify([checkpoint])}::jsonb`,
       updatedAt: new Date(),
     })
     .where(eq(schema.executions.executionId, executionId));
@@ -232,9 +228,9 @@ async function triggerRollback(
     await addJob(QUEUE_NAMES.NOTIFICATION, 'deployment.rolled-back', {
       event: 'deployment.rolled-back',
       executionId,
-      repoFullName: execution.repoFullName as string,
-      prNumber: execution.prNumber as number,
-      riskScore: (execution.riskScore as number | undefined) ?? undefined,
+      repoFullName: execution.repoFullName,
+      prNumber: execution.prNumber,
+      riskScore: execution.riskScore ?? undefined,
       status: 'rolled-back',
     });
   } catch (notifyErr) {

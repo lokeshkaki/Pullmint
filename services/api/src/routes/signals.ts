@@ -129,7 +129,7 @@ export function registerSignalRoutes(app: FastifyInstance): void {
         await addJob(QUEUE_NAMES.DEPLOYMENT_STATUS, 'signal.received', {
           executionId,
           signalKey,
-          signal: signal as unknown as Record<string, unknown>,
+          signal: signal,
         });
 
         return reply.status(200).send({ message: 'Signal recorded' });

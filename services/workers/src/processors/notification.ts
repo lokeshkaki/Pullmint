@@ -2,11 +2,7 @@ import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { createStructuredError } from '@pullmint/shared/error-handling';
-import {
-  sendNotification,
-  type NotificationChannel,
-  type NotificationPayload,
-} from '@pullmint/shared/notifications';
+import { sendNotification, type NotificationPayload } from '@pullmint/shared/notifications';
 import picomatch from 'picomatch';
 
 export interface NotificationJobData {
@@ -81,7 +77,7 @@ export async function processNotificationJob(job: Job): Promise<void> {
     );
 
     const results = await Promise.allSettled(
-      matchingChannels.map((ch) => sendNotification(ch as NotificationChannel, payload))
+      matchingChannels.map((ch) => sendNotification(ch, payload))
     );
 
     const failed = results.filter((r) => r.status === 'rejected');

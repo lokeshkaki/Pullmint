@@ -41,7 +41,7 @@ export async function processSignalRecalibration(): Promise<void> {
       .update(schema.calibrations)
       .set({
         signalWeights: recomputedWeights,
-        outcomeLog: trimmedLog as unknown as OutcomeLogEntry[],
+        outcomeLog: trimmedLog,
         updatedAt: new Date(),
       })
       .where(eq(schema.calibrations.repoFullName, repo.repoFullName));

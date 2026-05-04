@@ -11,9 +11,9 @@
     "@pullmint/shared": "*",
     "@pullmint/workers": "*",
     "bullmq": "^5.0.0",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "eventsource": "^2.0.2",
-    "fastify": "^5.0.0",
+    "fastify": "^5.8.5",
     "ioredis": "^5.10.1",
     "lodash": "^4.18.1",
     "nock": "^13.5.4"
