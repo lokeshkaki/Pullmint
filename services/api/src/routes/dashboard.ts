@@ -7,7 +7,6 @@ import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import {
   sendNotification,
   validateWebhookUrl,
-  type NotificationChannel,
   type NotificationPayload,
 } from '@pullmint/shared/notifications';
 import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
@@ -631,7 +630,7 @@ export function registerDashboardRoutes(app: FastifyInstance): void {
       timestamp: Date.now(),
     };
 
-    await sendNotification(channel as NotificationChannel, testPayload);
+    await sendNotification(channel, testPayload);
 
     await reply.send({ ok: true, message: 'Test notification sent' });
   });

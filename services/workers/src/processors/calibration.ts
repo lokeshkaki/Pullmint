@@ -166,7 +166,7 @@ export async function processCalibrationJob(job: Job): Promise<void> {
         calibrationFactor:
           newFactor !== undefined ? newFactor : schema.calibrations.calibrationFactor,
         signalWeights: updatedRepoWeights ?? schema.calibrations.signalWeights,
-        outcomeLog: newOutcomeLog as unknown as OutcomeLogEntry[],
+        outcomeLog: newOutcomeLog,
         lastUpdatedAt: new Date().toISOString(),
         updatedAt: new Date(),
       })

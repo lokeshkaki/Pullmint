@@ -81,7 +81,7 @@ jobs:
         ports:
           - 6379:6379
       minio:
-        image: bitnami/minio:latest
+        image: bitnamilegacy/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
@@ -218,7 +218,7 @@ jobs:
         ports:
           - 6379:6379
       minio:
-        image: bitnami/minio:latest
+        image: bitnamilegacy/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin

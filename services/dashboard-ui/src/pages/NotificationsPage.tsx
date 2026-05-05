@@ -137,7 +137,7 @@ export function NotificationsPage() {
     if (editingId) {
       updateMutation.mutate({ id: editingId, ...payload });
     } else {
-      createMutation.mutate(payload as Parameters<typeof createNotification>[0]);
+      createMutation.mutate(payload);
     }
   }
 

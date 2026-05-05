@@ -86,7 +86,7 @@ export async function processDeploymentJob(job: Job): Promise<void> {
       await addJob(
         QUEUE_NAMES.DEPLOYMENT,
         job.name,
-        { ...detail, checkpoint2Complete: true } as Record<string, unknown>,
+        { ...detail, checkpoint2Complete: true },
         { delay: waitMs, jobId: `${detail.executionId}-checkpoint2` }
       );
       deployingStatusSet = false;
@@ -103,7 +103,7 @@ export async function processDeploymentJob(job: Job): Promise<void> {
     if (checkpoint2Score >= DEPLOYMENT_THRESHOLD) {
       await publishExecutionUpdate(detail.executionId, {
         status: 'deployment-blocked',
-        checkpoints: [...priorCheckpoints, checkpoint2] as unknown as Record<string, unknown>,
+        checkpoints: [...priorCheckpoints, checkpoint2] as unknown,
       });
       deployingStatusSet = false;
       return;
@@ -113,7 +113,7 @@ export async function processDeploymentJob(job: Job): Promise<void> {
 
     await publishExecutionUpdate(detail.executionId, {
       status: outcome.status === 'deployed' ? 'monitoring' : 'failed',
-      checkpoints: [...priorCheckpoints, checkpoint2] as unknown as Record<string, unknown>,
+      checkpoints: [...priorCheckpoints, checkpoint2] as unknown,
       deploymentCompletedAt: new Date().toISOString(),
       metadata: {
         deploymentStatus: outcome.status,
