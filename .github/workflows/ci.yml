@@ -80,14 +80,6 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-      minio:
-        image: bitnamilegacy/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: --health-cmd "curl -f http://127.0.0.1:9000/minio/health/live" --health-interval 10s --health-timeout 5s --health-retries 5 --health-start-period 30s
-        ports:
-          - 9000:9000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,6 +87,31 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            --health-cmd "curl -f http://127.0.0.1:9000/minio/health/live" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            --health-start-period=30s \
+            minio/minio:latest server /data
+          for i in {1..30}; do
+            status=$(docker inspect --format='{{.State.Health.Status}}' minio)
+            if [ "$status" = "healthy" ]; then
+              echo "MinIO is healthy"
+              exit 0
+            fi
+            echo "Waiting for MinIO ($status)..."
+            sleep 2
+          done
+          echo "MinIO failed to become healthy"
+          docker logs minio
+          exit 1
       - name: Run E2E tests
         env:
           RUN_E2E_TESTS: 'true'
@@ -217,14 +234,6 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-      minio:
-        image: bitnamilegacy/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: --health-cmd "curl -f http://127.0.0.1:9000/minio/health/live" --health-interval 10s --health-timeout 5s --health-retries 5 --health-start-period 30s
-        ports:
-          - 9000:9000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -234,6 +243,31 @@ jobs:
       - run: npm ci
       - name: Install benchmark dependencies
         run: cd benchmarks && npm ci
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            --health-cmd "curl -f http://127.0.0.1:9000/minio/health/live" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            --health-start-period=30s \
+            minio/minio:latest server /data
+          for i in {1..30}; do
+            status=$(docker inspect --format='{{.State.Health.Status}}' minio)
+            if [ "$status" = "healthy" ]; then
+              echo "MinIO is healthy"
+              exit 0
+            fi
+            echo "Waiting for MinIO ($status)..."
+            sleep 2
+          done
+          echo "MinIO failed to become healthy"
+          docker logs minio
+          exit 1
       - name: Run full benchmark suite
         env:
           DATABASE_URL: postgresql://pullmint:pullmint@localhost:5432/pullmint_bench
