@@ -89,7 +89,7 @@ export function registerWebhookRoutes(app: FastifyInstance): void {
     'application/json',
     { parseAs: 'string' },
     (req: FastifyRequest & { rawBody?: string }, body: string, done) => {
-      (req as FastifyRequest & { rawBody?: string }).rawBody = body;
+      req.rawBody = body;
       try {
         const json = JSON.parse(body) as unknown;
         done(null, json);
@@ -324,7 +324,7 @@ export function registerWebhookRoutes(app: FastifyInstance): void {
         await addJob(QUEUE_NAMES.ANALYSIS, `pr.${prPayload.action}`, {
           ...prEvent,
           executionId,
-        } as Record<string, unknown>);
+        });
 
         console.log(`Published event for PR #${prEvent.prNumber} in ${prEvent.repoFullName}`);
         await writeDedupRecord(db, deliveryId);

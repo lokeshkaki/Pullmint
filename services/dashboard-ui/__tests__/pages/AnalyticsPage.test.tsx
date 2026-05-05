@@ -173,7 +173,7 @@ describe('AnalyticsPage', () => {
     const user = userEvent.setup();
     renderWithProviders(<AnalyticsPage />);
     const inputs = document.querySelectorAll('input[type="date"]');
-    await user.type(inputs[0] as HTMLElement, '2024-05-01');
+    await user.type(inputs[0], '2024-05-01');
     expect((inputs[0] as HTMLInputElement).value).toBe('2024-05-01');
   });
 });

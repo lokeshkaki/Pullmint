@@ -29,11 +29,6 @@ const SEVERITY_EMOJI: Record<string, string> = {
 };
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
-type OctokitClient = InstanceType<typeof Octokit>;
-type CreateReviewParameters = NonNullable<
-  Parameters<OctokitClient['rest']['pulls']['createReview']>[0]
->;
-
 export async function postReview(opts: PostReviewOptions): Promise<void> {
   const { prContext, githubToken, result, severityThreshold } = opts;
   const octokit = new Octokit({ auth: githubToken });
@@ -130,7 +125,7 @@ export async function postReview(opts: PostReviewOptions): Promise<void> {
       commit_id: prContext.headSha,
       event: 'COMMENT',
       body,
-      comments: comments as CreateReviewParameters['comments'],
+      comments: comments,
     });
 
     core.info(

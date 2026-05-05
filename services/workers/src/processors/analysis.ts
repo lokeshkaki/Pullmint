@@ -174,9 +174,9 @@ export async function processAnalysisJob(job: Job): Promise<void> {
       // Update execution with cached results
       await publishExecutionUpdate(prEvent.executionId, {
         status: 'completed',
-        findings: findings as unknown[],
+        findings: findings,
         riskScore,
-        checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
+        checkpoints: [checkpoint1] as unknown,
         metadata: {
           cached: true,
           calibrationApplied: calibrationFactor,
@@ -190,7 +190,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         riskScore,
         findingsCount: findings.length,
         s3Key: `executions/${prEvent.executionId}/analysis.json`,
-      } as Record<string, unknown>);
+      });
 
       console.log(
         `Cache hit for PR #${prEvent.prNumber}: Risk=${riskScore}, Findings=${findings.length}`
@@ -221,7 +221,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         status: 'completed',
         findings: [] as unknown[],
         riskScore: 50,
-        checkpoints: [checkpoint1] as unknown as Record<string, unknown>,
+        checkpoints: [checkpoint1] as unknown,
         metadata: {
           cached: false,
           rateLimited: true,
@@ -235,7 +235,7 @@ export async function processAnalysisJob(job: Job): Promise<void> {
         riskScore: 50,
         findingsCount: 0,
         s3Key: '',
-      } as Record<string, unknown>);
+      });
 
       return;
     }

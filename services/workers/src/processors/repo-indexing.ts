@@ -423,7 +423,7 @@ async function handleFullIndex(msg: { repoFullName: string }): Promise<void> {
       .where(eq(schema.repoRegistry.repoFullName, repoFullName));
 
     for (const batch of batches) {
-      await addJob(QUEUE_NAMES.REPO_INDEXING, 'batch', batch as unknown as Record<string, unknown>);
+      await addJob(QUEUE_NAMES.REPO_INDEXING, 'batch', batch);
     }
 
     console.info('[repo-indexing] full-index complete', {

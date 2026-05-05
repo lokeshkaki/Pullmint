@@ -188,7 +188,7 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
   // Fetch findings from storage if s3Key present (lightweight event path)
   const findings: Finding[] = detail.s3Key
     ? await fetchFindingsFromStorage(detail.s3Key)
-    : ((detail.findings as Finding[] | undefined) ?? []);
+    : (detail.findings ?? []);
   const metadata = detail.metadata as Record<string, unknown> | undefined;
   const rawResolved = metadata?.resolvedFindings;
   const resolvedFindings: Finding[] = Array.isArray(rawResolved)
@@ -266,9 +266,7 @@ async function handleAnalysisComplete(detail: AnalysisCompleteData): Promise<voi
       riskScore: detail.riskScore,
       findingsCount: findings.length,
       status: 'completed',
-      summary: (execution?.metadata as Record<string, unknown> | undefined)?.summary as
-        | string
-        | undefined,
+      summary: (execution?.metadata as Record<string, unknown> | undefined)?.summary,
     });
   } catch (err) {
     console.error('[github-integration] Failed to enqueue notification job:', err);
