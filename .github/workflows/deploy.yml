@@ -11,6 +11,7 @@ jobs:
   build-and-push:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -32,9 +33,6 @@ jobs:
         shell: bash
         run: echo "repo_lc=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -45,13 +43,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Built for linux/amd64 only. arm64 via QEMU emulation crashes during
+      # `npm ci` for the api image (qemu illegal-instruction), hanging the job
+      # until the runner timeout. To re-add arm64, build on native
+      # `ubuntu-24.04-arm` runners and merge with `docker buildx imagetools`.
       - name: Build and push ${{ matrix.service }} image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: |
             ghcr.io/${{ steps.repo.outputs.repo_lc }}/${{ matrix.service }}:latest
             ghcr.io/${{ steps.repo.outputs.repo_lc }}/${{ matrix.service }}:${{ github.sha }}
