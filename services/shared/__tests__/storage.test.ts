@@ -18,18 +18,17 @@ describe('storage', () => {
     delete process.env.MINIO_ENDPOINT;
   });
 
-  it('should create a singleton S3 client with MinIO config', async () => {
-    const { getStorageClient } = await import('../storage');
+  it('should create a singleton S3 client with MinIO config', () => {
+    const { getStorageClient } = require('../storage') as typeof import('../storage');
     const client = getStorageClient();
     expect(client).toBeDefined();
 
-    const s3Module = await import('@aws-sdk/client-s3');
-    const S3Client = s3Module.S3Client as jest.Mock;
+    const { S3Client } = require('@aws-sdk/client-s3') as { S3Client: jest.Mock };
     expect(S3Client).toHaveBeenCalledWith(expect.objectContaining({ forcePathStyle: true }));
   });
 
   it('should put and get objects', async () => {
-    const { getObject, putObject } = await import('../storage');
+    const { getObject, putObject } = require('../storage') as typeof import('../storage');
     await putObject('test-bucket', 'test-key', '{"data": true}');
     const result = await getObject('test-bucket', 'test-key');
     expect(result).toBe('{"test": true}');
