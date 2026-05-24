@@ -54,6 +54,9 @@
     "url": "https://github.com/lokeshkaki/pullmint.git"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "4.60.3"
+    "@rollup/rollup-linux-arm64-gnu": "4.60.3",
+    "@rollup/rollup-linux-arm64-musl": "4.60.3",
+    "@rollup/rollup-linux-x64-gnu": "4.60.3",
+    "@rollup/rollup-linux-x64-musl": "4.60.3"
   }
 }
