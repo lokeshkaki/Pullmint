@@ -6,11 +6,7 @@
     "isolatedModules": true,
     "moduleResolution": "node16",
     "resolveJsonModule": true,
-    "types": ["jest", "node"],
-    "baseUrl": ".",
-    "paths": {
-      "@pullmint/shared/*": ["../shared/*"]
-    }
+    "types": ["jest", "node"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

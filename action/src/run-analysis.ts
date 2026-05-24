@@ -1,26 +1,26 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Octokit } from '@octokit/rest';
-import { retryWithBackoff } from '../../services/shared/error-handling';
-import { createLLMProvider, type LLMProvider } from '../../services/shared/llm';
+import { retryWithBackoff } from '@pullmint/shared/error-handling';
+import { createLLMProvider, type LLMProvider } from '@pullmint/shared/llm';
 import {
   DEFAULT_CONFIG,
   filterFindingsBySeverity,
   pullmintConfigSchema,
   type PullmintConfig,
-} from '../../services/shared/pullmint-config';
-import type { Finding } from '../../services/shared/types';
-import { deduplicateFindings } from '../../services/shared/dedup';
+} from '@pullmint/shared/pullmint-config';
+import type { Finding } from '@pullmint/shared/types';
+import { deduplicateFindings } from '@pullmint/shared/dedup';
 import {
   filterDiff,
   getMaxDiffChars,
   parseDiff,
   type FilteredDiff,
-} from '../../services/shared/diff-filter';
-import { getArchitecturePrompt } from '../../services/shared/prompts/architecture';
-import { getMaintainabilityPrompt } from '../../services/shared/prompts/maintainability';
-import { getPerformancePrompt } from '../../services/shared/prompts/performance';
-import { getSecurityPrompt } from '../../services/shared/prompts/security';
+} from '@pullmint/shared/diff-filter';
+import { getArchitecturePrompt } from '@pullmint/shared/prompts/architecture';
+import { getMaintainabilityPrompt } from '@pullmint/shared/prompts/maintainability';
+import { getPerformancePrompt } from '@pullmint/shared/prompts/performance';
+import { getSecurityPrompt } from '@pullmint/shared/prompts/security';
 
 const ALL_AGENTS = ['architecture', 'security', 'performance', 'style'] as const;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;

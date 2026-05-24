@@ -2,12 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "baseUrl": ".",
-    "types": ["node", "jest"],
-    "paths": {
-      "@pullmint/shared": ["../shared/index"],
-      "@pullmint/shared/*": ["../shared/*"]
-    }
+    "types": ["node", "jest"]
   },
   "include": [
     "src/**/*",

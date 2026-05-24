@@ -31,7 +31,7 @@ export default async function globalSetup(): Promise<void> {
 
   // Ensure Redis is clean before each E2E run so stale BullMQ jobs from prior
   // local runs do not get picked up and break deterministic test behavior.
-  const { default: Redis } = await import('ioredis');
+  const { default: Redis } = (await import('ioredis')) as typeof import('ioredis');
   const redis = new Redis(redisUrl);
   await redis.flushdb();
   await redis.quit();
