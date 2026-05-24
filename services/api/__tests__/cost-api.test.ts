@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerDashboardAuth } from '../src/routes/dashboard-auth';
 import { registerDashboardRoutes } from '../src/routes/dashboard';
 
 jest.mock('@pullmint/shared/db', () => ({
@@ -108,6 +109,7 @@ describe('GET /dashboard/analytics/costs', () => {
     );
 
     app = Fastify();
+    registerDashboardAuth(app);
     registerDashboardRoutes(app);
   });
 
@@ -158,6 +160,7 @@ describe('GET /dashboard/analytics/costs/budget-status', () => {
     );
 
     app = Fastify();
+    registerDashboardAuth(app);
     registerDashboardRoutes(app);
   });
 
