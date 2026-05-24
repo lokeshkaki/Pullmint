@@ -8,5 +8,15 @@ module.exports = {
   moduleNameMapper: {
     '^@pullmint/shared/(.+)$': '<rootDir>/../services/shared/$1',
     '^@pullmint/shared$': '<rootDir>/../services/shared/index'
-  }
+  },
+  transform: {
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          module: 'commonjs',
+        },
+      },
+    ],
+  },
 };

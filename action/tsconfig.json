@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
+    "module": "esnext",
     "lib": ["ES2022"],
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "strict": true,
@@ -17,12 +17,7 @@
     "resolveJsonModule": true,
     "outDir": "./dist",
     "rootDir": "..",
-    "types": ["node", "jest"],
-    "baseUrl": ".",
-    "paths": {
-      "@pullmint/shared": ["../services/shared/index.ts"],
-      "@pullmint/shared/*": ["../services/shared/*"]
-    }
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*.ts", "__tests__/**/*.ts"],
   "exclude": ["node_modules", "dist"]

@@ -4,12 +4,20 @@
   "description": "Shared utilities for Pullmint services",
   "private": true,
   "main": "dist/index.js",
+  "types": "index.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./diff-filter": "./dist/diff-filter.js",
-    "./dedup": "./dist/dedup.js",
-    "./prompts/*": "./dist/prompts/*.js",
-    "./*": "./dist/*.js"
+    ".": {
+      "types": "./index.ts",
+      "default": "./dist/index.js"
+    },
+    "./prompts/*": {
+      "types": "./prompts/*.ts",
+      "default": "./dist/prompts/*.js"
+    },
+    "./*": {
+      "types": "./*.ts",
+      "default": "./dist/*.js"
+    }
   },
   "scripts": {
     "build": "tsc",

@@ -26,6 +26,13 @@ module.exports = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
 
   transform: {
-    '^.+\\.ts$': ['ts-jest'],
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          module: 'commonjs',
+        },
+      },
+    ],
   },
 };

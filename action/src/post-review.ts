@@ -1,8 +1,8 @@
 import * as core from '@actions/core';
 import { Octokit } from '@octokit/rest';
-import { filterFindingsBySeverity } from '../../services/shared/pullmint-config';
-import type { Finding } from '../../services/shared/types';
-import { isLineInDiff, parseDiff } from '../../services/shared/diff-filter';
+import { filterFindingsBySeverity } from '@pullmint/shared/pullmint-config';
+import type { Finding } from '@pullmint/shared/types';
+import { isLineInDiff, parseDiff } from '@pullmint/shared/diff-filter';
 import type { AnalysisRunResult, PRContext } from './run-analysis';
 
 interface ReviewComment {
