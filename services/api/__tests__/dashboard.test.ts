@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerDashboardAuth } from '../src/routes/dashboard-auth';
 import { registerDashboardRoutes } from '../src/routes/dashboard';
 
 // Mock shared modules
@@ -144,6 +145,7 @@ async function buildApp() {
       }
     }
   );
+  registerDashboardAuth(app);
   registerDashboardRoutes(app);
   return app;
 }

@@ -869,6 +869,26 @@ describe('processAnalysisJob (dispatcher)', () => {
       expect(flowCall.data.rerunAgentTypes).toBeUndefined();
     });
 
+    it('runs pr.manual as a full analysis without incremental reuse', async () => {
+      mockLimit.mockResolvedValueOnce([]); // cache miss
+      mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK
+
+      await processAnalysisJob(makePRJob({}, 'pr.manual'));
+
+      const flowCall = mockFlowAdd.mock.calls[0][0] as {
+        children: Array<{ name: string }>;
+        data: { priorAgentResults?: Record<string, unknown>; rerunAgentTypes?: string[] };
+      };
+      expect(flowCall.children.map((child) => child.name)).toEqual([
+        'architecture',
+        'security',
+        'performance',
+        'style',
+      ]);
+      expect(flowCall.data.priorAgentResults).toBeUndefined();
+      expect(flowCall.data.rerunAgentTypes).toBeUndefined();
+    });
+
     it('falls back gracefully on MinIO fetch error', async () => {
       mockLimit.mockResolvedValueOnce([]); // cache miss
       mockReturning.mockResolvedValueOnce([{ counter: 1 }]); // rate limit OK

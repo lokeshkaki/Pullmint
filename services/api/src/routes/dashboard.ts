@@ -1,7 +1,6 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { getDb, schema } from '@pullmint/shared/db';
 import { addJob, QUEUE_NAMES } from '@pullmint/shared/queue';
-import { getConfig } from '@pullmint/shared/config';
 import { publishEvent } from '@pullmint/shared/execution-events';
 import { addTraceAnnotations } from '@pullmint/shared/tracing';
 import {
@@ -13,7 +12,6 @@ import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { PRExecutionSchema } from '@pullmint/shared/schemas';
 import { registerAnalyticsRoutes } from './analytics';
-import { timingSafeTokenCompare } from '../auth';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -85,35 +83,7 @@ function parseExecutionList(items: unknown[]): ExecutionListRecord[] {
     .filter((execution): execution is ExecutionListRecord => execution !== null);
 }
 
-async function authMiddleware(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const authHeader = request.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    await reply.status(401).send({ error: 'Unauthorized' });
-    return;
-  }
-  const token = authHeader.slice(7);
-  let expected: string;
-  try {
-    expected = getConfig('DASHBOARD_AUTH_TOKEN');
-  } catch {
-    console.error('DASHBOARD_AUTH_TOKEN not configured; denying all requests');
-    await reply.status(503).send({ error: 'Service unavailable: authentication not configured' });
-    return;
-  }
-  if (!timingSafeTokenCompare(token, expected)) {
-    await reply.status(401).send({ error: 'Unauthorized' });
-    return;
-  }
-}
-
 export function registerDashboardRoutes(app: FastifyInstance): void {
-  // Apply auth to all dashboard routes
-  app.addHook('preHandler', async (request, reply) => {
-    if (request.url.startsWith('/dashboard/') || request.url === '/dashboard') {
-      await authMiddleware(request, reply);
-    }
-  });
-
   // GET /dashboard/executions
   app.get('/dashboard/executions', async (request, reply) => {
     addTraceAnnotations({ path: '/dashboard/executions' });
