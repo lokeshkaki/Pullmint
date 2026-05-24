@@ -197,12 +197,13 @@ export async function processSynthesisJob(job: Job<SynthesisJobData>): Promise<v
     if (priorExecutionId) {
       try {
         const priorFindings = await loadPriorFindings(priorExecutionId, db, config.analysisBucket);
-        lifecycleResult = analyzeFindingLifecycle(fingerprintedFindings, priorFindings);
+        const nextLifecycleResult = analyzeFindingLifecycle(fingerprintedFindings, priorFindings);
+        lifecycleResult = nextLifecycleResult;
         console.log(
           `Lifecycle analysis for PR #${prEvent.prNumber}: ` +
-            `new=${lifecycleResult.stats.new}, ` +
-            `persisted=${lifecycleResult.stats.persisted}, ` +
-            `resolved=${lifecycleResult.stats.resolved}`
+            `new=${nextLifecycleResult.stats.new}, ` +
+            `persisted=${nextLifecycleResult.stats.persisted}, ` +
+            `resolved=${nextLifecycleResult.stats.resolved}`
         );
       } catch (lifecycleErr) {
         console.warn(

@@ -140,7 +140,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc --noEmit
+      - run: npm run typecheck --workspaces --if-present
 
   docker-build:
     runs-on: ubuntu-latest
