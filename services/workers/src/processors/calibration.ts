@@ -27,7 +27,7 @@ const AnalysisCheckpointSchema = CheckpointRecordSchema.pick({
 export async function processCalibrationJob(job: Job): Promise<void> {
   // Route signal recalibration jobs to dedicated processor
   if (job.name === 'signal.recalibration') {
-    const { processSignalRecalibration } = await import('./signal-recalibration');
+    const { processSignalRecalibration } = await import('./signal-recalibration.js');
     await processSignalRecalibration();
     return;
   }
