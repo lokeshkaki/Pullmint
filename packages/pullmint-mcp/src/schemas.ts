@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 const ownerRepo = {
   owner: z.string().trim().min(1).max(100),
