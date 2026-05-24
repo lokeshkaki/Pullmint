@@ -11,7 +11,8 @@
     "services/dashboard-ui",
     "services/e2e",
     "site",
-    "packages/create-pullmint"
+    "packages/create-pullmint",
+    "packages/pullmint-mcp"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
@@ -41,7 +42,6 @@
     "pr-automation",
     "code-review",
     "ai",
-    "llm",
     "github",
     "ci-cd",
     "docker",
@@ -52,5 +52,11 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/lokeshkaki/pullmint.git"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-arm64-gnu": "4.60.3",
+    "@rollup/rollup-linux-arm64-musl": "4.60.3",
+    "@rollup/rollup-linux-x64-gnu": "4.60.3",
+    "@rollup/rollup-linux-x64-musl": "4.60.3"
   }
 }
