@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerDashboardAuth } from '../src/routes/dashboard-auth';
 import { registerDashboardRoutes } from '../src/routes/dashboard';
 
 jest.mock('@pullmint/shared/db', () => ({
@@ -53,6 +54,7 @@ function buildMockDb(returnValue: unknown) {
 
 async function buildApp() {
   const app = Fastify({ logger: false });
+  registerDashboardAuth(app);
   registerDashboardRoutes(app);
   await app.ready();
   return app;

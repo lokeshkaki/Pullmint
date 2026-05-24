@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { registerDashboardAuth } from '../src/routes/dashboard-auth';
 import { registerDashboardRoutes } from '../src/routes/dashboard';
 import { getDb } from '@pullmint/shared/db';
 
@@ -57,6 +58,7 @@ const VALID_AUTH = 'Bearer test-token';
 
 async function buildApp() {
   const app = Fastify({ logger: false });
+  registerDashboardAuth(app);
   registerDashboardRoutes(app);
   return app;
 }
