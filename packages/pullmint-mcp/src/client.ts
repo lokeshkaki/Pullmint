@@ -38,10 +38,7 @@ export class PullmintClient {
       }
       const parsed = schema.safeParse(await response.json());
       if (!parsed.success) {
-        throw new PullmintApiError(
-          'Pullmint API returned an invalid response',
-          'invalid_response'
-        );
+        throw new PullmintApiError('Pullmint API returned an invalid response', 'invalid_response');
       }
       return parsed.data;
     } catch (error) {

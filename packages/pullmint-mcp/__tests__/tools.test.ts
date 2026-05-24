@@ -28,16 +28,17 @@ describe('MCP tool definitions', () => {
     expect(description).toContain('deployment gating');
   });
 
-  it.each(toolDefinitions.map((tool) => tool.name))('rejects missing input for %s', async (name) => {
-    await expect(runTool({} as never, name, {})).rejects.toBeDefined();
-  });
+  it.each(toolDefinitions.map((tool) => tool.name))(
+    'rejects missing input for %s',
+    async (name) => {
+      await expect(runTool({} as never, name, {})).rejects.toBeDefined();
+    }
+  );
 
   it('delegates manual trigger only when its explicit tool is called', async () => {
     const client = {
       listPrAnalyses: jest.fn().mockResolvedValue({ executions: [], count: 0 }),
-      triggerAnalysis: jest
-        .fn()
-        .mockResolvedValue({ executionId: 'manual-1', costIncurred: true }),
+      triggerAnalysis: jest.fn().mockResolvedValue({ executionId: 'manual-1', costIncurred: true }),
     };
 
     await runTool(client as never, 'pullmint_list_pr_analyses', {

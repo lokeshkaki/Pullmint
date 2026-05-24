@@ -13,7 +13,9 @@ describe('PullmintClient', () => {
   it('sends bearer authentication to list PR executions', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
-      .mockResolvedValue(new Response(JSON.stringify({ executions: [], count: 0 }), { status: 200 }));
+      .mockResolvedValue(
+        new Response(JSON.stringify({ executions: [], count: 0 }), { status: 200 })
+      );
     const client = new PullmintClient(config);
 
     await client.listPrAnalyses({ owner: 'org', repo: 'repo', prNumber: 42, limit: 10 });
@@ -29,7 +31,9 @@ describe('PullmintClient', () => {
   it('maps auth errors without echoing response secrets', async () => {
     jest
       .spyOn(global, 'fetch')
-      .mockResolvedValue(new Response(JSON.stringify({ error: 'token=private-token' }), { status: 401 }));
+      .mockResolvedValue(
+        new Response(JSON.stringify({ error: 'token=private-token' }), { status: 401 })
+      );
     const client = new PullmintClient(config);
 
     await expect(client.getAnalysis({ executionId: 'exec-1' })).rejects.toEqual(
@@ -82,7 +86,9 @@ describe('PullmintClient', () => {
     );
     const client = new PullmintClient(config);
 
-    await expect(client.getAnalysis({ executionId: 'exec-1' })).resolves.not.toHaveProperty('s3Key');
+    await expect(client.getAnalysis({ executionId: 'exec-1' })).resolves.not.toHaveProperty(
+      's3Key'
+    );
   });
 
   it('posts the explicit manual trigger body and returns accepted execution data', async () => {
