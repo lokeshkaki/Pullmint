@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@pullmint/shared/db';
 import { CheckpointRecordSchema } from '@pullmint/shared/schemas';
 import { resolveSignalWeights, DEFAULT_SIGNAL_WEIGHTS } from '@pullmint/shared/signal-weights';
+import { processSignalRecalibration } from './signal-recalibration';
 import type {
   ExecutionConfirmedEvent,
   ExecutionRolledBackEvent,
@@ -27,7 +28,6 @@ const AnalysisCheckpointSchema = CheckpointRecordSchema.pick({
 export async function processCalibrationJob(job: Job): Promise<void> {
   // Route signal recalibration jobs to dedicated processor
   if (job.name === 'signal.recalibration') {
-    const { processSignalRecalibration } = await import('./signal-recalibration.js');
     await processSignalRecalibration();
     return;
   }

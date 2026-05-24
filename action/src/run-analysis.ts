@@ -10,17 +10,17 @@ import {
   type PullmintConfig,
 } from '../../services/shared/pullmint-config';
 import type { Finding } from '../../services/shared/types';
-import { deduplicateFindings } from '../../services/workers/src/dedup';
+import { deduplicateFindings } from '../../services/shared/dedup';
 import {
   filterDiff,
   getMaxDiffChars,
   parseDiff,
   type FilteredDiff,
-} from '../../services/workers/src/diff-filter';
-import { getArchitecturePrompt } from '../../services/workers/src/prompts/architecture';
-import { getMaintainabilityPrompt } from '../../services/workers/src/prompts/maintainability';
-import { getPerformancePrompt } from '../../services/workers/src/prompts/performance';
-import { getSecurityPrompt } from '../../services/workers/src/prompts/security';
+} from '../../services/shared/diff-filter';
+import { getArchitecturePrompt } from '../../services/shared/prompts/architecture';
+import { getMaintainabilityPrompt } from '../../services/shared/prompts/maintainability';
+import { getPerformancePrompt } from '../../services/shared/prompts/performance';
+import { getSecurityPrompt } from '../../services/shared/prompts/security';
 
 const ALL_AGENTS = ['architecture', 'security', 'performance', 'style'] as const;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;

@@ -2,7 +2,7 @@ import * as core from '@actions/core';
 import { Octokit } from '@octokit/rest';
 import { filterFindingsBySeverity } from '../../services/shared/pullmint-config';
 import type { Finding } from '../../services/shared/types';
-import { isLineInDiff, parseDiff } from '../../services/workers/src/diff-filter';
+import { isLineInDiff, parseDiff } from '../../services/shared/diff-filter';
 import type { AnalysisRunResult, PRContext } from './run-analysis';
 
 interface ReviewComment {

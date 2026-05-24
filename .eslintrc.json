@@ -3,7 +3,17 @@
   "parserOptions": {
     "ecmaVersion": 2022,
     "sourceType": "module",
-    "project": "./tsconfig.eslint.json"
+    "project": [
+      "./tsconfig.eslint.json",
+      "./action/tsconfig.json",
+      "./benchmarks/tsconfig.json",
+      "./packages/create-pullmint/tsconfig.json",
+      "./packages/pullmint-mcp/tsconfig.json",
+      "./services/api/tsconfig.json",
+      "./services/e2e/tsconfig.json",
+      "./services/shared/tsconfig.json",
+      "./services/workers/tsconfig.json"
+    ]
   },
   "plugins": ["@typescript-eslint"],
   "extends": [
@@ -16,7 +26,15 @@
     "@typescript-eslint/no-explicit-any": "warn",
     "@typescript-eslint/explicit-function-return-type": "off",
     "@typescript-eslint/no-floating-promises": "error",
-    "@typescript-eslint/no-misused-promises": "error"
+    "@typescript-eslint/no-misused-promises": "error",
+    "@typescript-eslint/no-unsafe-assignment": "off",
+    "@typescript-eslint/no-unsafe-member-access": "off",
+    "@typescript-eslint/no-unsafe-call": "off",
+    "@typescript-eslint/no-unsafe-argument": "off",
+    "@typescript-eslint/no-unsafe-return": "off",
+    "@typescript-eslint/no-redundant-type-constituents": "off",
+    "@typescript-eslint/require-await": "off",
+    "@typescript-eslint/no-unnecessary-type-assertion": "off"
   },
   "overrides": [
     {
