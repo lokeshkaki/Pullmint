@@ -43,6 +43,9 @@ cdk.context.json
 *~
 .DS_Store
 
+# Local-only agent/workspace files
+.local/
+
 # OS
 .DS_Store
 .DS_Store?
