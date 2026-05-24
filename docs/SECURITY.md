@@ -64,6 +64,12 @@ Outgoing notification webhooks validate URLs before sending:
 - Structured error responses — no stack traces in production
 - Input validation via Zod schemas on dashboard and notification endpoints
 
+### Manual Analysis Requests
+
+`POST /dashboard/repos/:owner/:repo/prs/:number/analyze` is an authenticated operator action, not a read endpoint. It fetches current pull request state through the configured GitHub App, creates a new auditable execution, and queues a full analysis run.
+
+Manual requests are protected against equivalent same-head requests for two minutes. An accepted request can incur LLM provider cost, post a GitHub review, and proceed through existing deployment-gating behavior when repository configuration permits it.
+
 ## Container Security
 
 - Minimal base images (Node 20 slim for services, Alpine for Redis/Nginx)
