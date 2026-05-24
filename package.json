@@ -11,7 +11,8 @@
     "services/dashboard-ui",
     "services/e2e",
     "site",
-    "packages/create-pullmint"
+    "packages/create-pullmint",
+    "packages/pullmint-mcp"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
