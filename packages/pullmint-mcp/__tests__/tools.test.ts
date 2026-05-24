@@ -23,7 +23,7 @@ describe('MCP tool definitions', () => {
     const description = toolDefinitions.find(
       (tool) => tool.name === 'pullmint_trigger_analysis'
     )!.description;
-    expect(description).toContain('provider cost');
+    expect(description).toContain('runtime cost');
     expect(description).toContain('GitHub review');
     expect(description).toContain('deployment gating');
   });

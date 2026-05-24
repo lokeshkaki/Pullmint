@@ -1,7 +1,6 @@
 # Pullmint MCP
 
-Local stdio MCP server for inspecting and operating a self-hosted Pullmint instance from Codex CLI
-or Claude Code.
+Local stdio MCP server for inspecting and operating a self-hosted Pullmint instance from any MCP-compatible client.
 
 ## Requirements
 
@@ -27,22 +26,12 @@ npm --workspace @pullmint/mcp run build
 
 Do not commit token values or include them in repository documentation.
 
-## Codex CLI
+## Register In An MCP Client
 
 ```bash
-codex mcp add pullmint \
-  --env PULLMINT_API_URL=http://localhost:3000 \
-  --env PULLMINT_AUTH_TOKEN="$DASHBOARD_AUTH_TOKEN" \
-  -- node "$PWD/packages/pullmint-mcp/dist/index.js"
-```
-
-## Claude Code
-
-```bash
-claude mcp add --scope local \
-  -e PULLMINT_API_URL=http://localhost:3000 \
-  -e PULLMINT_AUTH_TOKEN="$DASHBOARD_AUTH_TOKEN" \
-  pullmint -- node "$PWD/packages/pullmint-mcp/dist/index.js"
+PULLMINT_API_URL=http://localhost:3000 \
+PULLMINT_AUTH_TOKEN="$DASHBOARD_AUTH_TOKEN" \
+node "$PWD/packages/pullmint-mcp/dist/index.js"
 ```
 
 ## Tools
@@ -53,7 +42,7 @@ The read-only tools are `pullmint_list_pr_analyses`, `pullmint_get_analysis`,
 `pullmint_record_re_evaluation` records a justification note on an existing execution. It does not
 run analysis or create new findings.
 
-`pullmint_trigger_analysis` queues a new full analysis run. It can incur provider cost, post a
+`pullmint_trigger_analysis` queues a new full analysis run. It can incur runtime cost, post a
 GitHub review, and proceed through configured deployment gating. Invoke it only when those effects
 are intended.
 

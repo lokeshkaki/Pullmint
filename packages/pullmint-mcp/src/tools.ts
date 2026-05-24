@@ -1,3 +1,4 @@
+import type { z } from 'zod/v4';
 import type { PullmintClient } from './client';
 import {
   executionInput,
@@ -7,7 +8,13 @@ import {
   triggerAnalysisInput,
 } from './schemas';
 
-export const toolDefinitions = [
+type ToolDefinition = {
+  name: string;
+  description: string;
+  schema: z.ZodObject;
+};
+
+export const toolDefinitions: readonly ToolDefinition[] = [
   {
     name: 'pullmint_list_pr_analyses',
     description: 'List stored Pullmint analysis runs for a pull request. Read only.',
@@ -37,10 +44,10 @@ export const toolDefinitions = [
   {
     name: 'pullmint_trigger_analysis',
     description:
-      'Queue a fresh full Pullmint analysis. This can incur provider cost, post a GitHub review, and proceed through configured deployment gating.',
+      'Queue a fresh full Pullmint analysis. This can incur runtime cost, post a GitHub review, and proceed through configured deployment gating.',
     schema: triggerAnalysisInput,
   },
-] as const;
+];
 
 export async function runTool(
   client: PullmintClient,
